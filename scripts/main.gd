@@ -76,6 +76,25 @@ const ICON_RADIO_TEXTURE: Texture2D = preload("res://assets/icons/material-setti
 const ICON_CLEAR_TEXTURE: Texture2D = preload("res://assets/icons/material-sunny.png")
 const ICON_STORM_TEXTURE: Texture2D = preload("res://assets/icons/material-thunderstorm.png")
 const ICON_HURRICANE_TEXTURE: Texture2D = preload("res://assets/icons/material-cyclone.png")
+const ICON_FISH_SKELETON_TEXTURE: Texture2D = preload("res://assets/icon-fish-skeleton.svg")
+const ICON_STOP_TEXTURE: Texture2D = preload("res://assets/icon-stop.svg")
+
+const BG_CALM_STREAM: AudioStream = preload("res://assets/bg-calm.mp3")
+const BG_BIRDS_STREAM: AudioStream = preload("res://assets/bg-birds.mp3")
+const BG_WAVES_STREAM: AudioStream = preload("res://assets/bg-waves.mp3")
+const SOUND_REEL_STREAM: AudioStream = preload("res://assets/sound-reel.mp3")
+const SOUND_BONK_STREAM: AudioStream = preload("res://assets/sound-bonk.mp3")
+const SOUND_CATCH_STREAM: AudioStream = preload("res://assets/sound-catch.mp3")
+
+# Birds cycle: distant → near → close → gone, on a rolling loop. Volumes are
+# linear amplitudes (0..1); we crossfade between them so the birds "come and
+# go" rather than snapping between levels.
+const BIRDS_VOLUME_PHASES: Array[float] = [0.20, 0.60, 0.80, 0.0]
+const BIRDS_PHASE_SECONDS := 22.0
+const BIRDS_TRANSITION_SECONDS := 7.0
+const WEATHER_AUDIO_CROSSFADE_SECONDS := 1.8
+const AUDIO_SILENT_DB := -80.0
+const BOT_STEP_SECONDS := 0.5
 
 # Typography — mobile-friendly defaults. Bump in one place to scale the whole UI.
 const FONT_TITLE      := 30
@@ -226,6 +245,20 @@ var boat_segment_panels: Dictionary = {}
 var upgrade_tray_rows: Dictionary = {}
 var repair_tray_rows: Dictionary = {}
 
+var audio_calm: AudioStreamPlayer
+var audio_waves: AudioStreamPlayer
+var audio_birds: AudioStreamPlayer
+var audio_reel: AudioStreamPlayer
+var audio_bonk: AudioStreamPlayer
+var audio_catch: AudioStreamPlayer
+var cast_audio_token: int = 0
+var audio_muted: bool = false
+var birds_phase_index: int = 0
+var birds_phase_time: float = 0.0
+var birds_previous_volume: float = 0.0
+var calm_current_volume: float = 1.0
+var waves_current_volume: float = 0.0
+
 
 # ────────────────────────────────────────────────────────────────────────
 # Lifecycle
@@ -237,8 +270,30 @@ func _ready() -> void:
 	_build_ui()
 	_build_start_screen()
 	_show_start_screen()
+	_build_audio()
 	_schedule_ship_roll()
+	_apply_safe_area_inset()
+	get_viewport().size_changed.connect(_apply_safe_area_inset)
 	set_process(true)
+
+
+func _apply_safe_area_inset() -> void:
+	var screen_size := DisplayServer.screen_get_size()
+	if screen_size.y <= 0:
+		return
+	var safe := DisplayServer.get_display_safe_area()
+	var viewport_size := get_viewport().get_visible_rect().size
+	if viewport_size.y <= 0:
+		return
+	var top_pixels := maxi(safe.position.y, 0)
+	var top_inset := int(round((float(top_pixels) / float(screen_size.y)) * viewport_size.y))
+	top_inset = clampi(top_inset, 0, int(viewport_size.y * 0.20))
+	if ui.has("root_margin"):
+		var root: MarginContainer = ui["root_margin"]
+		root.add_theme_constant_override("margin_top", top_inset)
+	if ui.has("start_overlay"):
+		var overlay: Control = ui["start_overlay"]
+		overlay.offset_top = float(top_inset)
 
 
 func _process(delta: float) -> void:
@@ -248,6 +303,98 @@ func _process(delta: float) -> void:
 		_update_ship_roll(delta)
 	if action_buttons.has("end_day"):
 		_update_end_day_prompt(delta)
+	_update_audio(delta)
+
+
+func _build_audio() -> void:
+	audio_calm = _make_loop_player(BG_CALM_STREAM, 0.0)
+	audio_waves = _make_loop_player(BG_WAVES_STREAM, AUDIO_SILENT_DB)
+	audio_birds = _make_loop_player(BG_BIRDS_STREAM, AUDIO_SILENT_DB)
+	audio_reel = _make_one_shot_player(SOUND_REEL_STREAM)
+	audio_bonk = _make_one_shot_player(SOUND_BONK_STREAM)
+	audio_catch = _make_one_shot_player(SOUND_CATCH_STREAM)
+
+
+func _make_one_shot_player(stream: AudioStream) -> AudioStreamPlayer:
+	var player := AudioStreamPlayer.new()
+	var s := stream.duplicate() as AudioStream
+	if s is AudioStreamMP3:
+		(s as AudioStreamMP3).loop = false
+	player.stream = s
+	player.volume_db = 0.0
+	player.autoplay = false
+	add_child(player)
+	return player
+
+
+func _play_cast_outcome(outcome: String) -> void:
+	if audio_reel == null:
+		return
+	cast_audio_token += 1
+	var token := cast_audio_token
+	audio_reel.stop()
+	audio_bonk.stop()
+	audio_catch.stop()
+	if outcome == "empty":
+		audio_reel.play(0.0)
+		await get_tree().create_timer(1.0).timeout
+		if token != cast_audio_token:
+			return
+		audio_reel.stop()
+		audio_bonk.play()
+	elif outcome == "catch":
+		var dur := rng.randf_range(1.0, 2.5)
+		var stream_len := audio_reel.stream.get_length() if audio_reel.stream else 0.0
+		var start := 0.0
+		if stream_len > dur:
+			start = rng.randf_range(0.0, stream_len - dur)
+		audio_reel.play(start)
+		await get_tree().create_timer(dur).timeout
+		if token != cast_audio_token:
+			return
+		audio_reel.stop()
+		audio_catch.play()
+
+
+func _make_loop_player(stream: AudioStream, start_db: float) -> AudioStreamPlayer:
+	var player := AudioStreamPlayer.new()
+	var s := stream.duplicate() as AudioStream
+	if s is AudioStreamMP3:
+		(s as AudioStreamMP3).loop = true
+	player.stream = s
+	player.volume_db = start_db
+	player.autoplay = false
+	add_child(player)
+	player.play()
+	return player
+
+
+func _update_audio(delta: float) -> void:
+	if audio_calm == null:
+		return
+
+	var on_start_screen := ui.has("start_overlay") and (ui["start_overlay"] as Control).visible
+	var weather_name := str(current_weather.get("name", "Clear")) if not current_weather.is_empty() else "Clear"
+	var want_calm := on_start_screen or weather_name == "Clear"
+
+	var calm_target := 1.0 if want_calm else 0.0
+	var waves_target := 0.0 if want_calm else 1.0
+	var step := delta / WEATHER_AUDIO_CROSSFADE_SECONDS
+	calm_current_volume = move_toward(calm_current_volume, calm_target, step)
+	waves_current_volume = move_toward(waves_current_volume, waves_target, step)
+	audio_calm.volume_db = AUDIO_SILENT_DB if calm_current_volume <= 0.001 else linear_to_db(calm_current_volume)
+	audio_waves.volume_db = AUDIO_SILENT_DB if waves_current_volume <= 0.001 else linear_to_db(waves_current_volume)
+
+	birds_phase_time += delta
+	if birds_phase_time >= BIRDS_PHASE_SECONDS:
+		birds_phase_time = fmod(birds_phase_time, BIRDS_PHASE_SECONDS)
+		birds_previous_volume = BIRDS_VOLUME_PHASES[birds_phase_index]
+		birds_phase_index = (birds_phase_index + 1) % BIRDS_VOLUME_PHASES.size()
+	var birds_target: float = BIRDS_VOLUME_PHASES[birds_phase_index]
+	var fade_t := clampf(birds_phase_time / BIRDS_TRANSITION_SECONDS, 0.0, 1.0)
+	var eased := smoothstep(0.0, 1.0, fade_t)
+	var birds_v := lerpf(birds_previous_volume, birds_target, eased)
+	audio_birds.volume_db = AUDIO_SILENT_DB if birds_v <= 0.001 else linear_to_db(birds_v)
 
 
 func _update_ship_static(delta: float) -> void:
@@ -325,6 +472,7 @@ func _build_ui() -> void:
 	root.add_theme_constant_override("margin_right", 0)
 	root.add_theme_constant_override("margin_bottom", 0)
 	add_child(root)
+	ui["root_margin"] = root
 
 	var screen := VBoxContainer.new()
 	screen.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -336,6 +484,7 @@ func _build_ui() -> void:
 	_build_tab_body(screen)
 	_build_bottom_nav(screen)
 	_build_sell_modal()
+	_build_rules_modal()
 
 
 func _build_start_screen() -> void:
@@ -356,10 +505,10 @@ func _build_start_screen() -> void:
 	_anchor_fill(art)
 	overlay.add_child(art)
 
-	var solo := _start_screen_button(START_BUTTON_SOLO_TEXTURE, "SOLO TRIP", 0.705, _on_solo_trip_pressed)
+	var solo := _start_screen_button(START_BUTTON_SOLO_TEXTURE, "SOLO TRIP", 0.8271, _on_solo_trip_pressed, 0)
 	overlay.add_child(solo)
 
-	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.822, func(): _new_game(true))
+	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.88055, func(): _new_game(true), 7)
 	overlay.add_child(battle)
 
 	var chooser := _build_solo_save_chooser()
@@ -403,15 +552,15 @@ func _resume_solo_game() -> void:
 	_new_game(false)
 
 
-func _start_screen_button(texture: Texture2D, text: String, top_ratio: float, pressed: Callable) -> Button:
+func _start_screen_button(texture: Texture2D, text: String, top_ratio: float, pressed: Callable, text_y_offset: int = 0) -> Button:
 	var b := Button.new()
 	b.text = ""
 	b.focus_mode = Control.FOCUS_NONE
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	b.anchor_left = 0.10
-	b.anchor_right = 0.90
+	b.anchor_left = 0.016
+	b.anchor_right = 0.984
 	b.anchor_top = top_ratio
-	b.anchor_bottom = top_ratio + 0.085
+	b.anchor_bottom = top_ratio + 0.10285
 	b.offset_left = 0
 	b.offset_right = 0
 	b.offset_top = 0
@@ -429,7 +578,7 @@ func _start_screen_button(texture: Texture2D, text: String, top_ratio: float, pr
 	_anchor_fill(art)
 	b.add_child(art)
 
-	_add_start_button_text(b, text, 50)
+	_add_start_button_text(b, text, 50, text_y_offset)
 	return b
 
 
@@ -503,15 +652,17 @@ func _build_solo_save_chooser() -> Control:
 	return chooser
 
 
-func _add_start_button_text(parent: Control, text: String, size: int) -> void:
+func _add_start_button_text(parent: Control, text: String, size: int, y_offset: int = 0) -> void:
 	var shadow := _start_button_label(text, size, Color(0, 0, 0, 0.95))
 	_anchor_fill(shadow)
-	shadow.offset_top += 5
-	shadow.offset_bottom += 5
+	shadow.offset_top += 5 + y_offset
+	shadow.offset_bottom += 5 + y_offset
 	parent.add_child(shadow)
 
 	var label := _start_button_label(text, size, TEXT_PRIMARY)
 	_anchor_fill(label)
+	label.offset_top += y_offset
+	label.offset_bottom += y_offset
 	parent.add_child(label)
 
 
@@ -610,31 +761,31 @@ func _build_top_status(parent: Container) -> void:
 
 	ui["top_day"] = _hud_day_count()
 	_place_hud_zone(hud, ui["top_day"], Rect2(1100, 196, 116, 67))
-	_nudge_hud_zone(ui["top_day"], Vector2(0, 5))
+	_nudge_hud_zone(ui["top_day"], Vector2(0, 2))
 	var day_caption := _hud_count_caption_label("DAY", 16)
 	_place_hud_zone(hud, day_caption, Rect2(1102, 323, 115, 20))
 	_nudge_hud_zone(day_caption, Vector2(0, -2))
 
 	ui["top_funds"] = _hud_count_label("")
 	_place_hud_zone(hud, ui["top_funds"], Rect2(1390, 198, 116, 67))
-	_nudge_hud_zone(ui["top_funds"], Vector2(0, 5))
+	_nudge_hud_zone(ui["top_funds"], Vector2(0, 2))
 	var funds_caption := _hud_count_caption_label("FUNDS", 16)
 	_place_hud_zone(hud, funds_caption, Rect2(1385, 323, 115, 20))
 	_nudge_hud_zone(funds_caption, Vector2(0, -2))
 
 	ui["top_moves"] = _hud_count_label("")
 	_place_hud_zone(hud, ui["top_moves"], Rect2(1100, 440, 116, 67))
-	_nudge_hud_zone(ui["top_moves"], Vector2(0, 5))
+	_nudge_hud_zone(ui["top_moves"], Vector2(0, 2))
 	var moves_caption := _hud_count_caption_label("MOVES", 16)
 	_place_hud_zone(hud, moves_caption, Rect2(1105, 569, 115, 20))
 	_nudge_hud_zone(moves_caption, Vector2(0, -2))
 
 	ui["top_casts"] = _hud_count_label("")
 	_place_hud_zone(hud, ui["top_casts"], Rect2(1390, 440, 56, 67))
-	_nudge_hud_zone(ui["top_casts"], Vector2(0, 5))
+	_nudge_hud_zone(ui["top_casts"], Vector2(0, 2))
 	ui["top_finds"] = _hud_count_label("")
 	_place_hud_zone(hud, ui["top_finds"], Rect2(1460, 440, 56, 67))
-	_nudge_hud_zone(ui["top_finds"], Vector2(0, 5))
+	_nudge_hud_zone(ui["top_finds"], Vector2(0, 2))
 	var casts_caption := _hud_count_caption_label("CASTS / FINDS", 15)
 	_place_hud_zone(hud, casts_caption, Rect2(1362, 569, 115, 20))
 	_nudge_hud_zone(casts_caption, Vector2(0, -2))
@@ -778,6 +929,154 @@ func _build_sell_modal() -> void:
 	col.add_child(ui["sell_ok"])
 
 
+func _build_rules_modal() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 130
+	add_child(overlay)
+	ui["rules_overlay"] = overlay
+
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0, 0, 0, 0.72)
+	backdrop.anchor_right = 1.0
+	backdrop.anchor_bottom = 1.0
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(backdrop)
+
+	var card := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 5, 12)
+	card.anchor_left = 0.06
+	card.anchor_right = 0.94
+	card.anchor_top = 0.05
+	card.anchor_bottom = 0.95
+	overlay.add_child(card)
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 20)
+	pad.add_theme_constant_override("margin_right", 20)
+	pad.add_theme_constant_override("margin_top", 18)
+	pad.add_theme_constant_override("margin_bottom", 18)
+	card.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 12)
+	pad.add_child(col)
+
+	var title := _label("RAIDER BAY RULES", 26, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+
+	var rules_label := RichTextLabel.new()
+	rules_label.bbcode_enabled = true
+	rules_label.fit_content = true
+	rules_label.scroll_active = false
+	rules_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rules_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rules_label.add_theme_color_override("default_color", TEXT_PRIMARY)
+	rules_label.add_theme_font_size_override("normal_font_size", FONT_BODY)
+	rules_label.add_theme_font_size_override("bold_font_size", FONT_BODY)
+	rules_label.text = _rules_text()
+	scroll.add_child(rules_label)
+
+	var close_btn := _tactile_button("CLOSE", 0, 50, BG_PANEL_LIGHT, GOLD_DEEP, TEXT_PRIMARY)
+	close_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	close_btn.pressed.connect(_hide_rules_modal)
+	col.add_child(close_btn)
+
+
+func _show_rules_modal() -> void:
+	if ui.has("rules_overlay"):
+		(ui["rules_overlay"] as Control).visible = true
+
+
+func _hide_rules_modal() -> void:
+	if ui.has("rules_overlay"):
+		(ui["rules_overlay"] as Control).visible = false
+
+
+func _toggle_audio_mute() -> void:
+	audio_muted = not audio_muted
+	AudioServer.set_bus_mute(0, audio_muted)
+	if ui.has("mute_button"):
+		var b: Button = ui["mute_button"]
+		b.text = "UNMUTE SOUND" if audio_muted else "MUTE SOUND"
+
+
+func _rules_text() -> String:
+	return ("[b]OBJECTIVE[/b]\n"
+		+ "Catch fish and sell 10 of one species at the docks to claim that fish's trophy. Collect all five trophies "
+		+ "(Cod, Salmon, Grouper, Halibut, Tuna) before the 14-day season ends. In Pirate Battle the first captain to "
+		+ "earn enough trophies — or sink their rival — takes the bay.\n\n"
+		+ "[b]THE BAY[/b]\n"
+		+ "A 7x8 hidden grid of water. The dock is a 3-wide strip below the bottom row. Three depth zones layer the bay:\n"
+		+ "  • shallow water (33%)\n  • middle water (62%)\n  • deep water (71%)\n"
+		+ "Deeper water yields bigger fish but punishes mistakes harder. Each non-dock square may hide a fish hole, treasure, "
+		+ "or nothing.\n\n"
+		+ "[b]DAILY BUDGETS[/b]\n"
+		+ "Each day you spend three resources:\n"
+		+ "  • [b]Moves[/b] — orthogonal or diagonal one cell at a time. Diagonals require a working rudder.\n"
+		+ "  • [b]Finds[/b] — Fish Finder pings the current square. Reveals fish, empty, or treasure.\n"
+		+ "  • [b]Casts[/b] — roll a d6 + nets bonus to catch from the current square. Each square accepts only one cast per day.\n\n"
+		+ "[b]CASTING[/b]\n"
+		+ "CAST consumes one of your casts AND one of the fish hole's remaining casts. When a hole hits 0, it's depleted and "
+		+ "leaves a fish skeleton marker. Casting on a revealed-empty square wastes nothing; finder already proved it dry.\n\n"
+		+ "[b]LIVE WELL & SPOILAGE[/b]\n"
+		+ "Caught fish sit in your live well. Each day they age by 1. Once age passes your live well capacity, fish spoil at "
+		+ "the next END DAY and are lost. The Live Well upgrade buys more days of freshness.\n\n"
+		+ "[b]THE DOCKS[/b]\n"
+		+ "Touch any of the three dock access squares to enter the docks. From the docks you can:\n"
+		+ "  • SELL — empty the live well for market prices. Bonus: 10+ of a single species at once claims that trophy.\n"
+		+ "  • HAGGLE — gamble the sale for a better or worse price.\n"
+		+ "  • UPGRADE — spend money to permanently improve your boat.\n"
+		+ "  • REPAIR — restore damaged systems.\n"
+		+ "Leave through the same 3-wide mouth.\n\n"
+		+ "[b]UPGRADES (base $50, +$50 per level)[/b]\n"
+		+ "  • [b]Motor[/b] — more moves per day\n"
+		+ "  • [b]Fish Finder[/b] — more find actions per day\n"
+		+ "  • [b]Nets[/b] — bigger d6 catch bonus\n"
+		+ "  • [b]Live Well[/b] — fish stay fresh longer\n"
+		+ "  • [b]Cannons[/b] — required to ATTACK rivals in Pirate Battle\n"
+		+ "  • [b]Defense[/b] — soaks incoming weapon and weather damage\n\n"
+		+ "[b]BOAT CONDITION[/b]\n"
+		+ "Four systems can be damaged: Hull, Propeller, Rudder, Nets. Effects when broken:\n"
+		+ "  • [b]Hull[/b] at 0 — boat sinks, game over.\n"
+		+ "  • [b]Propeller[/b] at 0 — half moves per day.\n"
+		+ "  • [b]Rudder[/b] at 0 — no diagonals.\n"
+		+ "  • [b]Nets[/b] at 0 — no nets bonus on the d6 cast.\n"
+		+ "Pay at the docks to repair.\n\n"
+		+ "[b]WEATHER[/b]\n"
+		+ "Each evening the weather card is drawn: Clear, Storm (strength 2-5), or Hurricane (strength 2-5). Clear nights pass "
+		+ "safely. Bad weather rolls a d6: if your roll is below the storm's strength, you take damage equal to the difference "
+		+ "to random systems. Docked boats are safe.\n\n"
+		+ "[b]COMBAT (PIRATE BATTLE)[/b]\n"
+		+ "When both boats are at sea and within 2 squares of each other, the captain with Cannons can ATTACK. Damage rolls "
+		+ "against the rival's hull and systems; Defense reduces the hit. Sinking your rival ends the contest.\n\n"
+		+ "[b]TROPHIES[/b]\n"
+		+ "Selling 10 or more of one species in a single dock visit locks in that trophy. Trophies persist for the rest of the "
+		+ "game. The first captain to collect all five wins outright. If the season ends first, highest trophy count wins; "
+		+ "ties broken by money.\n\n"
+		+ "[b]SEASON END[/b]\n"
+		+ "After day 14, any unsold fish at sea spoil. Final score is trophies and bankroll.\n\n"
+		+ "[b]CONTROLS[/b]\n"
+		+ "Tap adjacent water to move. Tap your own cell to FIND or CAST via the action bar. From a dock-access square tap "
+		+ "the dock strip to enter. END DAY when you've used your moves or want to skip the rest.\n\n"
+		+ "[b]TIPS[/b]\n"
+		+ "  • Deep water is worth the risk only if your hull and live well can handle a setback.\n"
+		+ "  • Sell often — spoiled fish are a wasted catch.\n"
+		+ "  • In Pirate Battle, watch the rival's distance; Cannons are useless once they dock.\n"
+		+ "  • Save a few casts for a known fish hole before END DAY in case weather damage strands you tomorrow.\n")
+
+
 func _build_health_tab() -> Control:
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -865,6 +1164,22 @@ func _build_radio_tab() -> Control:
 	pad.add_child(col)
 
 	col.add_child(_label("Radio Chat", 24, TEXT_PRIMARY))
+
+	var controls_row := HBoxContainer.new()
+	controls_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	controls_row.add_theme_constant_override("separation", 10)
+	col.add_child(controls_row)
+
+	var mute_btn := _tactile_button("MUTE SOUND", 0, 50, BG_PANEL_LIGHT, CYAN_DEEP, TEXT_PRIMARY)
+	mute_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mute_btn.pressed.connect(_toggle_audio_mute)
+	controls_row.add_child(mute_btn)
+	ui["mute_button"] = mute_btn
+
+	var rules_btn := _tactile_button("RULES", 0, 50, BG_PANEL_LIGHT, GOLD_DEEP, TEXT_PRIMARY)
+	rules_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rules_btn.pressed.connect(_show_rules_modal)
+	controls_row.add_child(rules_btn)
 
 	var trophies_panel := _panel(BG_PANEL_DARK, BORDER_DARK, 2, 3)
 	trophies_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1035,6 +1350,9 @@ func _build_board(parent: Container) -> void:
 			btn.pressed.connect(_on_cell_pressed.bind(cell))
 			grid.add_child(btn)
 			_add_bot_boat_layer(btn)
+			_add_player_boat_corner_layer(btn)
+			_add_empty_icon_layer(btn)
+			_add_fish_label_layer(btn)
 			_add_cast_dot_layer(btn)
 			cell_buttons.append(btn)
 
@@ -1083,8 +1401,6 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	label.add_theme_constant_override("outline_size", 2)
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.46))
 	_anchor_fill(label)
-	label.offset_top = 42
-	label.offset_bottom = -2
 	dock_btn.add_child(label)
 	dock_btn.set_meta("dock_label", label)
 
@@ -1174,13 +1490,93 @@ func _add_bot_boat_layer(btn: Button) -> void:
 	boat.visible = false
 	boat.modulate = Color(1.0, 0.24, 0.18, 0.96)
 	boat.z_index = 3
-	_anchor_fill(boat)
-	boat.offset_left = 4
-	boat.offset_right = -4
-	boat.offset_top = 4
-	boat.offset_bottom = -4
+	_position_boat_layer(boat, "full")
 	btn.add_child(boat)
 	btn.set_meta("bot_boat", boat)
+
+
+func _add_player_boat_corner_layer(btn: Button) -> void:
+	var boat := TextureRect.new()
+	boat.texture = BOAT_TEXTURE
+	boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boat.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boat.visible = false
+	boat.z_index = 3
+	_position_boat_layer(boat, "tl_half")
+	btn.add_child(boat)
+	btn.set_meta("player_boat_corner", boat)
+
+
+func _position_boat_layer(rect: TextureRect, mode: String) -> void:
+	rect.anchor_left = 0.0
+	rect.anchor_top = 0.0
+	rect.anchor_right = 1.0
+	rect.anchor_bottom = 1.0
+	rect.offset_left = 0
+	rect.offset_top = 0
+	rect.offset_right = 0
+	rect.offset_bottom = 0
+	match mode:
+		"tl_half":
+			rect.anchor_right = 0.55
+			rect.anchor_bottom = 0.55
+			rect.offset_left = 2
+			rect.offset_top = 2
+		"br_half":
+			rect.anchor_left = 0.45
+			rect.anchor_top = 0.45
+			rect.offset_right = -2
+			rect.offset_bottom = -2
+		_:
+			rect.offset_left = 4
+			rect.offset_top = 4
+			rect.offset_right = -4
+			rect.offset_bottom = -4
+
+
+func _add_empty_icon_layer(btn: Button) -> void:
+	var icon := TextureRect.new()
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.visible = false
+	icon.z_index = 2
+	icon.modulate = Color(1, 1, 1, 0.55)
+	_anchor_fill(icon)
+	icon.offset_left = 14
+	icon.offset_top = 14
+	icon.offset_right = -14
+	icon.offset_bottom = -14
+	btn.add_child(icon)
+	btn.set_meta("empty_icon", icon)
+
+
+func _add_fish_label_layer(btn: Button) -> void:
+	var label := Label.new()
+	label.text = ""
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_font_override("font", FONT_GOOGLE_SANS_FLEX)
+	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_color_override("font_color", TEXT_PRIMARY)
+	label.add_theme_constant_override("outline_size", 2)
+	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	label.anchor_left = 0.0
+	label.anchor_top = 0.0
+	label.anchor_right = 0.0
+	label.anchor_bottom = 0.0
+	label.offset_left = 4
+	label.offset_top = 2
+	label.offset_right = 48
+	label.offset_bottom = 18
+	label.visible = false
+	label.z_index = 4
+	btn.add_child(label)
+	btn.set_meta("fish_label", label)
 
 
 func _build_board_toast(board_wrap: Control) -> void:
@@ -2382,17 +2778,20 @@ func _cast() -> void:
 	tile["found"] = true
 	tile["revealed"] = true
 
+	var cast_outcome := ""
 	if str(tile["content"]) == "empty":
 		casts_remaining -= 1
 		cast_holes_today[hole_index] = true
 		tile["depleted"] = true
 		_log("Nothing but cold water.")
 		_show_board_toast("Empty Water", "Nothing but cold water.", TEXT_DIM)
+		cast_outcome = "empty"
 	elif str(tile["content"]) == "treasure":
 		tile["depleted"] = true
 		money += int(tile["value"])
 		_log("Recovered treasure worth $%d." % int(tile["value"]))
 		_show_board_toast("Treasure", "+$%d recovered" % int(tile["value"]), GOLD)
+		cast_outcome = "catch"
 	else:
 		casts_remaining -= 1
 		cast_holes_today[hole_index] = true
@@ -2407,7 +2806,9 @@ func _cast() -> void:
 		var bonus_text := "" if nets_bonus == 0 else " (rolled %d + nets %d)" % [roll, nets_bonus]
 		_log("Caught %d %s%s." % [amount, str(tile["species"]), bonus_text])
 		_show_board_toast("Caught %d" % amount, str(tile["species"]), GREEN, _fish_texture(str(tile["species"])))
+		cast_outcome = "catch"
 	_update_ui()
+	_play_cast_outcome(cast_outcome)
 
 
 func _attack() -> void:
@@ -2714,7 +3115,7 @@ func _end_day() -> void:
 		return
 
 	if versus_mode:
-		_run_bot_turn()
+		await _run_bot_turn()
 		if game_over:
 			_update_ui()
 			return
@@ -2838,38 +3239,64 @@ func _run_bot_turn() -> void:
 	if not versus_mode or game_over:
 		return
 
+	var prior_tray := active_tray
+	active_tray = "bot_turn"
+
 	_bot_refresh_daily_actions()
 	bot_cast_holes_today.clear()
 	_log("%s takes its turn." % BOT_NAME)
+	await _bot_step_pause()
 
 	if _bot_is_docked():
-		if _bot_should_sell():
-			_bot_sell_catch()
-		_bot_buy_upgrade()
+		if _bot_should_sell() and _bot_sell_catch():
+			await _bot_step_pause()
+		if _bot_buy_upgrade():
+			await _bot_step_pause()
 		if _bot_total_fish() < TROPHY_REQUIRED or rng.randf() < 0.72:
 			_bot_exit_dock()
+			if not _bot_is_docked():
+				await _bot_step_pause()
 
 	var guard := 0
 	while bot_moves_remaining > 0 and guard < 12 and not game_over:
 		guard += 1
 		if _bot_try_attack(0.70):
+			await _bot_step_pause()
 			break
 
 		if not _bot_is_docked() and not _bot_should_return() and _bot_can_cast_here() and rng.randf() < 0.80:
 			_bot_cast()
+			await _bot_step_pause()
 
 		if _bot_should_return():
+			var dock_prev := bot_pos
 			_bot_step_toward_dock()
+			if bot_pos != dock_prev:
+				await _bot_step_pause()
 			if _bot_is_docked():
-				if _bot_should_sell():
-					_bot_sell_catch()
-				_bot_buy_upgrade()
+				if _bot_should_sell() and _bot_sell_catch():
+					await _bot_step_pause()
+				if _bot_buy_upgrade():
+					await _bot_step_pause()
 				break
 		else:
+			var step_prev := bot_pos
 			_bot_step_toward(_bot_pick_target())
+			if bot_pos != step_prev:
+				await _bot_step_pause()
+			else:
+				break
 
-	if not game_over:
-		_bot_try_attack(0.35)
+	if not game_over and _bot_try_attack(0.35):
+		await _bot_step_pause()
+
+	active_tray = prior_tray
+	_update_ui()
+
+
+func _bot_step_pause() -> void:
+	_update_ui()
+	await get_tree().create_timer(BOT_STEP_SECONDS).timeout
 
 
 func _bot_refresh_daily_actions() -> void:
@@ -3024,9 +3451,9 @@ func _bot_cast() -> void:
 	board[index] = tile
 
 
-func _bot_sell_catch() -> void:
+func _bot_sell_catch() -> bool:
 	if bot_live_well.is_empty():
-		return
+		return false
 
 	var quantities: Dictionary = {}
 	for batch in bot_live_well:
@@ -3053,9 +3480,10 @@ func _bot_sell_catch() -> void:
 	if _bot_trophy_count() >= TROPHY_WIN_COUNT:
 		game_over = true
 		_log("%s wins the contest with %d trophies." % [BOT_NAME, TROPHY_WIN_COUNT])
+	return true
 
 
-func _bot_buy_upgrade() -> void:
+func _bot_buy_upgrade() -> bool:
 	var preferences: Array[String] = ["motor", "nets", "fish_finder", "live_well", "cannons", "defense"]
 	for key in preferences:
 		var current := int(bot_upgrades.get(key, 0))
@@ -3066,7 +3494,8 @@ func _bot_buy_upgrade() -> void:
 			bot_money -= cost
 			bot_upgrades[key] = current + 1
 			_log("%s upgrades %s." % [BOT_NAME, _upgrade_name(key)])
-			return
+			return true
+	return false
 
 
 func _bot_try_attack(chance: float) -> bool:
@@ -3390,30 +3819,49 @@ func _update_board() -> void:
 			var index := _cell_index(pos)
 			var tile: Dictionary = board[index]
 			var btn: Button = cell_buttons[index]
-			var has_bot := versus_mode and not _bot_is_docked() and bot_pos == pos and boat_pos != pos
+
+			var player_here := boat_pos == pos
+			var bot_here := versus_mode and not _bot_is_docked() and bot_pos == pos
+			var sharing := player_here and bot_here
+
 			var bot_boat: TextureRect = btn.get_meta("bot_boat") as TextureRect
-			if bot_boat:
-				bot_boat.visible = has_bot
+			var player_corner: TextureRect = btn.get_meta("player_boat_corner") as TextureRect
+
+			btn.icon = null
 			btn.text = _cell_text(pos, tile)
-			if boat_pos == pos:
+
+			if bot_boat:
+				bot_boat.visible = bot_here and not player_here
+			if player_corner:
+				player_corner.visible = sharing
+			if sharing:
+				if bot_boat:
+					bot_boat.visible = true
+					_position_boat_layer(bot_boat, "br_half")
+			else:
+				if bot_boat:
+					_position_boat_layer(bot_boat, "full")
+
+			if player_here and not sharing:
 				btn.icon = BOAT_TEXTURE
 				btn.expand_icon = true
 				btn.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 				btn.text = ""
-			elif has_bot:
-				btn.icon = null
+			elif bot_here:
 				btn.text = ""
-			else:
-				btn.icon = null
 
 			var base_color := _row_water_color(row)
 			var border := _with_alpha(BORDER_HI, 0.50)
 			var label_color := TEXT_PRIMARY
 
 			var known := bool(tile["found"]) or bool(tile["revealed"])
-			var is_fish := str(tile["content"]) == "fish"
-			var is_treasure := str(tile["content"]) == "treasure"
-			var is_empty_known := known and (str(tile["content"]) == "empty" or bool(tile["depleted"]))
+			var content_str := str(tile["content"])
+			var is_fish := content_str == "fish"
+			var is_treasure := content_str == "treasure"
+			var is_depleted := bool(tile["depleted"])
+			var is_revealed_empty := known and content_str == "empty"
+			var is_empty_known := known and (is_revealed_empty or is_depleted)
+			var show_fish_label := known and is_fish and not is_depleted
 
 			if is_empty_known:
 				base_color = _with_alpha(base_color.darkened(0.4), 0.34)
@@ -3428,16 +3876,16 @@ func _update_board() -> void:
 				border = _with_alpha(GREEN, 0.9)
 				label_color = TEXT_PRIMARY
 
-			if boat_pos == pos:
+			if player_here:
 				base_color = _with_alpha(GOLD_DEEP.lightened(0.14), 0.86)
 				border = _with_alpha(GOLD, 0.95)
 				label_color = BG_DEEP
-			elif has_bot:
+			elif bot_here:
 				base_color = _with_alpha(RED_DEEP.darkened(0.08), 0.78)
 				border = _with_alpha(RED, 0.95)
 				label_color = TEXT_PRIMARY
 
-			if _is_adjacent_to_boat(pos) and not _is_docked() and boat_pos != pos:
+			if _is_adjacent_to_boat(pos) and not _is_docked() and not player_here:
 				if not known:
 					base_color = base_color.lightened(0.08)
 					border = _with_alpha(CYAN_DEEP.lightened(0.24), 0.92)
@@ -3448,9 +3896,9 @@ func _update_board() -> void:
 			var border_w := 2
 
 			var highlight := false
-			# Tighten cell padding when the boat sprite occupies the cell so it
+			# Tighten cell padding when the boat-as-icon occupies the cell so it
 			# fills more of the tile instead of leaving a gap.
-			var pad := 3 if boat_pos == pos else -1
+			var pad := 3 if (player_here and not sharing) else -1
 			btn.add_theme_stylebox_override("normal", _water_cell_style(base_color, border, border_w, highlight, pad, pos))
 			btn.add_theme_stylebox_override("hover",  _water_cell_style(hover, border.lightened(0.2), border_w, highlight, pad, pos))
 			btn.add_theme_stylebox_override("pressed", _water_cell_style(press, border, border_w, highlight, pad, pos))
@@ -3458,12 +3906,13 @@ func _update_board() -> void:
 			btn.add_theme_color_override("font_color", label_color)
 
 			var font_size := 14
-			if boat_pos == pos:
+			if player_here:
 				font_size = FONT_BOAT
 			elif known and not is_empty_known:
 				font_size = FONT_CELL_BIG if is_treasure else FONT_CELL
 			btn.add_theme_font_size_override("font_size", font_size)
-			_update_cell_cast_dots(btn, tile, known and is_fish, boat_pos == pos or has_bot, label_color)
+			_update_cell_cast_dots(btn, tile, known and is_fish and not is_depleted, player_here or bot_here, label_color)
+			_update_cell_markers(btn, tile, show_fish_label, is_depleted, is_revealed_empty, player_here, bot_here)
 
 
 func _update_dock_strip() -> void:
@@ -3499,6 +3948,11 @@ func _update_dock_strip() -> void:
 		_apply_tactile_style(btn, WOOD_DARK, BORDER_DARK)
 		if dock_label:
 			dock_label.add_theme_color_override("font_color", _with_alpha(TEXT_DIM, 0.48))
+
+	for sb_name in ["normal", "hover", "pressed", "focus", "disabled"]:
+		var sb_flat := btn.get_theme_stylebox(sb_name) as StyleBoxFlat
+		if sb_flat:
+			sb_flat.set_corner_radius_all(0)
 
 
 func _update_action_buttons() -> void:
@@ -3710,15 +4164,15 @@ func _weather_icon_texture(weather_name: String) -> Texture2D:
 
 func _cell_text(pos: Vector2i, tile: Dictionary) -> String:
 	if boat_pos == pos:
-		return "◉"
+		return ""
 	var known := bool(tile["found"]) or bool(tile["revealed"])
 	if not known:
 		return ""
 	if bool(tile["depleted"]) or str(tile["content"]) == "empty":
-		return "✓"
+		return ""
 	if str(tile["content"]) == "treasure":
 		return "$%d" % int(tile["value"])
-	# Fish
+	# Fish — species shown in top-left layer.
 	return ""
 
 
@@ -4011,6 +4465,40 @@ func _water_cell_style(fill: Color, border: Color, border_w: int, highlight: boo
 	return s
 
 
+func _update_cell_markers(btn: Button, tile: Dictionary, show_fish: bool, depleted: bool, revealed_empty: bool, player_here: bool, bot_here: bool) -> void:
+	var fish_label: Label = null
+	if btn.has_meta("fish_label"):
+		fish_label = btn.get_meta("fish_label") as Label
+	var empty_icon: TextureRect = null
+	if btn.has_meta("empty_icon"):
+		empty_icon = btn.get_meta("empty_icon") as TextureRect
+
+	if fish_label:
+		if show_fish and not player_here and not bot_here:
+			fish_label.text = _abbr(str(tile.get("species", "")))
+			fish_label.add_theme_color_override("font_color", TEXT_PRIMARY)
+			fish_label.visible = true
+		else:
+			fish_label.visible = false
+
+	if empty_icon:
+		var was_fish := str(tile["content"]) == "fish"
+		var was_treasure := str(tile["content"]) == "treasure"
+		var show_skeleton := depleted and was_fish
+		var show_stop := revealed_empty or (depleted and was_treasure)
+		var should_show := (show_skeleton or show_stop) and not player_here and not bot_here
+		if should_show:
+			if show_skeleton:
+				empty_icon.texture = ICON_FISH_SKELETON_TEXTURE
+				empty_icon.modulate = Color(1, 1, 1, 0.55)
+			else:
+				empty_icon.texture = ICON_STOP_TEXTURE
+				empty_icon.modulate = _with_alpha(RED.lightened(0.1), 0.7)
+			empty_icon.visible = true
+		else:
+			empty_icon.visible = false
+
+
 func _update_cell_cast_dots(btn: Button, tile: Dictionary, show: bool, has_boat: bool, color: Color) -> void:
 	if not btn.has_meta("cast_dots"):
 		return
@@ -4212,15 +4700,18 @@ func _action_button(text: String, kind: String, callback: Callable, has_count: b
 
 	if has_count:
 		var badge := PanelContainer.new()
-		var badge_style := _styled(label_color.darkened(0.05), label_color.darkened(0.3), 1, 12)
-		badge_style.content_margin_left = 10
-		badge_style.content_margin_right = 10
-		badge_style.content_margin_top = 2
-		badge_style.content_margin_bottom = 2
+		var badge_style := _styled(label_color.darkened(0.05), label_color.darkened(0.3), 1, 14)
+		badge_style.content_margin_left = 16
+		badge_style.content_margin_right = 16
+		badge_style.content_margin_top = 5
+		badge_style.content_margin_bottom = 5
 		badge.add_theme_stylebox_override("panel", badge_style)
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var count_lbl := _label("0", FONT_PILL, fill.darkened(0.6), HORIZONTAL_ALIGNMENT_CENTER)
 		count_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		count_lbl.custom_minimum_size = Vector2(16, 0)
 		badge.add_child(count_lbl)
 		badge.set_meta("count_label", count_lbl)
 		b.set_meta("count_badge", badge)
