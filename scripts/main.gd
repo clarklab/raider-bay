@@ -49,9 +49,13 @@ const MODE_VERSUS := "versus"
 const BOT_NAME := "Rust Bucket"
 
 const GAME_BG_TEXTURE: Texture2D = preload("res://assets/game-bg.webp")
+const START_SCREEN_TEXTURE: Texture2D = preload("res://assets/screen-start.png")
+const START_BUTTON_SOLO_TEXTURE: Texture2D = preload("res://assets/button-solo.png")
+const START_BUTTON_BATTLE_TEXTURE: Texture2D = preload("res://assets/button-battle.png")
 const HUD_BG_TEXTURE: Texture2D = preload("res://assets/hud-bg.webp")
 const FONT_JERSEY_25: FontFile = preload("res://assets/fonts/Jersey25-Regular.ttf")
 const FONT_GOOGLE_SANS_FLEX: FontFile = preload("res://assets/fonts/GoogleSansFlex-Bold.ttf")
+const FONT_TAY_MAKAWAO: FontFile = preload("res://assets/TAYMakawao.otf")
 const BOAT_TEXTURE: Texture2D = preload("res://assets/boat.webp")
 const FISH_COD_TEXTURE: Texture2D = preload("res://assets/fish-cod.webp")
 const FISH_GROUPER_TEXTURE: Texture2D = preload("res://assets/fish-grouper.webp")
@@ -343,83 +347,29 @@ func _build_start_screen() -> void:
 	add_child(overlay)
 	ui["start_overlay"] = overlay
 
-	var wash := ColorRect.new()
-	wash.color = Color(0, 0, 0, 0.52)
-	wash.anchor_right = 1.0
-	wash.anchor_bottom = 1.0
-	wash.mouse_filter = Control.MOUSE_FILTER_STOP
-	overlay.add_child(wash)
+	var art := TextureRect.new()
+	art.texture = START_SCREEN_TEXTURE
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(art)
+	overlay.add_child(art)
 
-	var card := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 8, 16)
-	card.anchor_left = 0.5
-	card.anchor_right = 0.5
-	card.anchor_top = 0.5
-	card.anchor_bottom = 0.5
-	card.offset_left = -300
-	card.offset_right = 300
-	card.offset_top = -315
-	card.offset_bottom = 315
-	overlay.add_child(card)
+	var solo := _start_screen_button(START_BUTTON_SOLO_TEXTURE, "SOLO TRIP", 0.705, _on_solo_trip_pressed)
+	overlay.add_child(solo)
 
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 26)
-	pad.add_theme_constant_override("margin_right", 26)
-	pad.add_theme_constant_override("margin_top", 24)
-	pad.add_theme_constant_override("margin_bottom", 24)
-	card.add_child(pad)
+	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.822, func(): _new_game(true))
+	overlay.add_child(battle)
 
-	var col := VBoxContainer.new()
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 16)
-	pad.add_child(col)
-
-	var title := _label("RAIDER BAY", 44, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	title.add_theme_font_override("font", FONT_GOOGLE_SANS_FLEX)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(title)
-
-	var sub := _label("FISH DEEP · DOCK RICHER", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(sub)
-
-	var blurb := _label("August 1984. One bay, five trophies, bad weather, worse captains.", FONT_BODY, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
-	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	blurb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(blurb)
-
-	var buttons := VBoxContainer.new()
-	buttons.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	buttons.add_theme_constant_override("separation", 10)
-	col.add_child(buttons)
-
-	var solo := _tactile_button("NEW SOLO GAME", 0, 62, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
-	solo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	solo.pressed.connect(func(): _new_game(false))
-	buttons.add_child(solo)
-
-	var versus := _tactile_button("VERSUS COMPUTER", 0, 62, BG_PANEL_LIGHT, RED_DEEP, RED)
-	versus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	versus.pressed.connect(func(): _new_game(true))
-	buttons.add_child(versus)
-
-	var cont := _tactile_button("CONTINUE OLD GAME", 0, 62, BG_PANEL_LIGHT, CYAN_DEEP, CYAN)
-	cont.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cont.pressed.connect(_continue_saved_game)
-	buttons.add_child(cont)
-	ui["start_continue"] = cont
-
-	var note := _label("One local save slot is kept on this device.", FONT_SMALL, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(note)
+	var chooser := _build_solo_save_chooser()
+	overlay.add_child(chooser)
+	ui["start_solo_chooser"] = chooser
 
 
 func _show_start_screen() -> void:
-	if ui.has("start_continue"):
-		var cont: Button = ui["start_continue"]
-		cont.disabled = not _has_save_game()
-		cont.text = "CONTINUE OLD GAME" if _has_save_game() else "NO SAVED GAME"
+	if ui.has("start_solo_chooser"):
+		(ui["start_solo_chooser"] as Control).visible = false
 	if ui.has("start_overlay"):
 		(ui["start_overlay"] as Control).visible = true
 
@@ -429,10 +379,152 @@ func _hide_start_screen() -> void:
 		(ui["start_overlay"] as Control).visible = false
 
 
-func _continue_saved_game() -> void:
-	if not _load_game():
-		_log("No saved game found.")
-		_show_start_screen()
+func _on_solo_trip_pressed() -> void:
+	if _has_unfinished_solo_save():
+		_show_solo_save_chooser()
+	else:
+		_new_game(false)
+
+
+func _show_solo_save_chooser() -> void:
+	if ui.has("start_solo_chooser"):
+		(ui["start_solo_chooser"] as Control).visible = true
+
+
+func _hide_solo_save_chooser() -> void:
+	if ui.has("start_solo_chooser"):
+		(ui["start_solo_chooser"] as Control).visible = false
+
+
+func _resume_solo_game() -> void:
+	if _has_unfinished_solo_save() and _load_game():
+		return
+	_hide_solo_save_chooser()
+	_new_game(false)
+
+
+func _start_screen_button(texture: Texture2D, text: String, top_ratio: float, pressed: Callable) -> Button:
+	var b := Button.new()
+	b.text = ""
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	b.anchor_left = 0.10
+	b.anchor_right = 0.90
+	b.anchor_top = top_ratio
+	b.anchor_bottom = top_ratio + 0.085
+	b.offset_left = 0
+	b.offset_right = 0
+	b.offset_top = 0
+	b.offset_bottom = 0
+	b.pressed.connect(pressed)
+	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(state, _transparent_style())
+
+	var art := TextureRect.new()
+	art.texture = texture
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_SCALE
+	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(art)
+	b.add_child(art)
+
+	_add_start_button_text(b, text, 50)
+	return b
+
+
+func _build_solo_save_chooser() -> Control:
+	var chooser := Control.new()
+	chooser.anchor_right = 1.0
+	chooser.anchor_bottom = 1.0
+	chooser.mouse_filter = Control.MOUSE_FILTER_STOP
+	chooser.visible = false
+	chooser.z_index = 10
+
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.46)
+	shade.anchor_right = 1.0
+	shade.anchor_bottom = 1.0
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	chooser.add_child(shade)
+
+	var card := _panel_lifted(Color("#071521"), Color("#9fb8da"), 2, 4, 12)
+	card.anchor_left = 0.10
+	card.anchor_right = 0.90
+	card.anchor_top = 0.55
+	card.anchor_bottom = 0.76
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
+	chooser.add_child(card)
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 22)
+	pad.add_theme_constant_override("margin_right", 22)
+	pad.add_theme_constant_override("margin_top", 18)
+	pad.add_theme_constant_override("margin_bottom", 18)
+	card.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 12)
+	pad.add_child(col)
+
+	var prompt := _label("SOLO SAVE FOUND", 31, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	prompt.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	prompt.add_theme_constant_override("shadow_offset_y", 5)
+	prompt.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.95))
+	prompt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(prompt)
+
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 10)
+	col.add_child(row)
+
+	var new_trip := _tactile_button("NEW TRIP", 0, 50, BG_PANEL_LIGHT, GOLD_DEEP, TEXT_PRIMARY)
+	new_trip.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	new_trip.add_theme_font_size_override("font_size", 24)
+	new_trip.add_theme_color_override("font_color", TEXT_PRIMARY)
+	new_trip.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.95))
+	new_trip.add_theme_constant_override("shadow_offset_y", 5)
+	new_trip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	new_trip.pressed.connect(func(): _new_game(false))
+	row.add_child(new_trip)
+
+	var resume := _tactile_button("RESUME GAME", 0, 50, BG_PANEL_LIGHT, CYAN_DEEP, TEXT_PRIMARY)
+	resume.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	resume.add_theme_font_size_override("font_size", 24)
+	resume.add_theme_color_override("font_color", TEXT_PRIMARY)
+	resume.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.95))
+	resume.add_theme_constant_override("shadow_offset_y", 5)
+	resume.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	resume.pressed.connect(_resume_solo_game)
+	row.add_child(resume)
+
+	return chooser
+
+
+func _add_start_button_text(parent: Control, text: String, size: int) -> void:
+	var shadow := _start_button_label(text, size, Color(0, 0, 0, 0.95))
+	_anchor_fill(shadow)
+	shadow.offset_top += 5
+	shadow.offset_bottom += 5
+	parent.add_child(shadow)
+
+	var label := _start_button_label(text, size, TEXT_PRIMARY)
+	_anchor_fill(label)
+	parent.add_child(label)
+
+
+func _start_button_label(text: String, size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	label.add_theme_font_size_override("font_size", size)
+	label.add_theme_color_override("font_color", color)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return label
 
 
 func _build_top_status(parent: Container) -> void:
@@ -1745,6 +1837,25 @@ func _reset_bot_state() -> void:
 
 func _has_save_game() -> bool:
 	return FileAccess.file_exists(SAVE_PATH)
+
+
+func _has_unfinished_solo_save() -> bool:
+	if not _has_save_game():
+		return false
+
+	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if file == null:
+		return false
+
+	var parser := JSON.new()
+	if parser.parse(file.get_as_text()) != OK:
+		return false
+	if not (parser.data is Dictionary):
+		return false
+
+	var data: Dictionary = parser.data
+	var mode := str(data.get("mode", MODE_SOLO))
+	return mode == MODE_SOLO and not bool(data.get("game_over", false))
 
 
 func _save_game() -> void:
@@ -3808,6 +3919,15 @@ func _styled(fill: Color, border: Color, border_w: int, radius: int) -> StyleBox
 	s.content_margin_bottom = 6
 	s.anti_aliasing = true
 	s.anti_aliasing_size = 0.6
+	return s
+
+
+func _transparent_style() -> StyleBoxFlat:
+	var s := _styled(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 0)
+	s.content_margin_left = 0
+	s.content_margin_right = 0
+	s.content_margin_top = 0
+	s.content_margin_bottom = 0
 	return s
 
 
