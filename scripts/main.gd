@@ -291,9 +291,9 @@ func _apply_safe_area_inset() -> void:
 	if ui.has("root_margin"):
 		var root: MarginContainer = ui["root_margin"]
 		root.add_theme_constant_override("margin_top", top_inset)
-	if ui.has("start_overlay"):
-		var overlay: Control = ui["start_overlay"]
-		overlay.offset_top = float(top_inset)
+	if ui.has("top_safe_fill"):
+		var fill: ColorRect = ui["top_safe_fill"]
+		fill.offset_bottom = float(top_inset)
 
 
 func _process(delta: float) -> void:
@@ -464,6 +464,19 @@ func _build_ui() -> void:
 	background_wash.anchor_bottom = 1.0
 	add_child(background_wash)
 
+	var top_safe_fill := ColorRect.new()
+	top_safe_fill.color = Color(0, 0, 0, 1)
+	top_safe_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_safe_fill.anchor_left = 0.0
+	top_safe_fill.anchor_right = 1.0
+	top_safe_fill.anchor_top = 0.0
+	top_safe_fill.anchor_bottom = 0.0
+	top_safe_fill.offset_top = 0
+	top_safe_fill.offset_bottom = 0
+	top_safe_fill.z_index = 50
+	add_child(top_safe_fill)
+	ui["top_safe_fill"] = top_safe_fill
+
 	var root := MarginContainer.new()
 	root.anchor_right = 1.0
 	root.anchor_bottom = 1.0
@@ -505,7 +518,7 @@ func _build_start_screen() -> void:
 	_anchor_fill(art)
 	overlay.add_child(art)
 
-	var solo := _start_screen_button(START_BUTTON_SOLO_TEXTURE, "SOLO TRIP", 0.8271, _on_solo_trip_pressed, 0)
+	var solo := _start_screen_button(START_BUTTON_SOLO_TEXTURE, "SOLO TRIP", 0.7757, _on_solo_trip_pressed, 0)
 	overlay.add_child(solo)
 
 	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.88055, func(): _new_game(true), 7)
