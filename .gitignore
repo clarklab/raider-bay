@@ -1,0 +1,8 @@
+.godot/
+.DS_Store
+.hatch-pet-runs/
+_analysis/
+builds/
+*.tmp
+*.translation
+export_presets.cfg
