@@ -942,6 +942,7 @@ func _build_board(parent: Container) -> void:
 			btn.add_theme_font_size_override("font_size", FONT_CELL)
 			btn.pressed.connect(_on_cell_pressed.bind(cell))
 			grid.add_child(btn)
+			_add_bot_boat_layer(btn)
 			_add_cast_dot_layer(btn)
 			cell_buttons.append(btn)
 
@@ -1069,6 +1070,25 @@ func _add_cast_dot_layer(btn: Button) -> void:
 	dots.z_index = 4
 	btn.add_child(dots)
 	btn.set_meta("cast_dots", dots)
+
+
+func _add_bot_boat_layer(btn: Button) -> void:
+	var boat := TextureRect.new()
+	boat.texture = BOAT_TEXTURE
+	boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boat.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boat.visible = false
+	boat.modulate = Color(1.0, 0.24, 0.18, 0.96)
+	boat.z_index = 3
+	_anchor_fill(boat)
+	boat.offset_left = 4
+	boat.offset_right = -4
+	boat.offset_top = 4
+	boat.offset_bottom = -4
+	btn.add_child(boat)
+	btn.set_meta("bot_boat", boat)
 
 
 func _build_board_toast(board_wrap: Control) -> void:
@@ -3260,6 +3280,9 @@ func _update_board() -> void:
 			var tile: Dictionary = board[index]
 			var btn: Button = cell_buttons[index]
 			var has_bot := versus_mode and not _bot_is_docked() and bot_pos == pos and boat_pos != pos
+			var bot_boat: TextureRect = btn.get_meta("bot_boat") as TextureRect
+			if bot_boat:
+				bot_boat.visible = has_bot
 			btn.text = _cell_text(pos, tile)
 			if boat_pos == pos:
 				btn.icon = BOAT_TEXTURE
@@ -3268,7 +3291,7 @@ func _update_board() -> void:
 				btn.text = ""
 			elif has_bot:
 				btn.icon = null
-				btn.text = "RB"
+				btn.text = ""
 			else:
 				btn.icon = null
 
@@ -3326,8 +3349,6 @@ func _update_board() -> void:
 			var font_size := 14
 			if boat_pos == pos:
 				font_size = FONT_BOAT
-			elif has_bot:
-				font_size = 18
 			elif known and not is_empty_known:
 				font_size = FONT_CELL_BIG if is_treasure else FONT_CELL
 			btn.add_theme_font_size_override("font_size", font_size)
@@ -3579,8 +3600,6 @@ func _weather_icon_texture(weather_name: String) -> Texture2D:
 func _cell_text(pos: Vector2i, tile: Dictionary) -> String:
 	if boat_pos == pos:
 		return "◉"
-	if versus_mode and not _bot_is_docked() and bot_pos == pos:
-		return "RB"
 	var known := bool(tile["found"]) or bool(tile["revealed"])
 	if not known:
 		return ""
