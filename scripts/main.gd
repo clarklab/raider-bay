@@ -42,6 +42,11 @@ const SHIP_ROLL_SECONDS := 0.72
 const SHIP_ROLL_BAND_HEIGHT := 24.0
 const HUD_BG_SIZE := Vector2(1633, 831)
 const HUD_DISPLAY_HEIGHT := 366
+const SAVE_PATH := "user://raider_bay_save.json"
+const SAVE_VERSION := 1
+const MODE_SOLO := "solo"
+const MODE_VERSUS := "versus"
+const BOT_NAME := "Rust Bucket"
 
 const GAME_BG_TEXTURE: Texture2D = preload("res://assets/game-bg.webp")
 const HUD_BG_TEXTURE: Texture2D = preload("res://assets/hud-bg.webp")
@@ -160,6 +165,9 @@ const SHADOW         := Color(0, 0, 0, 0.32)
 var rng := RandomNumberGenerator.new()
 var ship_static_rng := RandomNumberGenerator.new()
 
+var game_started := false
+var versus_mode := false
+
 var board: Array[Dictionary] = []
 var boat_pos := Vector2i(DOCK_COL, GRID_ROWS)
 var day := 1
@@ -181,6 +189,18 @@ var forecast: Array[Dictionary] = []
 var current_weather: Dictionary = {"name": "Clear", "strength": 0}
 var log_lines: Array[String] = []
 var cast_holes_today: Dictionary = {}
+
+var bot_pos := Vector2i(DOCK_COL, GRID_ROWS)
+var bot_money := 0
+var bot_moves_remaining := 0
+var bot_finds_remaining := 0
+var bot_casts_remaining := 0
+var bot_live_well: Array[Dictionary] = []
+var bot_upgrades: Dictionary = {}
+var bot_conditions: Dictionary = {}
+var bot_sold_totals: Dictionary = {}
+var bot_trophies: Dictionary = {}
+var bot_cast_holes_today: Dictionary = {}
 
 var active_tab: String = "map"  # health | live_well | map | upgrades | radio
 var active_tray: String = ""     # "" | upgrade | repair
@@ -211,7 +231,8 @@ func _ready() -> void:
 	rng.randomize()
 	ship_static_rng.randomize()
 	_build_ui()
-	_new_game()
+	_build_start_screen()
+	_show_start_screen()
 	_schedule_ship_roll()
 	set_process(true)
 
@@ -311,6 +332,107 @@ func _build_ui() -> void:
 	_build_tab_body(screen)
 	_build_bottom_nav(screen)
 	_build_sell_modal()
+
+
+func _build_start_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 200
+	add_child(overlay)
+	ui["start_overlay"] = overlay
+
+	var wash := ColorRect.new()
+	wash.color = Color(0, 0, 0, 0.52)
+	wash.anchor_right = 1.0
+	wash.anchor_bottom = 1.0
+	wash.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(wash)
+
+	var card := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 8, 16)
+	card.anchor_left = 0.5
+	card.anchor_right = 0.5
+	card.anchor_top = 0.5
+	card.anchor_bottom = 0.5
+	card.offset_left = -300
+	card.offset_right = 300
+	card.offset_top = -315
+	card.offset_bottom = 315
+	overlay.add_child(card)
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 26)
+	pad.add_theme_constant_override("margin_right", 26)
+	pad.add_theme_constant_override("margin_top", 24)
+	pad.add_theme_constant_override("margin_bottom", 24)
+	card.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 16)
+	pad.add_child(col)
+
+	var title := _label("RAIDER BAY", 44, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	title.add_theme_font_override("font", FONT_GOOGLE_SANS_FLEX)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title)
+
+	var sub := _label("FISH DEEP · DOCK RICHER", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(sub)
+
+	var blurb := _label("August 1984. One bay, five trophies, bad weather, worse captains.", FONT_BODY, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	blurb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(blurb)
+
+	var buttons := VBoxContainer.new()
+	buttons.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	buttons.add_theme_constant_override("separation", 10)
+	col.add_child(buttons)
+
+	var solo := _tactile_button("NEW SOLO GAME", 0, 62, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
+	solo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	solo.pressed.connect(func(): _new_game(false))
+	buttons.add_child(solo)
+
+	var versus := _tactile_button("VERSUS COMPUTER", 0, 62, BG_PANEL_LIGHT, RED_DEEP, RED)
+	versus.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	versus.pressed.connect(func(): _new_game(true))
+	buttons.add_child(versus)
+
+	var cont := _tactile_button("CONTINUE OLD GAME", 0, 62, BG_PANEL_LIGHT, CYAN_DEEP, CYAN)
+	cont.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cont.pressed.connect(_continue_saved_game)
+	buttons.add_child(cont)
+	ui["start_continue"] = cont
+
+	var note := _label("One local save slot is kept on this device.", FONT_SMALL, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(note)
+
+
+func _show_start_screen() -> void:
+	if ui.has("start_continue"):
+		var cont: Button = ui["start_continue"]
+		cont.disabled = not _has_save_game()
+		cont.text = "CONTINUE OLD GAME" if _has_save_game() else "NO SAVED GAME"
+	if ui.has("start_overlay"):
+		(ui["start_overlay"] as Control).visible = true
+
+
+func _hide_start_screen() -> void:
+	if ui.has("start_overlay"):
+		(ui["start_overlay"] as Control).visible = false
+
+
+func _continue_saved_game() -> void:
+	if not _load_game():
+		_log("No saved game found.")
+		_show_start_screen()
 
 
 func _build_top_status(parent: Container) -> void:
@@ -734,7 +856,7 @@ func _build_title_bar(parent: Container) -> void:
 	var menu_btn := _tactile_button("↻", 44, 44, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
 	menu_btn.tooltip_text = "New game"
 	menu_btn.add_theme_font_size_override("font_size", 20)
-	menu_btn.pressed.connect(_new_game)
+	menu_btn.pressed.connect(_show_start_screen)
 	row.add_child(menu_btn)
 
 
@@ -1518,7 +1640,9 @@ func _on_buy_repair_segment(key: String, _index: int) -> void:
 # Game start / reset
 # ────────────────────────────────────────────────────────────────────────
 
-func _new_game() -> void:
+func _new_game(enable_versus: bool = false) -> void:
+	game_started = true
+	versus_mode = enable_versus
 	day = 1
 	game_over = false
 	active_tab = "map"
@@ -1550,6 +1674,8 @@ func _new_game() -> void:
 		sold_totals[species] = 0
 		trophies[species] = false
 
+	_reset_bot_state()
+
 	_roll_market()
 	_generate_board()
 	_build_weather_deck()
@@ -1559,8 +1685,223 @@ func _new_game() -> void:
 		forecast.append(_draw_weather())
 	_refresh_daily_actions()
 	_close_tray()
-	_log("Leave the docks, fish deep, get home before the weather turns.")
+	_hide_start_screen()
+	if versus_mode:
+		_log("%s joins the contest. It will fish, sell, and raid if you get close." % BOT_NAME)
+		_log("Leave the docks, fish deep, and watch the other captain.")
+	else:
+		_log("Leave the docks, fish deep, get home before the weather turns.")
 	_update_ui()
+
+
+func _reset_bot_state() -> void:
+	bot_pos = Vector2i(DOCK_COL, GRID_ROWS)
+	bot_money = START_MONEY
+	bot_moves_remaining = 0
+	bot_finds_remaining = 0
+	bot_casts_remaining = 0
+	bot_live_well.clear()
+	bot_cast_holes_today.clear()
+	bot_upgrades = {
+		"motor": 0,
+		"fish_finder": 0,
+		"nets": 0,
+		"live_well": 0,
+		"cannons": 1,
+		"defense": 0,
+	}
+	bot_conditions = {
+		"hull": CONDITION_MAX,
+		"propeller": CONDITION_MAX,
+		"rudder": CONDITION_MAX,
+		"nets": CONDITION_MAX,
+	}
+	bot_sold_totals.clear()
+	bot_trophies.clear()
+	for species in SPECIES:
+		bot_sold_totals[species] = 0
+		bot_trophies[species] = false
+
+
+func _has_save_game() -> bool:
+	return FileAccess.file_exists(SAVE_PATH)
+
+
+func _save_game() -> void:
+	if not game_started:
+		return
+
+	var data := {
+		"version": SAVE_VERSION,
+		"mode": MODE_VERSUS if versus_mode else MODE_SOLO,
+		"day": day,
+		"money": money,
+		"moves_remaining": moves_remaining,
+		"finds_remaining": finds_remaining,
+		"casts_remaining": casts_remaining,
+		"game_over": game_over,
+		"active_tab": active_tab,
+		"boat_pos": _serialize_pos(boat_pos),
+		"board": board,
+		"upgrades": upgrades,
+		"conditions": conditions,
+		"live_well": live_well,
+		"market_prices": market_prices,
+		"sold_totals": sold_totals,
+		"trophies": trophies,
+		"weather_deck": weather_deck,
+		"forecast": forecast,
+		"current_weather": current_weather,
+		"log_lines": log_lines,
+		"cast_holes_today": _locks_to_array(cast_holes_today),
+		"bot_pos": _serialize_pos(bot_pos),
+		"bot_money": bot_money,
+		"bot_moves_remaining": bot_moves_remaining,
+		"bot_finds_remaining": bot_finds_remaining,
+		"bot_casts_remaining": bot_casts_remaining,
+		"bot_live_well": bot_live_well,
+		"bot_upgrades": bot_upgrades,
+		"bot_conditions": bot_conditions,
+		"bot_sold_totals": bot_sold_totals,
+		"bot_trophies": bot_trophies,
+		"bot_cast_holes_today": _locks_to_array(bot_cast_holes_today),
+	}
+
+	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string(JSON.stringify(data))
+
+
+func _load_game() -> bool:
+	if not _has_save_game():
+		return false
+
+	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if file == null:
+		return false
+
+	var parser := JSON.new()
+	if parser.parse(file.get_as_text()) != OK:
+		return false
+	if not (parser.data is Dictionary):
+		return false
+
+	var data: Dictionary = parser.data
+	game_started = true
+	versus_mode = str(data.get("mode", MODE_SOLO)) == MODE_VERSUS
+	day = int(data.get("day", 1))
+	money = int(data.get("money", START_MONEY))
+	moves_remaining = int(data.get("moves_remaining", 0))
+	finds_remaining = int(data.get("finds_remaining", 0))
+	casts_remaining = int(data.get("casts_remaining", START_CASTS))
+	game_over = bool(data.get("game_over", false))
+	active_tab = str(data.get("active_tab", "map"))
+	active_tray = ""
+	boat_pos = _deserialize_pos(data.get("boat_pos", {}), Vector2i(DOCK_COL, GRID_ROWS))
+
+	board = _dict_array(data.get("board", []))
+	if board.size() != GRID_COLS * GRID_ROWS:
+		return false
+
+	upgrades = _dict_copy(data.get("upgrades", {}))
+	conditions = _dict_copy(data.get("conditions", {}))
+	_ensure_player_defaults()
+	live_well = _dict_array(data.get("live_well", []))
+	market_prices = _dict_copy(data.get("market_prices", {}))
+	for species in SPECIES:
+		if not market_prices.has(species):
+			market_prices[species] = int(BASE_PRICES[species])
+	sold_totals = _dict_copy(data.get("sold_totals", {}))
+	trophies = _dict_copy(data.get("trophies", {}))
+	for species in SPECIES:
+		if not sold_totals.has(species):
+			sold_totals[species] = 0
+		if not trophies.has(species):
+			trophies[species] = false
+
+	weather_deck = _dict_array(data.get("weather_deck", []))
+	forecast = _dict_array(data.get("forecast", []))
+	while forecast.size() < 4:
+		forecast.append(_draw_weather())
+	current_weather = _dict_copy(data.get("current_weather", {"name": "Clear", "strength": 0}))
+	cast_holes_today = _locks_from_array(data.get("cast_holes_today", []))
+
+	log_lines.clear()
+	var saved_logs: Array = data.get("log_lines", [])
+	for entry in saved_logs:
+		log_lines.append(str(entry))
+	if log_lines.is_empty():
+		_log("Save loaded.")
+
+	_reset_bot_state()
+	bot_pos = _deserialize_pos(data.get("bot_pos", {}), Vector2i(DOCK_COL, GRID_ROWS))
+	bot_money = int(data.get("bot_money", START_MONEY))
+	bot_moves_remaining = int(data.get("bot_moves_remaining", 0))
+	bot_finds_remaining = int(data.get("bot_finds_remaining", 0))
+	bot_casts_remaining = int(data.get("bot_casts_remaining", START_CASTS))
+	bot_live_well = _dict_array(data.get("bot_live_well", []))
+	bot_upgrades = _dict_copy(data.get("bot_upgrades", bot_upgrades))
+	bot_conditions = _dict_copy(data.get("bot_conditions", bot_conditions))
+	bot_sold_totals = _dict_copy(data.get("bot_sold_totals", bot_sold_totals))
+	bot_trophies = _dict_copy(data.get("bot_trophies", bot_trophies))
+	bot_cast_holes_today = _locks_from_array(data.get("bot_cast_holes_today", []))
+
+	_close_tray()
+	_hide_start_screen()
+	_update_ui()
+	return true
+
+
+func _ensure_player_defaults() -> void:
+	for key in UPGRADE_KEYS:
+		if not upgrades.has(key):
+			upgrades[key] = 0
+	for key in CONDITION_KEYS:
+		if not conditions.has(key):
+			conditions[key] = CONDITION_MAX
+
+
+func _serialize_pos(pos: Vector2i) -> Dictionary:
+	return {"x": pos.x, "y": pos.y}
+
+
+func _deserialize_pos(value, fallback: Vector2i) -> Vector2i:
+	if value is Dictionary:
+		return Vector2i(int(value.get("x", fallback.x)), int(value.get("y", fallback.y)))
+	if value is Array and value.size() >= 2:
+		return Vector2i(int(value[0]), int(value[1]))
+	return fallback
+
+
+func _locks_to_array(locks: Dictionary) -> Array[int]:
+	var values: Array[int] = []
+	for key in locks.keys():
+		values.append(int(key))
+	return values
+
+
+func _locks_from_array(values) -> Dictionary:
+	var locks: Dictionary = {}
+	if values is Array:
+		for value in values:
+			locks[int(value)] = true
+	return locks
+
+
+func _dict_copy(value) -> Dictionary:
+	if value is Dictionary:
+		return (value as Dictionary).duplicate(true)
+	return {}
+
+
+func _dict_array(value) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if value is Array:
+		for item in value:
+			if item is Dictionary:
+				result.append((item as Dictionary).duplicate(true))
+	return result
 
 
 func _roll_market() -> void:
@@ -1944,7 +2285,16 @@ func _attack() -> void:
 	if _is_docked():
 		_log("Attack only at sea.")
 		return
-	_log("No raider boats in range. (Combat needs an opponent.)")
+	if not versus_mode:
+		_log("No raider boats in range. (Combat needs an opponent.)")
+		return
+	if not _can_player_attack_bot():
+		if int(upgrades["cannons"]) <= 0:
+			_log("You need a Cannons upgrade before raiding.")
+		else:
+			_log("%s is out of cannon range." % BOT_NAME)
+		return
+	_player_attack_bot()
 
 
 func _sell_catch() -> void:
@@ -2232,11 +2582,19 @@ func _end_day() -> void:
 	if game_over or active_tray != "":
 		return
 
+	if versus_mode:
+		_run_bot_turn()
+		if game_over:
+			_update_ui()
+			return
+
 	_resolve_weather()
 	if game_over:
 		_update_ui()
 		return
 	_age_fish()
+	if versus_mode:
+		_age_bot_fish()
 
 	day += 1
 	if day > MAX_DAYS:
@@ -2256,14 +2614,21 @@ func _end_day() -> void:
 
 
 func _resolve_weather() -> void:
-	if int(current_weather["strength"]) <= 0:
+	var strength: int = int(current_weather["strength"])
+	if strength <= 0:
 		_log("Clear night.")
 		return
+
+	_resolve_weather_for_player(strength)
+	if versus_mode:
+		_resolve_weather_for_bot(strength)
+
+
+func _resolve_weather_for_player(strength: int) -> void:
 	if _is_docked():
-		_log("%s %d passed while you were safe at the docks." % [str(current_weather["name"]), int(current_weather["strength"])])
+		_log("%s %d passed while you were safe at the docks." % [str(current_weather["name"]), strength])
 		return
 
-	var strength: int = int(current_weather["strength"])
 	var roll := rng.randi_range(1, 6)
 	if roll >= strength:
 		_log("Rolled %d and rode out %s %d." % [roll, str(current_weather["name"]), strength])
@@ -2278,6 +2643,26 @@ func _resolve_weather() -> void:
 	if int(conditions["hull"]) <= 0:
 		game_over = true
 		_log("The hull failed. Your boat sank.")
+
+
+func _resolve_weather_for_bot(strength: int) -> void:
+	if _bot_is_docked():
+		_log("%s stayed safe at the docks." % BOT_NAME)
+		return
+
+	var roll := rng.randi_range(1, 6)
+	if roll >= strength:
+		_log("%s rode out %s %d." % [BOT_NAME, str(current_weather["name"]), strength])
+		return
+
+	var damage := strength - roll + 1
+	var systems: Array[String] = ["hull", "propeller", "rudder", "nets"]
+	for i in range(damage):
+		var system: String = systems[rng.randi_range(0, systems.size() - 1)]
+		bot_conditions[system] = max(0, int(bot_conditions[system]) - 1)
+	_log("%s took %d storm damage." % [BOT_NAME, damage])
+	if int(bot_conditions["hull"]) <= 0:
+		_sink_bot("%s sank %s." % [str(current_weather["name"]), BOT_NAME])
 
 
 func _age_fish() -> void:
@@ -2297,6 +2682,374 @@ func _age_fish() -> void:
 		_log("%d fish spoiled in the live well." % spoiled)
 
 
+func _age_bot_fish() -> void:
+	if bot_live_well.is_empty():
+		return
+
+	var kept: Array[Dictionary] = []
+	var spoiled := 0
+	for batch in bot_live_well:
+		batch["age"] = int(batch["age"]) + 1
+		if int(batch["age"]) > _bot_live_well_days():
+			spoiled += int(batch["quantity"])
+		else:
+			kept.append(batch)
+	bot_live_well = kept
+	if spoiled > 0:
+		_log("%s lost %d spoiled fish." % [BOT_NAME, spoiled])
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Computer captain
+# ────────────────────────────────────────────────────────────────────────
+
+func _run_bot_turn() -> void:
+	if not versus_mode or game_over:
+		return
+
+	_bot_refresh_daily_actions()
+	bot_cast_holes_today.clear()
+	_log("%s takes its turn." % BOT_NAME)
+
+	if _bot_is_docked():
+		if _bot_should_sell():
+			_bot_sell_catch()
+		_bot_buy_upgrade()
+		if _bot_total_fish() < TROPHY_REQUIRED or rng.randf() < 0.72:
+			_bot_exit_dock()
+
+	var guard := 0
+	while bot_moves_remaining > 0 and guard < 12 and not game_over:
+		guard += 1
+		if _bot_try_attack(0.70):
+			break
+
+		if not _bot_is_docked() and not _bot_should_return() and _bot_can_cast_here() and rng.randf() < 0.80:
+			_bot_cast()
+
+		if _bot_should_return():
+			_bot_step_toward_dock()
+			if _bot_is_docked():
+				if _bot_should_sell():
+					_bot_sell_catch()
+				_bot_buy_upgrade()
+				break
+		else:
+			_bot_step_toward(_bot_pick_target())
+
+	if not game_over:
+		_bot_try_attack(0.35)
+
+
+func _bot_refresh_daily_actions() -> void:
+	bot_moves_remaining = _bot_daily_moves()
+	bot_finds_remaining = int(bot_upgrades.get("fish_finder", 0))
+	bot_casts_remaining = START_CASTS
+
+
+func _bot_daily_moves() -> int:
+	var moves := BASE_MOVES + int(bot_upgrades.get("motor", 0))
+	if int(bot_conditions.get("propeller", CONDITION_MAX)) <= 0:
+		moves = int(floor(float(moves) / 2.0))
+	return max(0, moves)
+
+
+func _bot_live_well_days() -> int:
+	return BASE_LIVE_WELL_DAYS + int(bot_upgrades.get("live_well", 0))
+
+
+func _bot_is_docked() -> bool:
+	return bot_pos.y == GRID_ROWS
+
+
+func _bot_total_fish() -> int:
+	var total := 0
+	for batch in bot_live_well:
+		total += int(batch["quantity"])
+	return total
+
+
+func _bot_oldest_fish_age() -> int:
+	var oldest := 0
+	for batch in bot_live_well:
+		oldest = max(oldest, int(batch["age"]))
+	return oldest
+
+
+func _bot_should_sell() -> bool:
+	if bot_live_well.is_empty():
+		return false
+	return _bot_total_fish() >= TROPHY_REQUIRED or _bot_oldest_fish_age() >= max(1, _bot_live_well_days() - 1)
+
+
+func _bot_should_return() -> bool:
+	if _bot_is_docked():
+		return false
+	if _bot_should_sell():
+		return true
+	if bot_casts_remaining <= 0 and _bot_total_fish() > 0:
+		return true
+	return false
+
+
+func _bot_pick_target() -> Vector2i:
+	if not _is_docked() and rng.randf() < 0.28:
+		return Vector2i(clampi(boat_pos.x, 0, GRID_COLS - 1), clampi(boat_pos.y, 0, GRID_ROWS - 1))
+
+	var target_y: int = max(0, bot_pos.y - 1)
+	if bot_pos.y <= 2 and rng.randf() < 0.45:
+		target_y = rng.randi_range(0, 2)
+	var target_x: int = clampi(bot_pos.x + rng.randi_range(-2, 2), 0, GRID_COLS - 1)
+	return Vector2i(target_x, target_y)
+
+
+func _bot_exit_dock() -> void:
+	if not _bot_is_docked() or bot_moves_remaining <= 0:
+		return
+	bot_pos = Vector2i(DOCK_COL, GRID_ROWS - 1)
+	bot_moves_remaining -= 1
+	_log("%s leaves the docks." % BOT_NAME)
+
+
+func _bot_step_toward_dock() -> void:
+	if _bot_is_docked() or bot_moves_remaining <= 0:
+		return
+	if _is_dock_access_cell(bot_pos):
+		bot_pos = Vector2i(clampi(bot_pos.x, DOCK_START_COL, DOCK_END_COL), GRID_ROWS)
+		bot_moves_remaining -= 1
+		bot_cast_holes_today.clear()
+		_log("%s docks with %d fish aboard." % [BOT_NAME, _bot_total_fish()])
+		return
+	_bot_step_toward(Vector2i(DOCK_COL, GRID_ROWS - 1))
+
+
+func _bot_step_toward(target: Vector2i) -> void:
+	if bot_moves_remaining <= 0:
+		return
+	if _bot_is_docked():
+		_bot_exit_dock()
+		return
+
+	var dx := clampi(target.x - bot_pos.x, -1, 1)
+	var dy := clampi(target.y - bot_pos.y, -1, 1)
+	if dx == 0 and dy == 0:
+		dx = rng.randi_range(-1, 1)
+		dy = -1 if bot_pos.y > 0 else 1
+	if dx != 0 and dy != 0 and int(bot_conditions.get("rudder", CONDITION_MAX)) <= 0:
+		dy = 0
+
+	var next := bot_pos + Vector2i(dx, dy)
+	next.x = clampi(next.x, 0, GRID_COLS - 1)
+	next.y = clampi(next.y, 0, GRID_ROWS - 1)
+	if next == bot_pos:
+		return
+	bot_pos = next
+	bot_moves_remaining -= 1
+
+
+func _bot_can_cast_here() -> bool:
+	if _bot_is_docked():
+		return false
+	var index := _cell_index(bot_pos)
+	var tile: Dictionary = board[index]
+	if bool(tile["depleted"]):
+		return false
+	if bot_cast_holes_today.has(index):
+		return false
+	if bot_casts_remaining > 0:
+		return true
+	return str(tile["content"]) == "treasure"
+
+
+func _bot_cast() -> void:
+	if not _bot_can_cast_here():
+		return
+
+	var index := _cell_index(bot_pos)
+	var tile: Dictionary = board[index]
+	tile["found"] = true
+	tile["revealed"] = true
+
+	if str(tile["content"]) == "empty":
+		bot_casts_remaining -= 1
+		bot_cast_holes_today[index] = true
+		tile["depleted"] = true
+		_log("%s casts and finds empty water." % BOT_NAME)
+	elif str(tile["content"]) == "treasure":
+		tile["depleted"] = true
+		bot_money += int(tile["value"])
+		_log("%s recovers $%d treasure." % [BOT_NAME, int(tile["value"])])
+	else:
+		bot_casts_remaining -= 1
+		bot_cast_holes_today[index] = true
+		var nets_bonus: int = int(bot_upgrades.get("nets", 0)) if int(bot_conditions.get("nets", CONDITION_MAX)) > 0 else 0
+		var amount := rng.randi_range(1, CAST_DIE_SIDES) + nets_bonus
+		bot_live_well.append({"species": tile["species"], "quantity": amount, "age": 0})
+		tile["casts_remaining"] = max(0, int(tile["casts_remaining"]) - 1)
+		if int(tile["casts_remaining"]) <= 0:
+			tile["depleted"] = true
+		_log("%s catches %d %s." % [BOT_NAME, amount, str(tile["species"])])
+
+	board[index] = tile
+
+
+func _bot_sell_catch() -> void:
+	if bot_live_well.is_empty():
+		return
+
+	var quantities: Dictionary = {}
+	for batch in bot_live_well:
+		var species: String = str(batch["species"])
+		quantities[species] = int(quantities.get(species, 0)) + int(batch["quantity"])
+
+	var total := 0
+	var earned: Array[String] = []
+	for species in quantities.keys():
+		var species_name := str(species)
+		var quantity := int(quantities[species])
+		total += quantity * int(market_prices.get(species_name, BASE_PRICES.get(species_name, 0)))
+		bot_sold_totals[species_name] = int(bot_sold_totals.get(species_name, 0)) + quantity
+		if quantity >= TROPHY_REQUIRED and not bool(bot_trophies.get(species_name, false)):
+			bot_trophies[species_name] = true
+			earned.append(species_name)
+
+	bot_live_well.clear()
+	bot_money += total
+	if earned.is_empty():
+		_log("%s sells fish for $%d." % [BOT_NAME, total])
+	else:
+		_log("%s sells for $%d and claims %s trophy." % [BOT_NAME, total, ", ".join(earned)])
+	if _bot_trophy_count() >= TROPHY_WIN_COUNT:
+		game_over = true
+		_log("%s wins the contest with %d trophies." % [BOT_NAME, TROPHY_WIN_COUNT])
+
+
+func _bot_buy_upgrade() -> void:
+	var preferences: Array[String] = ["motor", "nets", "fish_finder", "live_well", "cannons", "defense"]
+	for key in preferences:
+		var current := int(bot_upgrades.get(key, 0))
+		if current >= UPGRADE_MAX_LEVEL:
+			continue
+		var cost := _upgrade_cost(key, current)
+		if bot_money >= cost and rng.randf() < 0.55:
+			bot_money -= cost
+			bot_upgrades[key] = current + 1
+			_log("%s upgrades %s." % [BOT_NAME, _upgrade_name(key)])
+			return
+
+
+func _bot_try_attack(chance: float) -> bool:
+	if not _can_bot_attack_player():
+		return false
+	if rng.randf() > chance:
+		return false
+	_bot_attack_player()
+	return true
+
+
+func _distance_to_bot() -> int:
+	if _is_docked() or _bot_is_docked():
+		return 99
+	return maxi(abs(boat_pos.x - bot_pos.x), abs(boat_pos.y - bot_pos.y))
+
+
+func _can_player_attack_bot() -> bool:
+	return versus_mode and not _is_docked() and not _bot_is_docked() and _distance_to_bot() <= 2 and int(upgrades.get("cannons", 0)) > 0
+
+
+func _can_bot_attack_player() -> bool:
+	return versus_mode and not _is_docked() and not _bot_is_docked() and _distance_to_bot() <= 2 and int(bot_upgrades.get("cannons", 0)) > 0
+
+
+func _player_attack_bot() -> void:
+	var attack_roll := rng.randi_range(1, _attack_roll_max(upgrades))
+	var defense_roll := rng.randi_range(1, _defense_roll_max(bot_upgrades))
+	if attack_roll <= defense_roll:
+		_log("Raid failed. You rolled %d, %s defended with %d." % [attack_roll, BOT_NAME, defense_roll])
+		_update_ui()
+		return
+
+	var damage := clampi(attack_roll - defense_roll, 1, 3)
+	_damage_bot(damage)
+	if not bot_live_well.is_empty():
+		for batch in bot_live_well:
+			live_well.append(batch)
+		bot_live_well.clear()
+		_log("Raid success: stole %s's fish and dealt %d damage." % [BOT_NAME, damage])
+	else:
+		_log("Raid success: dealt %d damage to %s." % [damage, BOT_NAME])
+	if int(bot_conditions.get("hull", 0)) <= 0:
+		_sink_bot("You sank %s." % BOT_NAME)
+	_update_ui()
+
+
+func _bot_attack_player() -> void:
+	var attack_roll := rng.randi_range(1, _attack_roll_max(bot_upgrades))
+	var defense_roll := rng.randi_range(1, _defense_roll_max(upgrades))
+	if attack_roll <= defense_roll:
+		_log("%s raids and misses. Attack %d vs defense %d." % [BOT_NAME, attack_roll, defense_roll])
+		return
+
+	var damage := clampi(attack_roll - defense_roll, 1, 3)
+	_damage_player(damage)
+	if not live_well.is_empty():
+		for batch in live_well:
+			bot_live_well.append(batch)
+		live_well.clear()
+		_log("%s raids successfully, steals your fish, and deals %d damage." % [BOT_NAME, damage])
+	else:
+		_log("%s raids successfully and deals %d damage." % [BOT_NAME, damage])
+	if int(conditions.get("hull", 0)) <= 0:
+		game_over = true
+		_log("%s sank your boat." % BOT_NAME)
+
+
+func _attack_roll_max(upgrade_dict: Dictionary) -> int:
+	var cannons := int(upgrade_dict.get("cannons", 0))
+	if cannons <= 0:
+		return 0
+	return 5 + cannons
+
+
+func _defense_roll_max(upgrade_dict: Dictionary) -> int:
+	return 6 + int(upgrade_dict.get("defense", 0))
+
+
+func _damage_player(amount: int) -> void:
+	var systems: Array[String] = ["hull", "propeller", "rudder", "nets"]
+	for i in range(amount):
+		var system: String = systems[rng.randi_range(0, systems.size() - 1)]
+		conditions[system] = max(0, int(conditions.get(system, CONDITION_MAX)) - 1)
+
+
+func _damage_bot(amount: int) -> void:
+	var systems: Array[String] = ["hull", "propeller", "rudder", "nets"]
+	for i in range(amount):
+		var system: String = systems[rng.randi_range(0, systems.size() - 1)]
+		bot_conditions[system] = max(0, int(bot_conditions.get(system, CONDITION_MAX)) - 1)
+
+
+func _sink_bot(message: String) -> void:
+	_log(message)
+	bot_live_well.clear()
+	bot_money = int(floor(float(bot_money) * 0.5))
+	bot_pos = Vector2i(DOCK_COL, GRID_ROWS)
+	bot_conditions = {
+		"hull": CONDITION_MAX,
+		"propeller": CONDITION_MAX,
+		"rudder": CONDITION_MAX,
+		"nets": CONDITION_MAX,
+	}
+
+
+func _bot_trophy_count() -> int:
+	var count := 0
+	for species in SPECIES:
+		if bool(bot_trophies.get(species, false)):
+			count += 1
+	return count
+
+
 # ────────────────────────────────────────────────────────────────────────
 # UI refresh
 # ────────────────────────────────────────────────────────────────────────
@@ -2314,6 +3067,7 @@ func _update_ui() -> void:
 	_update_live_well_tab()
 	_update_radio_tab()
 	_update_tray()
+	_save_game()
 
 
 func _update_hud() -> void:
@@ -2505,12 +3259,16 @@ func _update_board() -> void:
 			var index := _cell_index(pos)
 			var tile: Dictionary = board[index]
 			var btn: Button = cell_buttons[index]
+			var has_bot := versus_mode and not _bot_is_docked() and bot_pos == pos and boat_pos != pos
 			btn.text = _cell_text(pos, tile)
 			if boat_pos == pos:
 				btn.icon = BOAT_TEXTURE
 				btn.expand_icon = true
 				btn.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 				btn.text = ""
+			elif has_bot:
+				btn.icon = null
+				btn.text = "RB"
 			else:
 				btn.icon = null
 
@@ -2540,6 +3298,10 @@ func _update_board() -> void:
 				base_color = _with_alpha(GOLD_DEEP.lightened(0.14), 0.86)
 				border = _with_alpha(GOLD, 0.95)
 				label_color = BG_DEEP
+			elif has_bot:
+				base_color = _with_alpha(RED_DEEP.darkened(0.08), 0.78)
+				border = _with_alpha(RED, 0.95)
+				label_color = TEXT_PRIMARY
 
 			if _is_adjacent_to_boat(pos) and not _is_docked() and boat_pos != pos:
 				if not known:
@@ -2564,10 +3326,12 @@ func _update_board() -> void:
 			var font_size := 14
 			if boat_pos == pos:
 				font_size = FONT_BOAT
+			elif has_bot:
+				font_size = 18
 			elif known and not is_empty_known:
 				font_size = FONT_CELL_BIG if is_treasure else FONT_CELL
 			btn.add_theme_font_size_override("font_size", font_size)
-			_update_cell_cast_dots(btn, tile, known and is_fish, boat_pos == pos, label_color)
+			_update_cell_cast_dots(btn, tile, known and is_fish, boat_pos == pos or has_bot, label_color)
 
 
 func _update_dock_strip() -> void:
@@ -2607,9 +3371,9 @@ func _update_dock_strip() -> void:
 
 func _update_action_buttons() -> void:
 	var docked := _is_docked()
-	# Attack stays in the action_buttons dict so the slot is ready when combat lands,
-	# but it never shows until an opponent is adjacent. For now: hidden.
 	var at_sea_keys: Array[String] = ["find", "cast", "end_day"]
+	if versus_mode and not docked and not _bot_is_docked() and _distance_to_bot() <= 2:
+		at_sea_keys = ["find", "cast", "attack", "end_day"]
 	var at_dock_keys: Array[String] = ["sell", "end_day"]
 	var visible_keys: Array[String] = at_dock_keys if docked else at_sea_keys
 
@@ -2628,6 +3392,9 @@ func _update_action_buttons() -> void:
 
 	if action_buttons["cast"].visible:
 		action_buttons["cast"].disabled = action_buttons["cast"].disabled or not _can_attempt_cast_here()
+
+	if action_buttons["attack"].visible:
+		action_buttons["attack"].disabled = action_buttons["attack"].disabled or not _can_player_attack_bot()
 
 	if action_buttons["end_day"].visible:
 		var prompt_end_day := _should_prompt_end_day()
@@ -2756,7 +3523,12 @@ func _update_radio_tab() -> void:
 		var lines: VBoxContainer = ui["radio_lines"]
 		for child in lines.get_children():
 			child.queue_free()
-		for i in range(min(6, log_lines.size())):
+		var log_limit := 6
+		if versus_mode:
+			var bot_place := "docks" if _bot_is_docked() else "%s water" % str(board[_cell_index(bot_pos)]["zone"])
+			lines.add_child(_label("%s: $%d · %d fish · %d trophies · %s" % [BOT_NAME, bot_money, _bot_total_fish(), _bot_trophy_count(), bot_place], FONT_BODY, RED))
+			log_limit = 5
+		for i in range(min(log_limit, log_lines.size())):
 			lines.add_child(_label(log_lines[i], FONT_BODY, TEXT_PRIMARY if i == 0 else TEXT_MUTED))
 
 
@@ -2807,6 +3579,8 @@ func _weather_icon_texture(weather_name: String) -> Texture2D:
 func _cell_text(pos: Vector2i, tile: Dictionary) -> String:
 	if boat_pos == pos:
 		return "◉"
+	if versus_mode and not _bot_is_docked() and bot_pos == pos:
+		return "RB"
 	var known := bool(tile["found"]) or bool(tile["revealed"])
 	if not known:
 		return ""

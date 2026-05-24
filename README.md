@@ -27,3 +27,5 @@ Godot 4.x mobile prototype for Raider Bay, rebuilt around the recovered rules an
 - Hull sinking condition.
 - Trophy turn-ins for 10 of a single fish type.
 - 14-day solo test loop.
+- Start screen with solo, versus-computer, and one-slot local continue.
+- Simple computer captain that fishes, sells, upgrades, and raids nearby boats.
