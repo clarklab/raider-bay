@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 10
     container:
       image: barichello/godot-ci:4.6
+    env:
+      HOME: /root
 
     steps:
       - name: Checkout
