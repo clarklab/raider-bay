@@ -43,6 +43,8 @@ const SHIP_ROLL_BAND_HEIGHT := 24.0
 const HUD_BG_SIZE := Vector2(1633, 831)
 const HUD_DISPLAY_HEIGHT := 366
 const SAVE_PATH := "user://raider_bay_save.json"
+const HIGH_SCORES_PATH := "user://raider_bay_high_scores.json"
+const MAX_HIGH_SCORES := 50
 const SAVE_VERSION := 1
 const MODE_SOLO := "solo"
 const MODE_VERSUS := "versus"
@@ -498,6 +500,8 @@ func _build_ui() -> void:
 	_build_bottom_nav(screen)
 	_build_sell_modal()
 	_build_rules_modal()
+	_build_game_over_screen()
+	_build_high_scores_screen()
 
 
 func _build_start_screen() -> void:
@@ -524,12 +528,30 @@ func _build_start_screen() -> void:
 	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.88055, func(): _new_game(true), 7)
 	overlay.add_child(battle)
 
+	var hs_btn := Button.new()
+	hs_btn.text = "High Scores"
+	hs_btn.focus_mode = Control.FOCUS_NONE
+	hs_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	hs_btn.anchor_left = 0.25
+	hs_btn.anchor_right = 0.75
+	hs_btn.anchor_top = 0.96
+	hs_btn.anchor_bottom = 0.99
+	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+		hs_btn.add_theme_stylebox_override(state, _transparent_style())
+	hs_btn.add_theme_font_size_override("font_size", FONT_SMALL)
+	hs_btn.add_theme_color_override("font_color", TEXT_MUTED)
+	hs_btn.add_theme_color_override("font_hover_color", TEXT_PRIMARY)
+	hs_btn.add_theme_color_override("font_pressed_color", TEXT_DIM)
+	hs_btn.pressed.connect(_show_high_scores_screen)
+	overlay.add_child(hs_btn)
+
 	var chooser := _build_solo_save_chooser()
 	overlay.add_child(chooser)
 	ui["start_solo_chooser"] = chooser
 
 
 func _show_start_screen() -> void:
+	_hide_game_over_screen()
 	if ui.has("start_solo_chooser"):
 		(ui["start_solo_chooser"] as Control).visible = false
 	if ui.has("start_overlay"):
@@ -2207,6 +2229,7 @@ func _new_game(enable_versus: bool = false) -> void:
 	_refresh_daily_actions()
 	_close_tray()
 	_hide_start_screen()
+	_hide_game_over_screen()
 	if versus_mode:
 		_log("%s joins the contest. It will fish, sell, and raid if you get close." % BOT_NAME)
 		_log("Leave the docks, fish deep, and watch the other captain.")
@@ -2863,6 +2886,8 @@ func _confirm_sale() -> void:
 	_log_sale_result(result, "")
 	_close_sell_modal()
 	_update_ui()
+	if game_over:
+		_show_game_over_screen()
 
 
 func _haggle_sale() -> void:
@@ -2895,6 +2920,8 @@ func _haggle_sale() -> void:
 	(ui["sell_ok"] as Control).visible = true
 	_log_sale_result(result, "Haggle roll %d. " % roll)
 	_update_ui()
+	if game_over:
+		_show_game_over_screen()
 
 
 func _open_sell_modal() -> void:
@@ -3131,11 +3158,13 @@ func _end_day() -> void:
 		await _run_bot_turn()
 		if game_over:
 			_update_ui()
+			_show_game_over_screen()
 			return
 
 	_resolve_weather()
 	if game_over:
 		_update_ui()
+		_show_game_over_screen()
 		return
 	_age_fish()
 	if versus_mode:
@@ -3148,6 +3177,7 @@ func _end_day() -> void:
 			_log("Season over. Unsold fish remain aboard.")
 		_log("Final score: %d trophies, $%d." % [_trophy_count(), money])
 		_update_ui()
+		_show_game_over_screen()
 		return
 
 	current_weather = forecast.pop_front()
@@ -3188,6 +3218,7 @@ func _resolve_weather_for_player(strength: int) -> void:
 	if int(conditions["hull"]) <= 0:
 		game_over = true
 		_log("The hull failed. Your boat sank.")
+		_show_game_over_screen()
 
 
 func _resolve_weather_for_bot(strength: int) -> void:
@@ -5131,3 +5162,462 @@ func _weather_chip(weather: Dictionary, is_tonight: bool) -> Control:
 	var lbl := _label(label_text, FONT_SMALL, text_color, HORIZONTAL_ALIGNMENT_CENTER)
 	row.add_child(lbl)
 	return p
+
+
+# ────────────────────────────────────────────────────────────────────────
+# End-of-game report screen
+# ────────────────────────────────────────────────────────────────────────
+
+func _build_game_over_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 180
+	add_child(overlay)
+	ui["game_over_overlay"] = overlay
+
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.82)
+	shade.anchor_right = 1.0
+	shade.anchor_bottom = 1.0
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(shade)
+
+	var scroll := ScrollContainer.new()
+	scroll.anchor_right = 1.0
+	scroll.anchor_bottom = 1.0
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	overlay.add_child(scroll)
+
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_left", 24)
+	pad.add_theme_constant_override("margin_right", 24)
+	pad.add_theme_constant_override("margin_top", 48)
+	pad.add_theme_constant_override("margin_bottom", 36)
+	scroll.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 16)
+	pad.add_child(col)
+	ui["game_over_col"] = col
+
+
+func _show_game_over_screen() -> void:
+	if not ui.has("game_over_overlay") or not ui.has("game_over_col"):
+		return
+
+	var col: VBoxContainer = ui["game_over_col"]
+	for child in col.get_children():
+		child.queue_free()
+
+	var outcome := _game_over_outcome()
+
+	var title_lbl := _label(outcome["title"], 28, outcome["title_color"], HORIZONTAL_ALIGNMENT_CENTER)
+	title_lbl.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	title_lbl.add_theme_constant_override("shadow_offset_y", 4)
+	title_lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title_lbl)
+
+	var subtitle := _label(outcome["subtitle"], FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	subtitle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(subtitle)
+
+	col.add_child(_divider(BORDER_FRAME))
+
+	# Final Score
+	var score_card := _panel_lifted(BG_PANEL, BORDER_FRAME, 1, 8, 6)
+	score_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(score_card)
+
+	var score_pad := MarginContainer.new()
+	score_pad.add_theme_constant_override("margin_left", 18)
+	score_pad.add_theme_constant_override("margin_right", 18)
+	score_pad.add_theme_constant_override("margin_top", 16)
+	score_pad.add_theme_constant_override("margin_bottom", 16)
+	score_card.add_child(score_pad)
+
+	var score_col := VBoxContainer.new()
+	score_col.add_theme_constant_override("separation", 8)
+	score_pad.add_child(score_col)
+
+	score_col.add_child(_section_label("FINAL SCORE"))
+
+	var money_row := HBoxContainer.new()
+	money_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	money_row.add_theme_constant_override("separation", 10)
+	score_col.add_child(money_row)
+	var money_lbl := _label("$%d" % money, 36, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+	money_lbl.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	money_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	money_row.add_child(money_lbl)
+	money_row.add_child(_label("Day %d/%d" % [min(day, MAX_DAYS), MAX_DAYS], FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_RIGHT))
+
+	var stats_row := HBoxContainer.new()
+	stats_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stats_row.add_theme_constant_override("separation", 12)
+	score_col.add_child(stats_row)
+
+	var total_sold := 0
+	for species in SPECIES:
+		total_sold += int(sold_totals.get(species, 0))
+	stats_row.add_child(_label("%d trophies" % _trophy_count(), FONT_BODY, CYAN))
+	stats_row.add_child(_label("%d fish sold" % total_sold, FONT_BODY, TEXT_MUTED))
+
+	# Trophies section
+	col.add_child(_section_label("TROPHIES"))
+
+	for species in SPECIES:
+		var earned := bool(trophies.get(species, false))
+		var trophy_card := _panel(BG_PANEL_DARK if not earned else BG_PANEL_LIGHT, BORDER_DARK if not earned else GOLD_DEEP, 1, 6)
+		trophy_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(trophy_card)
+
+		var trophy_pad := MarginContainer.new()
+		trophy_pad.add_theme_constant_override("margin_left", 12)
+		trophy_pad.add_theme_constant_override("margin_right", 12)
+		trophy_pad.add_theme_constant_override("margin_top", 10)
+		trophy_pad.add_theme_constant_override("margin_bottom", 10)
+		trophy_card.add_child(trophy_pad)
+
+		var trophy_row := HBoxContainer.new()
+		trophy_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		trophy_row.add_theme_constant_override("separation", 12)
+		trophy_pad.add_child(trophy_row)
+
+		var fish_art := TextureRect.new()
+		fish_art.texture = _fish_texture(species)
+		fish_art.custom_minimum_size = Vector2(72, 52)
+		fish_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		fish_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		fish_art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		if not earned:
+			fish_art.modulate = Color(1, 1, 1, 0.25)
+		trophy_row.add_child(fish_art)
+
+		var trophy_info := VBoxContainer.new()
+		trophy_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		trophy_info.add_theme_constant_override("separation", 2)
+		trophy_row.add_child(trophy_info)
+
+		trophy_info.add_child(_label(species, FONT_BODY, TEXT_PRIMARY if earned else TEXT_DIM))
+		var sold_count := int(sold_totals.get(species, 0))
+		trophy_info.add_child(_label("%d sold" % sold_count, FONT_SMALL, TEXT_MUTED if earned else TEXT_DIM))
+
+		var star := _label("★" if earned else "☆", 24, GOLD if earned else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+		trophy_row.add_child(star)
+
+	# Ship stats section
+	col.add_child(_section_label("SHIP STATUS"))
+
+	var ship_card := _panel_lifted(BG_PANEL, BORDER_FRAME, 1, 8, 6)
+	ship_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(ship_card)
+
+	var ship_pad := MarginContainer.new()
+	ship_pad.add_theme_constant_override("margin_left", 14)
+	ship_pad.add_theme_constant_override("margin_right", 14)
+	ship_pad.add_theme_constant_override("margin_top", 12)
+	ship_pad.add_theme_constant_override("margin_bottom", 12)
+	ship_card.add_child(ship_pad)
+
+	var ship_col := VBoxContainer.new()
+	ship_col.add_theme_constant_override("separation", 6)
+	ship_pad.add_child(ship_col)
+
+	for key in CONDITION_KEYS:
+		var val := int(conditions[key])
+		var cond_row := HBoxContainer.new()
+		cond_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cond_row.add_theme_constant_override("separation", 8)
+		ship_col.add_child(cond_row)
+
+		var cond_name := _label(key.capitalize(), FONT_BODY, TEXT_PRIMARY)
+		cond_name.custom_minimum_size = Vector2(100, 0)
+		cond_row.add_child(cond_name)
+
+		var bar_bg := _panel(SEGMENT_EMPTY, BORDER_DARK, 1, 3)
+		bar_bg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar_bg.custom_minimum_size = Vector2(0, 22)
+		cond_row.add_child(bar_bg)
+
+		var bar_fill := ColorRect.new()
+		var fill_ratio := float(val) / float(CONDITION_MAX)
+		var bar_color := GREEN if fill_ratio > 0.5 else (GOLD if fill_ratio > 0.2 else RED)
+		bar_fill.color = bar_color
+		bar_fill.anchor_top = 0.1
+		bar_fill.anchor_bottom = 0.9
+		bar_fill.anchor_left = 0.02
+		bar_fill.anchor_right = 0.02 + fill_ratio * 0.96
+		bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar_bg.add_child(bar_fill)
+
+		cond_row.add_child(_label("%d/%d" % [val, CONDITION_MAX], FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_RIGHT))
+
+	ship_col.add_child(_divider(BORDER_DARK))
+
+	for key in UPGRADE_KEYS:
+		var lvl := int(upgrades[key])
+		if lvl <= 0:
+			continue
+		var upg_row := HBoxContainer.new()
+		upg_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		upg_row.add_theme_constant_override("separation", 8)
+		ship_col.add_child(upg_row)
+		upg_row.add_child(_label(key.replace("_", " ").capitalize(), FONT_BODY, TEXT_PRIMARY))
+		var dots := ""
+		for i in range(lvl):
+			dots += "▮"
+		for i in range(UPGRADE_MAX_LEVEL - lvl):
+			dots += "▯"
+		var dots_lbl := _label(dots, FONT_BODY, CYAN, HORIZONTAL_ALIGNMENT_RIGHT)
+		dots_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		upg_row.add_child(dots_lbl)
+
+	col.add_child(_divider(BORDER_FRAME))
+
+	# Buttons
+	var btn_row := HBoxContainer.new()
+	btn_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_row.add_theme_constant_override("separation", 12)
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_child(btn_row)
+
+	var menu_btn := _tactile_button("MENU", 180, 56, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
+	menu_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	menu_btn.pressed.connect(func():
+		_hide_game_over_screen()
+		_show_start_screen()
+	)
+	btn_row.add_child(menu_btn)
+
+	var again_btn := _tactile_button("PLAY AGAIN", 180, 56, CYAN_DEEP, CYAN, TEXT_PRIMARY)
+	again_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	again_btn.pressed.connect(func():
+		_hide_game_over_screen()
+		_new_game(versus_mode)
+	)
+	btn_row.add_child(again_btn)
+
+	_record_high_score()
+	(ui["game_over_overlay"] as Control).visible = true
+
+
+func _hide_game_over_screen() -> void:
+	if ui.has("game_over_overlay"):
+		(ui["game_over_overlay"] as Control).visible = false
+
+
+func _game_over_outcome() -> Dictionary:
+	var hull_sunk := int(conditions["hull"]) <= 0
+	var won_trophies := _trophy_count() >= TROPHY_WIN_COUNT
+	var bot_won := versus_mode and _bot_trophy_count() >= TROPHY_WIN_COUNT
+	var bot_sank_you := versus_mode and hull_sunk
+
+	if won_trophies:
+		return {"title": "CHAMPION!", "subtitle": "All %d trophies earned." % TROPHY_WIN_COUNT, "title_color": GOLD}
+	if hull_sunk:
+		if bot_sank_you:
+			return {"title": "SUNK!", "subtitle": "%s destroyed your boat." % BOT_NAME, "title_color": RED}
+		return {"title": "SUNK!", "subtitle": "The sea claimed your vessel.", "title_color": RED}
+	if bot_won:
+		return {"title": "DEFEATED", "subtitle": "%s earned %d trophies first." % [BOT_NAME, TROPHY_WIN_COUNT], "title_color": RED}
+	return {"title": "SEASON OVER", "subtitle": "The fishing season has ended.", "title_color": CYAN}
+
+
+# ────────────────────────────────────────────────────────────────────────
+# High scores
+# ────────────────────────────────────────────────────────────────────────
+
+func _record_high_score() -> void:
+	var scores := _load_high_scores()
+	var total_sold := 0
+	for species in SPECIES:
+		total_sold += int(sold_totals.get(species, 0))
+	var outcome := _game_over_outcome()
+	var entry := {
+		"money": money,
+		"trophies": _trophy_count(),
+		"day": min(day, MAX_DAYS),
+		"fish_sold": total_sold,
+		"mode": MODE_VERSUS if versus_mode else MODE_SOLO,
+		"outcome": outcome["title"],
+		"timestamp": int(Time.get_unix_time_from_system()),
+	}
+	scores.append(entry)
+	scores.sort_custom(func(a, b): return int(a["money"]) > int(b["money"]))
+	while scores.size() > MAX_HIGH_SCORES:
+		scores.pop_back()
+	_save_high_scores(scores)
+
+
+func _load_high_scores() -> Array:
+	if not FileAccess.file_exists(HIGH_SCORES_PATH):
+		return []
+	var file := FileAccess.open(HIGH_SCORES_PATH, FileAccess.READ)
+	if file == null:
+		return []
+	var parser := JSON.new()
+	if parser.parse(file.get_as_text()) != OK:
+		return []
+	if parser.data is Array:
+		return parser.data
+	return []
+
+
+func _save_high_scores(scores: Array) -> void:
+	var file := FileAccess.open(HIGH_SCORES_PATH, FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string(JSON.stringify(scores))
+
+
+func _build_high_scores_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 210
+	add_child(overlay)
+	ui["high_scores_overlay"] = overlay
+
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.88)
+	shade.anchor_right = 1.0
+	shade.anchor_bottom = 1.0
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(shade)
+
+	var scroll := ScrollContainer.new()
+	scroll.anchor_right = 1.0
+	scroll.anchor_bottom = 1.0
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	overlay.add_child(scroll)
+
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_left", 20)
+	pad.add_theme_constant_override("margin_right", 20)
+	pad.add_theme_constant_override("margin_top", 48)
+	pad.add_theme_constant_override("margin_bottom", 36)
+	scroll.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 10)
+	pad.add_child(col)
+	ui["high_scores_col"] = col
+
+
+func _show_high_scores_screen() -> void:
+	if not ui.has("high_scores_overlay") or not ui.has("high_scores_col"):
+		return
+
+	var col: VBoxContainer = ui["high_scores_col"]
+	for child in col.get_children():
+		child.queue_free()
+
+	var title := _label("HIGH SCORES", 28, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	title.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	title.add_theme_constant_override("shadow_offset_y", 4)
+	title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title)
+
+	var scores := _load_high_scores()
+
+	if scores.is_empty():
+		var empty := _label("No games played yet.", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		empty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(empty)
+	else:
+		var header := HBoxContainer.new()
+		header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		header.add_theme_constant_override("separation", 6)
+		col.add_child(header)
+
+		var rank_h := _label("#", FONT_SMALL, TEXT_DIM)
+		rank_h.custom_minimum_size = Vector2(28, 0)
+		header.add_child(rank_h)
+		var money_h := _label("SCORE", FONT_SMALL, TEXT_DIM)
+		money_h.custom_minimum_size = Vector2(72, 0)
+		header.add_child(money_h)
+		var trophy_h := _label("★", FONT_SMALL, TEXT_DIM)
+		trophy_h.custom_minimum_size = Vector2(28, 0)
+		header.add_child(trophy_h)
+		var fish_h := _label("FISH", FONT_SMALL, TEXT_DIM)
+		fish_h.custom_minimum_size = Vector2(46, 0)
+		header.add_child(fish_h)
+		var mode_h := _label("MODE", FONT_SMALL, TEXT_DIM)
+		mode_h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		header.add_child(mode_h)
+		header.add_child(_label("RESULT", FONT_SMALL, TEXT_DIM))
+
+		col.add_child(_divider(BORDER_FRAME))
+
+		for i in range(scores.size()):
+			var entry: Dictionary = scores[i]
+			var is_top := i < 3
+
+			var row_wrap := PanelContainer.new()
+			var row_bg := BG_PANEL_LIGHT if is_top else (BG_PANEL_DARK if i % 2 == 0 else BG_PANEL)
+			var row_border := GOLD_DIM if i == 0 else BORDER_DARK
+			var row_style := _styled(row_bg, row_border, 1 if i == 0 else 0, 4)
+			row_style.content_margin_left = 8
+			row_style.content_margin_right = 8
+			row_style.content_margin_top = 8
+			row_style.content_margin_bottom = 8
+			row_wrap.add_theme_stylebox_override("panel", row_style)
+			row_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			col.add_child(row_wrap)
+
+			var row := HBoxContainer.new()
+			row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_theme_constant_override("separation", 6)
+			row_wrap.add_child(row)
+
+			var rank_color := GOLD if i == 0 else (CYAN if i < 3 else TEXT_MUTED)
+			var rank_lbl := _label("%d" % (i + 1), FONT_BODY, rank_color)
+			rank_lbl.custom_minimum_size = Vector2(28, 0)
+			row.add_child(rank_lbl)
+
+			var m_lbl := _label("$%d" % int(entry.get("money", 0)), FONT_BODY, GOLD if is_top else TEXT_PRIMARY)
+			m_lbl.custom_minimum_size = Vector2(72, 0)
+			row.add_child(m_lbl)
+
+			var t_count := int(entry.get("trophies", 0))
+			var t_lbl := _label("%d" % t_count, FONT_BODY, GOLD if t_count >= 5 else TEXT_MUTED)
+			t_lbl.custom_minimum_size = Vector2(28, 0)
+			row.add_child(t_lbl)
+
+			var f_lbl := _label("%d" % int(entry.get("fish_sold", 0)), FONT_BODY, TEXT_MUTED)
+			f_lbl.custom_minimum_size = Vector2(46, 0)
+			row.add_child(f_lbl)
+
+			var mode_text := "VS" if str(entry.get("mode", MODE_SOLO)) == MODE_VERSUS else "Solo"
+			var mode_lbl := _label(mode_text, FONT_SMALL, TEXT_DIM)
+			mode_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(mode_lbl)
+
+			var outcome_text := str(entry.get("outcome", ""))
+			var oc_color := GOLD if outcome_text == "CHAMPION!" else (RED if outcome_text == "SUNK!" or outcome_text == "DEFEATED" else TEXT_MUTED)
+			row.add_child(_label(outcome_text, FONT_SMALL, oc_color, HORIZONTAL_ALIGNMENT_RIGHT))
+
+	col.add_child(_divider(BORDER_FRAME))
+
+	var back_btn := _tactile_button("BACK", 160, 48, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
+	back_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	back_btn.pressed.connect(_hide_high_scores_screen)
+	col.add_child(back_btn)
+
+	(ui["high_scores_overlay"] as Control).visible = true
+
+
+func _hide_high_scores_screen() -> void:
+	if ui.has("high_scores_overlay"):
+		(ui["high_scores_overlay"] as Control).visible = false
