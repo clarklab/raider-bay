@@ -22,17 +22,8 @@ jobs:
           cp /root/.local/share/godot/export_templates/4.6.stable/* /root/.local/share/godot/export_templates/4.6.stable/ 2>/dev/null || true
           mkdir -p /root/.config/godot
 
-      - name: Setup Android SDK and keystore
+      - name: Setup Android keystore and SDK
         run: |
-          # Generate a debug keystore
-          keytool -genkey -v \
-            -keystore /root/debug.keystore \
-            -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
-
-          # Configure Godot editor settings for Android SDK and keystore paths
           mkdir -p /root/.config/godot
           cat > /root/.config/godot/editor_settings-4.tres <<SETTINGS
           [gd_resource type="EditorSettings"]
