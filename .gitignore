@@ -5,4 +5,4 @@ _analysis/
 builds/
 *.tmp
 *.translation
-export_presets.cfg
+export_presets.cfg.user
