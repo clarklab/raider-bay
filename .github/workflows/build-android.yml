@@ -3,6 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
@@ -53,3 +54,26 @@ jobs:
           name: raider-bay-debug
           path: builds/raider-bay.apk
           retention-days: 30
+
+  release:
+    name: Create Release
+    needs: android-debug
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK
+        uses: actions/download-artifact@v4
+        with:
+          name: raider-bay-debug
+
+      - name: Rename APK with version
+        run: mv raider-bay.apk raider-bay-${{ github.ref_name }}.apk
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Raider Bay ${{ github.ref_name }}
+          generate_release_notes: true
+          files: raider-bay-${{ github.ref_name }}.apk
