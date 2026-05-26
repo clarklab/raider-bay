@@ -201,6 +201,10 @@ var moves_remaining := 0
 var finds_remaining := 0
 var casts_remaining := 0
 var game_over := false
+var game_stats: Dictionary = {}
+var high_score_recorded := false
+var last_high_score_rank := -1
+var last_high_score_top_10 := false
 
 var upgrades: Dictionary = {}
 var conditions: Dictionary = {}
@@ -299,6 +303,8 @@ func _apply_safe_area_inset() -> void:
 
 
 func _process(delta: float) -> void:
+	if game_started and not game_over:
+		_stat_add("elapsed_seconds", delta)
 	if ui.has("ship_static"):
 		_update_ship_static(delta)
 	if ui.has("ship_roll"):
@@ -2188,6 +2194,7 @@ func _new_game(enable_versus: bool = false) -> void:
 	versus_mode = enable_versus
 	day = 1
 	game_over = false
+	_reset_game_stats()
 	active_tab = "map"
 	active_tray = ""
 	boat_pos = Vector2i(DOCK_COL, GRID_ROWS)
@@ -2303,6 +2310,10 @@ func _save_game() -> void:
 		"finds_remaining": finds_remaining,
 		"casts_remaining": casts_remaining,
 		"game_over": game_over,
+		"game_stats": game_stats,
+		"high_score_recorded": high_score_recorded,
+		"last_high_score_rank": last_high_score_rank,
+		"last_high_score_top_10": last_high_score_top_10,
 		"active_tab": active_tab,
 		"boat_pos": _serialize_pos(boat_pos),
 		"board": board,
@@ -2359,6 +2370,10 @@ func _load_game() -> bool:
 	finds_remaining = int(data.get("finds_remaining", 0))
 	casts_remaining = int(data.get("casts_remaining", START_CASTS))
 	game_over = bool(data.get("game_over", false))
+	game_stats = _dict_copy(data.get("game_stats", {}))
+	high_score_recorded = bool(data.get("high_score_recorded", false))
+	last_high_score_rank = int(data.get("last_high_score_rank", -1))
+	last_high_score_top_10 = bool(data.get("last_high_score_top_10", false))
 	active_tab = str(data.get("active_tab", "map"))
 	active_tray = ""
 	boat_pos = _deserialize_pos(data.get("boat_pos", {}), Vector2i(DOCK_COL, GRID_ROWS))
@@ -2382,6 +2397,7 @@ func _load_game() -> bool:
 			sold_totals[species] = 0
 		if not trophies.has(species):
 			trophies[species] = false
+	_ensure_game_stats_defaults()
 
 	weather_deck = _dict_array(data.get("weather_deck", []))
 	forecast = _dict_array(data.get("forecast", []))
@@ -2423,6 +2439,60 @@ func _ensure_player_defaults() -> void:
 	for key in CONDITION_KEYS:
 		if not conditions.has(key):
 			conditions[key] = CONDITION_MAX
+
+
+func _reset_game_stats() -> void:
+	game_stats = {
+		"elapsed_seconds": 0.0,
+		"move_actions": 0,
+		"moves_used": 0,
+		"finds_used": 0,
+		"casts_made": 0,
+		"empty_casts": 0,
+		"fish_caught": 0,
+		"fish_sold": 0,
+		"treasures_found": 0,
+		"treasure_money": 0,
+		"upgrades_bought": 0,
+		"repairs_made": 0,
+		"weather_hits": 0,
+		"damage_taken": 0,
+		"raids_won": 0,
+		"raids_lost": 0,
+	}
+	high_score_recorded = false
+	last_high_score_rank = -1
+	last_high_score_top_10 = false
+
+
+func _ensure_game_stats_defaults() -> void:
+	var defaults := {
+		"elapsed_seconds": 0.0,
+		"move_actions": 0,
+		"moves_used": 0,
+		"finds_used": 0,
+		"casts_made": 0,
+		"empty_casts": 0,
+		"fish_caught": 0,
+		"fish_sold": _total_fish_sold(),
+		"treasures_found": 0,
+		"treasure_money": 0,
+		"upgrades_bought": _upgrade_total(upgrades),
+		"repairs_made": 0,
+		"weather_hits": 0,
+		"damage_taken": 0,
+		"raids_won": 0,
+		"raids_lost": 0,
+	}
+	for key in defaults.keys():
+		if not game_stats.has(key):
+			game_stats[key] = defaults[key]
+
+
+func _stat_add(key: String, amount) -> void:
+	if game_stats.is_empty():
+		_ensure_game_stats_defaults()
+	game_stats[key] = game_stats.get(key, 0) + amount
 
 
 func _serialize_pos(pos: Vector2i) -> Dictionary:
@@ -2728,6 +2798,8 @@ func _move(delta: Vector2i) -> void:
 		return
 
 	moves_remaining -= cost
+	_stat_add("move_actions", 1)
+	_stat_add("moves_used", cost)
 	boat_pos = target
 	if going_to_dock:
 		cast_holes_today.clear()
@@ -2749,6 +2821,7 @@ func _find_fish() -> void:
 		return
 
 	finds_remaining -= 1
+	_stat_add("finds_used", 1)
 	var tile: Dictionary = board[_cell_index(boat_pos)]
 	tile["found"] = true
 	if bool(tile["depleted"]) or str(tile["content"]) == "empty":
@@ -2817,6 +2890,8 @@ func _cast() -> void:
 	var cast_outcome := ""
 	if str(tile["content"]) == "empty":
 		casts_remaining -= 1
+		_stat_add("casts_made", 1)
+		_stat_add("empty_casts", 1)
 		cast_holes_today[hole_index] = true
 		tile["depleted"] = true
 		_log("Nothing but cold water.")
@@ -2825,16 +2900,20 @@ func _cast() -> void:
 	elif str(tile["content"]) == "treasure":
 		tile["depleted"] = true
 		money += int(tile["value"])
+		_stat_add("treasures_found", 1)
+		_stat_add("treasure_money", int(tile["value"]))
 		_log("Recovered treasure worth $%d." % int(tile["value"]))
 		_show_board_toast("Treasure", "+$%d recovered" % int(tile["value"]), GOLD)
 		cast_outcome = "catch"
 	else:
 		casts_remaining -= 1
+		_stat_add("casts_made", 1)
 		cast_holes_today[hole_index] = true
 		# Fish: roll d6 + nets, decrement casts on the hole.
 		var nets_bonus: int = int(upgrades["nets"]) if int(conditions["nets"]) > 0 else 0
 		var roll := rng.randi_range(1, CAST_DIE_SIDES)
 		var amount: int = roll + nets_bonus
+		_stat_add("fish_caught", amount)
 		live_well.append({"species": tile["species"], "quantity": amount, "age": 0})
 		tile["casts_remaining"] = max(0, int(tile["casts_remaining"]) - 1)
 		if int(tile["casts_remaining"]) <= 0:
@@ -2966,6 +3045,7 @@ func _complete_sale(delta_per_fish: int) -> Dictionary:
 		var species_name := str(species)
 		var quantity := int(quantities[species])
 		sold_totals[species_name] = int(sold_totals[species_name]) + quantity
+		_stat_add("fish_sold", quantity)
 		if quantity >= TROPHY_REQUIRED and not bool(trophies[species_name]):
 			trophies[species_name] = true
 			earned_species.append(species_name)
@@ -3054,6 +3134,7 @@ func _repair_segment(key: String) -> void:
 
 	money -= REPAIR_COST_PER_SEGMENT
 	conditions[key] = min(CONDITION_MAX, int(conditions[key]) + 1)
+	_stat_add("repairs_made", 1)
 	_log("Repaired %s by 1 ($%d)." % [_condition_name(key), REPAIR_COST_PER_SEGMENT])
 	_update_ui()
 
@@ -3078,6 +3159,7 @@ func _buy_upgrade(key: String) -> void:
 
 	money -= cost
 	upgrades[key] = current + 1
+	_stat_add("upgrades_bought", 1)
 	_apply_upgrade_to_current_turn(key, moves_before)
 	_log("Upgraded %s to %d ($%d)." % [_upgrade_name(key), int(upgrades[key]), cost])
 	_update_ui()
@@ -3214,6 +3296,8 @@ func _resolve_weather_for_player(strength: int) -> void:
 	for i in range(damage):
 		var system: String = systems[rng.randi_range(0, systems.size() - 1)]
 		conditions[system] = max(0, int(conditions[system]) - 1)
+	_stat_add("weather_hits", 1)
+	_stat_add("damage_taken", damage)
 	_log("%s %d hit for %d damage." % [str(current_weather["name"]), strength, damage])
 	if int(conditions["hull"]) <= 0:
 		game_over = true
@@ -3574,6 +3658,7 @@ func _player_attack_bot() -> void:
 		return
 
 	var damage := clampi(attack_roll - defense_roll, 1, 3)
+	_stat_add("raids_won", 1)
 	_damage_bot(damage)
 	if not bot_live_well.is_empty():
 		for batch in bot_live_well:
@@ -3595,6 +3680,8 @@ func _bot_attack_player() -> void:
 		return
 
 	var damage := clampi(attack_roll - defense_roll, 1, 3)
+	_stat_add("raids_lost", 1)
+	_stat_add("damage_taken", damage)
 	_damage_player(damage)
 	if not live_well.is_empty():
 		for batch in live_well:
@@ -5215,6 +5302,11 @@ func _show_game_over_screen() -> void:
 		child.queue_free()
 
 	var outcome := _game_over_outcome()
+	var score_rank := _record_high_score()
+	var total_sold := _total_fish_sold()
+	var upgrade_total := _upgrade_total(upgrades)
+	var fish_caught := _final_fish_caught()
+	var elapsed_seconds := int(round(float(game_stats.get("elapsed_seconds", 0.0))))
 
 	var title_lbl := _label(outcome["title"], 28, outcome["title_color"], HORIZONTAL_ALIGNMENT_CENTER)
 	title_lbl.add_theme_font_override("font", FONT_TAY_MAKAWAO)
@@ -5228,6 +5320,7 @@ func _show_game_over_screen() -> void:
 	col.add_child(subtitle)
 
 	col.add_child(_divider(BORDER_FRAME))
+	col.add_child(_rank_banner(score_rank))
 
 	# Final Score
 	var score_card := _panel_lifted(BG_PANEL, BORDER_FRAME, 1, 8, 6)
@@ -5242,31 +5335,59 @@ func _show_game_over_screen() -> void:
 	score_card.add_child(score_pad)
 
 	var score_col := VBoxContainer.new()
-	score_col.add_theme_constant_override("separation", 8)
+	score_col.add_theme_constant_override("separation", 12)
 	score_pad.add_child(score_col)
 
-	score_col.add_child(_section_label("FINAL SCORE"))
+	score_col.add_child(_section_label("FINAL RANKING"))
 
-	var money_row := HBoxContainer.new()
-	money_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	money_row.add_theme_constant_override("separation", 10)
-	score_col.add_child(money_row)
-	var money_lbl := _label("$%d" % money, 36, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
-	money_lbl.add_theme_font_override("font", FONT_TAY_MAKAWAO)
-	money_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	money_row.add_child(money_lbl)
-	money_row.add_child(_label("Day %d/%d" % [min(day, MAX_DAYS), MAX_DAYS], FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_RIGHT))
+	var ranking_note := _label("Ranked by stars, dollars, ship upgrades, then fish.", FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	ranking_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	score_col.add_child(ranking_note)
 
-	var stats_row := HBoxContainer.new()
-	stats_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stats_row.add_theme_constant_override("separation", 12)
-	score_col.add_child(stats_row)
+	var metric_grid := GridContainer.new()
+	metric_grid.columns = 2
+	metric_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	metric_grid.add_theme_constant_override("h_separation", 8)
+	metric_grid.add_theme_constant_override("v_separation", 8)
+	score_col.add_child(metric_grid)
 
-	var total_sold := 0
-	for species in SPECIES:
-		total_sold += int(sold_totals.get(species, 0))
-	stats_row.add_child(_label("%d trophies" % _trophy_count(), FONT_BODY, CYAN))
-	stats_row.add_child(_label("%d fish sold" % total_sold, FONT_BODY, TEXT_MUTED))
+	metric_grid.add_child(_end_metric_tile("STARS", "%d/%d" % [_trophy_count(), TROPHY_WIN_COUNT], _star_string(_trophy_count()), GOLD))
+	metric_grid.add_child(_end_metric_tile("DOLLARS", "$%d" % money, "cash on hand", GREEN))
+	metric_grid.add_child(_end_metric_tile("UPGRADES", "%d" % upgrade_total, "ship levels", CYAN))
+	metric_grid.add_child(_end_metric_tile("FISH", "%d" % fish_caught, "%d sold" % total_sold, PURPLE))
+
+	col.add_child(_section_label("TRIP LOG"))
+	var trip_card := _panel_lifted(BG_PANEL_DARK, BORDER_DARK, 1, 8, 5)
+	trip_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(trip_card)
+
+	var trip_pad := MarginContainer.new()
+	trip_pad.add_theme_constant_override("margin_left", 14)
+	trip_pad.add_theme_constant_override("margin_right", 14)
+	trip_pad.add_theme_constant_override("margin_top", 12)
+	trip_pad.add_theme_constant_override("margin_bottom", 12)
+	trip_card.add_child(trip_pad)
+
+	var trip_grid := GridContainer.new()
+	trip_grid.columns = 2
+	trip_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	trip_grid.add_theme_constant_override("h_separation", 8)
+	trip_grid.add_theme_constant_override("v_separation", 8)
+	trip_pad.add_child(trip_grid)
+
+	trip_grid.add_child(_stat_chip("TIME PLAYED", _format_duration(elapsed_seconds), CYAN))
+	trip_grid.add_child(_stat_chip("DAYS", "%d/%d" % [min(day, MAX_DAYS), MAX_DAYS], TEXT_PRIMARY))
+	trip_grid.add_child(_stat_chip("MOVES", "%d" % int(game_stats.get("move_actions", 0)), TEXT_PRIMARY))
+	trip_grid.add_child(_stat_chip("SPACES", "%d" % int(game_stats.get("moves_used", 0)), TEXT_MUTED))
+	trip_grid.add_child(_stat_chip("CASTS", "%d" % int(game_stats.get("casts_made", 0)), TEXT_PRIMARY))
+	trip_grid.add_child(_stat_chip("FINDER PINGS", "%d" % int(game_stats.get("finds_used", 0)), TEXT_MUTED))
+	trip_grid.add_child(_stat_chip("TREASURE", "%d / $%d" % [int(game_stats.get("treasures_found", 0)), int(game_stats.get("treasure_money", 0))], GOLD))
+	trip_grid.add_child(_stat_chip("EMPTY CASTS", "%d" % int(game_stats.get("empty_casts", 0)), TEXT_DIM))
+	trip_grid.add_child(_stat_chip("REPAIRS", "%d" % int(game_stats.get("repairs_made", 0)), TEXT_MUTED))
+	trip_grid.add_child(_stat_chip("WEATHER HITS", "%d" % int(game_stats.get("weather_hits", 0)), RED if int(game_stats.get("weather_hits", 0)) > 0 else TEXT_DIM))
+	if versus_mode:
+		trip_grid.add_child(_stat_chip("RAIDS WON", "%d" % int(game_stats.get("raids_won", 0)), GREEN))
+		trip_grid.add_child(_stat_chip("RAIDS LOST", "%d" % int(game_stats.get("raids_lost", 0)), RED if int(game_stats.get("raids_lost", 0)) > 0 else TEXT_DIM))
 
 	# Trophies section
 	col.add_child(_section_label("TROPHIES"))
@@ -5403,7 +5524,7 @@ func _show_game_over_screen() -> void:
 	)
 	btn_row.add_child(again_btn)
 
-	_record_high_score()
+	_save_game()
 	(ui["game_over_overlay"] as Control).visible = true
 
 
@@ -5429,30 +5550,208 @@ func _game_over_outcome() -> Dictionary:
 	return {"title": "SEASON OVER", "subtitle": "The fishing season has ended.", "title_color": CYAN}
 
 
+func _rank_banner(rank: int) -> Control:
+	var is_top_10 := rank > 0 and rank <= 10
+	var banner := _panel_lifted(BG_PANEL_LIGHT if is_top_10 else BG_PANEL_DARK, GOLD_DEEP if is_top_10 else BORDER_DARK, 2 if is_top_10 else 1, 8, 8)
+	banner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 16)
+	pad.add_theme_constant_override("margin_right", 16)
+	pad.add_theme_constant_override("margin_top", 12)
+	pad.add_theme_constant_override("margin_bottom", 12)
+	banner.add_child(pad)
+
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 12)
+	pad.add_child(row)
+
+	var marker_text := "TOP 10" if is_top_10 else "RANK"
+	var marker := _label(marker_text, 34 if is_top_10 else 26, GOLD if is_top_10 else CYAN, HORIZONTAL_ALIGNMENT_CENTER)
+	marker.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	marker.add_theme_constant_override("shadow_offset_y", 4)
+	marker.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	marker.custom_minimum_size = Vector2(170, 0)
+	row.add_child(marker)
+
+	var copy := VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	copy.add_theme_constant_override("separation", 2)
+	row.add_child(copy)
+
+	var rank_line := "High score #%d" % rank if rank > 0 else "Not ranked"
+	if is_top_10:
+		rank_line = "High score #%d" % rank
+	elif rank > MAX_HIGH_SCORES:
+		rank_line = "Outside the top %d" % MAX_HIGH_SCORES
+	copy.add_child(_label(rank_line, FONT_BODY, TEXT_PRIMARY))
+	copy.add_child(_label("Stars break ties first. Cash, upgrades, and fish settle the rest.", FONT_SMALL, TEXT_MUTED))
+
+	return banner
+
+
+func _end_metric_tile(title: String, value: String, detail: String, accent: Color) -> Control:
+	var tile := _panel(BG_PANEL_DARK, accent.darkened(0.25), 1, 6)
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 10)
+	pad.add_theme_constant_override("margin_right", 10)
+	pad.add_theme_constant_override("margin_top", 10)
+	pad.add_theme_constant_override("margin_bottom", 10)
+	tile.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	pad.add_child(col)
+
+	col.add_child(_label(title, FONT_SMALL, TEXT_DIM))
+	var value_lbl := _label(value, 26, accent)
+	value_lbl.add_theme_font_override("font", FONT_JERSEY_25)
+	col.add_child(value_lbl)
+	col.add_child(_label(detail, FONT_SMALL, TEXT_MUTED))
+	return tile
+
+
+func _stat_chip(title: String, value: String, accent: Color) -> Control:
+	var chip := _panel(BG_PANEL, BORDER_DARK, 1, 4)
+	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 10)
+	pad.add_theme_constant_override("margin_right", 10)
+	pad.add_theme_constant_override("margin_top", 8)
+	pad.add_theme_constant_override("margin_bottom", 8)
+	chip.add_child(pad)
+
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
+	pad.add_child(row)
+	row.add_child(_label(title, FONT_SMALL, TEXT_DIM))
+	var value_lbl := _label(value, FONT_BODY, accent, HORIZONTAL_ALIGNMENT_RIGHT)
+	value_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(value_lbl)
+	return chip
+
+
+func _star_string(count: int) -> String:
+	var text := ""
+	for i in range(TROPHY_WIN_COUNT):
+		text += "★" if i < count else "☆"
+	return text
+
+
+func _format_duration(seconds: int) -> String:
+	seconds = max(0, seconds)
+	var hours := int(seconds / 3600)
+	var minutes := int((seconds % 3600) / 60)
+	var secs := seconds % 60
+	if hours > 0:
+		return "%dh %02dm" % [hours, minutes]
+	if minutes > 0:
+		return "%dm %02ds" % [minutes, secs]
+	return "%ds" % secs
+
+
 # ────────────────────────────────────────────────────────────────────────
 # High scores
 # ────────────────────────────────────────────────────────────────────────
 
-func _record_high_score() -> void:
+func _record_high_score() -> int:
+	if high_score_recorded:
+		return last_high_score_rank
+
 	var scores := _load_high_scores()
-	var total_sold := 0
-	for species in SPECIES:
-		total_sold += int(sold_totals.get(species, 0))
 	var outcome := _game_over_outcome()
+	var entry_id := "%d-%d" % [int(Time.get_unix_time_from_system()), rng.randi()]
 	var entry := {
+		"id": entry_id,
 		"money": money,
 		"trophies": _trophy_count(),
 		"day": min(day, MAX_DAYS),
-		"fish_sold": total_sold,
+		"fish_sold": _total_fish_sold(),
+		"fish_caught": _final_fish_caught(),
+		"upgrade_total": _upgrade_total(upgrades),
+		"elapsed_seconds": int(round(float(game_stats.get("elapsed_seconds", 0.0)))),
+		"move_actions": int(game_stats.get("move_actions", 0)),
+		"casts_made": int(game_stats.get("casts_made", 0)),
+		"treasures_found": int(game_stats.get("treasures_found", 0)),
 		"mode": MODE_VERSUS if versus_mode else MODE_SOLO,
 		"outcome": outcome["title"],
 		"timestamp": int(Time.get_unix_time_from_system()),
 	}
 	scores.append(entry)
-	scores.sort_custom(func(a, b): return int(a["money"]) > int(b["money"]))
+	_sort_high_scores(scores)
+
+	last_high_score_rank = scores.size()
+	for i in range(scores.size()):
+		var score: Dictionary = scores[i]
+		if str(score.get("id", "")) == entry_id:
+			last_high_score_rank = i + 1
+			break
+	last_high_score_top_10 = last_high_score_rank > 0 and last_high_score_rank <= 10
+	high_score_recorded = true
+
 	while scores.size() > MAX_HIGH_SCORES:
 		scores.pop_back()
 	_save_high_scores(scores)
+	return last_high_score_rank
+
+
+func _sort_high_scores(scores: Array) -> void:
+	scores.sort_custom(_is_high_score_better)
+
+
+func _is_high_score_better(a, b) -> bool:
+	var ad: Dictionary = a if a is Dictionary else {}
+	var bd: Dictionary = b if b is Dictionary else {}
+	var trophy_diff := int(ad.get("trophies", 0)) - int(bd.get("trophies", 0))
+	if trophy_diff != 0:
+		return trophy_diff > 0
+	var money_diff := int(ad.get("money", 0)) - int(bd.get("money", 0))
+	if money_diff != 0:
+		return money_diff > 0
+	var upgrade_diff := int(ad.get("upgrade_total", 0)) - int(bd.get("upgrade_total", 0))
+	if upgrade_diff != 0:
+		return upgrade_diff > 0
+	var fish_diff := _entry_fish_count(ad) - _entry_fish_count(bd)
+	if fish_diff != 0:
+		return fish_diff > 0
+	var elapsed_diff := int(ad.get("elapsed_seconds", 99999999)) - int(bd.get("elapsed_seconds", 99999999))
+	if elapsed_diff != 0:
+		return elapsed_diff < 0
+	return int(ad.get("timestamp", 0)) > int(bd.get("timestamp", 0))
+
+
+func _entry_fish_count(entry: Dictionary) -> int:
+	return int(entry.get("fish_caught", entry.get("fish_sold", 0)))
+
+
+func _total_fish_sold() -> int:
+	var total := 0
+	for species in SPECIES:
+		total += int(sold_totals.get(species, 0))
+	return total
+
+
+func _fish_aboard_count() -> int:
+	var total := 0
+	for batch in live_well:
+		total += int(batch.get("quantity", 0))
+	return total
+
+
+func _final_fish_caught() -> int:
+	return max(int(game_stats.get("fish_caught", 0)), _total_fish_sold() + _fish_aboard_count())
+
+
+func _upgrade_total(upgrade_dict: Dictionary) -> int:
+	var total := 0
+	for key in UPGRADE_KEYS:
+		total += int(upgrade_dict.get(key, 0))
+	return total
 
 
 func _load_high_scores() -> Array:
@@ -5465,7 +5764,18 @@ func _load_high_scores() -> Array:
 	if parser.parse(file.get_as_text()) != OK:
 		return []
 	if parser.data is Array:
-		return parser.data
+		var scores: Array = parser.data
+		for item in scores:
+			if item is Dictionary:
+				var entry: Dictionary = item
+				if not entry.has("upgrade_total"):
+					entry["upgrade_total"] = 0
+				if not entry.has("fish_caught"):
+					entry["fish_caught"] = int(entry.get("fish_sold", 0))
+				if not entry.has("elapsed_seconds"):
+					entry["elapsed_seconds"] = 99999999
+		_sort_high_scores(scores)
+		return scores
 	return []
 
 
@@ -5544,12 +5854,15 @@ func _show_high_scores_screen() -> void:
 		var rank_h := _label("#", FONT_SMALL, TEXT_DIM)
 		rank_h.custom_minimum_size = Vector2(28, 0)
 		header.add_child(rank_h)
-		var money_h := _label("SCORE", FONT_SMALL, TEXT_DIM)
-		money_h.custom_minimum_size = Vector2(72, 0)
-		header.add_child(money_h)
 		var trophy_h := _label("★", FONT_SMALL, TEXT_DIM)
-		trophy_h.custom_minimum_size = Vector2(28, 0)
+		trophy_h.custom_minimum_size = Vector2(32, 0)
 		header.add_child(trophy_h)
+		var money_h := _label("$", FONT_SMALL, TEXT_DIM)
+		money_h.custom_minimum_size = Vector2(78, 0)
+		header.add_child(money_h)
+		var upgrade_h := _label("UPG", FONT_SMALL, TEXT_DIM)
+		upgrade_h.custom_minimum_size = Vector2(38, 0)
+		header.add_child(upgrade_h)
 		var fish_h := _label("FISH", FONT_SMALL, TEXT_DIM)
 		fish_h.custom_minimum_size = Vector2(46, 0)
 		header.add_child(fish_h)
@@ -5586,16 +5899,20 @@ func _show_high_scores_screen() -> void:
 			rank_lbl.custom_minimum_size = Vector2(28, 0)
 			row.add_child(rank_lbl)
 
-			var m_lbl := _label("$%d" % int(entry.get("money", 0)), FONT_BODY, GOLD if is_top else TEXT_PRIMARY)
-			m_lbl.custom_minimum_size = Vector2(72, 0)
-			row.add_child(m_lbl)
-
 			var t_count := int(entry.get("trophies", 0))
 			var t_lbl := _label("%d" % t_count, FONT_BODY, GOLD if t_count >= 5 else TEXT_MUTED)
-			t_lbl.custom_minimum_size = Vector2(28, 0)
+			t_lbl.custom_minimum_size = Vector2(32, 0)
 			row.add_child(t_lbl)
 
-			var f_lbl := _label("%d" % int(entry.get("fish_sold", 0)), FONT_BODY, TEXT_MUTED)
+			var m_lbl := _label("$%d" % int(entry.get("money", 0)), FONT_BODY, GOLD if is_top else TEXT_PRIMARY)
+			m_lbl.custom_minimum_size = Vector2(78, 0)
+			row.add_child(m_lbl)
+
+			var u_lbl := _label("%d" % int(entry.get("upgrade_total", 0)), FONT_BODY, CYAN if is_top else TEXT_MUTED)
+			u_lbl.custom_minimum_size = Vector2(38, 0)
+			row.add_child(u_lbl)
+
+			var f_lbl := _label("%d" % _entry_fish_count(entry), FONT_BODY, TEXT_MUTED)
 			f_lbl.custom_minimum_size = Vector2(46, 0)
 			row.add_child(f_lbl)
 
