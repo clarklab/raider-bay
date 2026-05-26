@@ -42,6 +42,17 @@ jobs:
         timeout-minutes: 3
         run: timeout 120 godot --headless --import || true
 
+      - name: Set APK version metadata
+        run: |
+          version_name="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            version_name="dev-${GITHUB_RUN_NUMBER}"
+          fi
+          export VERSION_NAME="$version_name"
+          perl -0pi -e 's/version\/code=\d+/version\/code=$ENV{GITHUB_RUN_NUMBER}/' export_presets.cfg
+          perl -0pi -e 's/version\/name="[^"]+"/version\/name="$ENV{VERSION_NAME}"/' export_presets.cfg
+          grep -E 'version/(code|name)=|launcher_icons/main_192x192=' export_presets.cfg
+
       - name: Build APK
         timeout-minutes: 5
         run: |
