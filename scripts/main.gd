@@ -213,6 +213,7 @@ var live_well: Array[Dictionary] = []
 var market_prices: Dictionary = {}
 var sold_totals: Dictionary = {}
 var trophies: Dictionary = {}
+var sale_selection: Dictionary = {}
 var extra_nights := 0
 var upgrade_cart: Dictionary = {}
 var extra_night_cart := 0
@@ -3194,6 +3195,9 @@ func _confirm_sale() -> void:
 	if live_well.is_empty():
 		_close_sell_modal()
 		return
+	if _selected_sale_count() <= 0:
+		_refresh_sell_selection_summary(0)
+		return
 	var result := _complete_sale(0)
 	_log_sale_result(result, "")
 	_close_sell_modal()
@@ -3205,6 +3209,9 @@ func _confirm_sale() -> void:
 func _haggle_sale() -> void:
 	if live_well.is_empty():
 		_close_sell_modal()
+		return
+	if _selected_sale_count() <= 0:
+		_refresh_sell_selection_summary(0)
 		return
 
 	var roll := rng.randi_range(1, 6)
@@ -3237,12 +3244,11 @@ func _haggle_sale() -> void:
 
 
 func _open_sell_modal() -> void:
-	var quantities := _sale_quantities()
-	var total := _sale_total_for(quantities, 0)
-	_populate_sell_rows(quantities, 0)
+	_reset_sale_selection()
+	_populate_sell_selection_rows(0)
 	(ui["sell_title"] as Label).text = "Sell Catch"
-	(ui["sell_total"] as Label).text = "Sale price: $%d" % total
-	(ui["sell_result"] as Label).text = "Haggle rolls 1-2: -$2/fish, 3-4: market, 5-6: +$2/fish."
+	_refresh_sell_selection_summary(0)
+	(ui["sell_result"] as Label).text = "Check fish to sell. Use +/- to split a batch. Haggle is auto-accepted."
 	(ui["sell_action_row"] as Control).visible = true
 	(ui["sell_ok"] as Control).visible = false
 	(ui["sell_overlay"] as Control).visible = true
@@ -3251,14 +3257,41 @@ func _open_sell_modal() -> void:
 func _close_sell_modal() -> void:
 	if ui.has("sell_overlay"):
 		(ui["sell_overlay"] as Control).visible = false
+	sale_selection.clear()
 
 
-func _sale_quantities() -> Dictionary:
+func _reset_sale_selection() -> void:
+	sale_selection.clear()
+	for i in range(live_well.size()):
+		var batch: Dictionary = live_well[i]
+		sale_selection[i] = max(0, int(batch.get("quantity", 0)))
+
+
+func _selected_sale_quantities() -> Dictionary:
 	var quantities: Dictionary = {}
-	for batch in live_well:
-		var species: String = str(batch["species"])
-		quantities[species] = int(quantities.get(species, 0)) + int(batch["quantity"])
+	for i in range(live_well.size()):
+		var batch: Dictionary = live_well[i]
+		var selected := _selected_sale_quantity_for_batch(i)
+		if selected <= 0:
+			continue
+		var species: String = str(batch.get("species", ""))
+		quantities[species] = int(quantities.get(species, 0)) + selected
 	return quantities
+
+
+func _selected_sale_quantity_for_batch(batch_index: int) -> int:
+	if batch_index < 0 or batch_index >= live_well.size():
+		return 0
+	var batch: Dictionary = live_well[batch_index]
+	var quantity: int = max(0, int(batch.get("quantity", 0)))
+	return min(quantity, max(0, int(sale_selection.get(batch_index, quantity))))
+
+
+func _selected_sale_count() -> int:
+	var total := 0
+	for i in range(live_well.size()):
+		total += _selected_sale_quantity_for_batch(i)
+	return total
 
 
 func _sale_total_for(quantities: Dictionary, delta_per_fish: int) -> int:
@@ -3270,7 +3303,7 @@ func _sale_total_for(quantities: Dictionary, delta_per_fish: int) -> int:
 
 
 func _complete_sale(delta_per_fish: int) -> Dictionary:
-	var quantities := _sale_quantities()
+	var quantities := _selected_sale_quantities()
 	var total := _sale_total_for(quantities, delta_per_fish)
 	var earned_species: Array[String] = []
 
@@ -3283,7 +3316,18 @@ func _complete_sale(delta_per_fish: int) -> Dictionary:
 			trophies[species_name] = true
 			earned_species.append(species_name)
 
-	live_well.clear()
+	var kept: Array[Dictionary] = []
+	for i in range(live_well.size()):
+		var batch: Dictionary = live_well[i]
+		var selected: int = _selected_sale_quantity_for_batch(i)
+		var remaining: int = max(0, int(batch.get("quantity", 0)) - selected)
+		if remaining <= 0:
+			continue
+		var kept_batch := batch.duplicate(true)
+		kept_batch["quantity"] = remaining
+		kept.append(kept_batch)
+	live_well = kept
+	sale_selection.clear()
 	money += total
 	if _trophy_count() >= TROPHY_WIN_COUNT:
 		game_over = true
@@ -3299,11 +3343,128 @@ func _log_sale_result(result: Dictionary, prefix: String) -> void:
 	var total := int(result["total"])
 	var earned_species: Array = result["earned_species"]
 	if earned_species.is_empty():
-		_log("%sSold catch for $%d." % [prefix, total])
+		_log("%sSold fish for $%d." % [prefix, total])
 	else:
-		_log("%sSold catch for $%d. Trophy earned: %s." % [prefix, total, ", ".join(earned_species)])
+		_log("%sSold fish for $%d. Trophy earned: %s." % [prefix, total, ", ".join(earned_species)])
 	if _trophy_count() >= TROPHY_WIN_COUNT:
 		_log("Contest won: %d trophies earned!" % TROPHY_WIN_COUNT)
+
+
+func _populate_sell_selection_rows(delta_per_fish: int) -> void:
+	var rows: VBoxContainer = ui["sell_rows"]
+	for child in rows.get_children():
+		child.queue_free()
+
+	for i in range(live_well.size()):
+		var batch: Dictionary = live_well[i]
+		var batch_quantity: int = max(0, int(batch.get("quantity", 0)))
+		if batch_quantity <= 0:
+			continue
+
+		var species := str(batch.get("species", ""))
+		var selected := _selected_sale_quantity_for_batch(i)
+		var unit_price: int = max(0, int(market_prices[species]) + delta_per_fish)
+		var subtotal := selected * unit_price
+
+		var wrap := PanelContainer.new()
+		var style := _styled(BG_ROW, BORDER_DARK, 1, 3)
+		style.content_margin_left = 8
+		style.content_margin_right = 8
+		style.content_margin_top = 7
+		style.content_margin_bottom = 7
+		wrap.add_theme_stylebox_override("panel", style)
+		wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if selected <= 0:
+			wrap.modulate = Color(1, 1, 1, 0.58)
+		rows.add_child(wrap)
+
+		var row := HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_theme_constant_override("separation", 8)
+		wrap.add_child(row)
+
+		var check := CheckBox.new()
+		check.custom_minimum_size = Vector2(42, 42)
+		check.focus_mode = Control.FOCUS_NONE
+		check.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		check.set_pressed_no_signal(selected > 0)
+		check.toggled.connect(_on_sell_batch_toggled.bind(i))
+		row.add_child(check)
+
+		var art := TextureRect.new()
+		art.texture = _fish_texture(species)
+		art.custom_minimum_size = Vector2(92, 66)
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		row.add_child(art)
+
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.add_theme_constant_override("separation", 1)
+		row.add_child(info)
+
+		info.add_child(_label(species, FONT_BODY, TEXT_PRIMARY))
+		info.add_child(_label("%s · %d aboard" % [_age_name(int(batch.get("age", 0))), batch_quantity], FONT_SMALL, TEXT_MUTED))
+		info.add_child(_label("$%d each" % unit_price, FONT_SMALL, GOLD))
+
+		var controls := HBoxContainer.new()
+		controls.alignment = BoxContainer.ALIGNMENT_CENTER
+		controls.add_theme_constant_override("separation", 5)
+		row.add_child(controls)
+
+		var minus := _tactile_button("-", 36, 38, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
+		minus.disabled = selected <= 0
+		minus.pressed.connect(_adjust_sale_batch_quantity.bind(i, -1))
+		controls.add_child(minus)
+
+		var count_lbl := _label("%d/%d" % [selected, batch_quantity], FONT_BODY, TEXT_PRIMARY if selected > 0 else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		count_lbl.custom_minimum_size = Vector2(56, 0)
+		controls.add_child(count_lbl)
+
+		var plus := _tactile_button("+", 36, 38, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
+		plus.disabled = selected >= batch_quantity
+		plus.pressed.connect(_adjust_sale_batch_quantity.bind(i, 1))
+		controls.add_child(plus)
+
+		var price := _label("$%d" % subtotal, FONT_BODY, GOLD if selected > 0 else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+		price.custom_minimum_size = Vector2(76, 0)
+		row.add_child(price)
+
+
+func _refresh_sell_selection_summary(delta_per_fish: int) -> void:
+	var selected_count := _selected_sale_count()
+	var total := _sale_total_for(_selected_sale_quantities(), delta_per_fish)
+	if selected_count <= 0:
+		(ui["sell_total"] as Label).text = "Select fish to sell"
+	else:
+		(ui["sell_total"] as Label).text = "%d fish selected · Sale price: $%d" % [selected_count, total]
+	if ui.has("sell_confirm"):
+		var confirm: Button = ui["sell_confirm"]
+		confirm.disabled = selected_count <= 0
+	if ui.has("sell_haggle"):
+		var haggle: Button = ui["sell_haggle"]
+		haggle.disabled = selected_count <= 0
+
+
+func _on_sell_batch_toggled(enabled: bool, batch_index: int) -> void:
+	if batch_index < 0 or batch_index >= live_well.size():
+		return
+	var batch: Dictionary = live_well[batch_index]
+	sale_selection[batch_index] = max(0, int(batch.get("quantity", 0))) if enabled else 0
+	_populate_sell_selection_rows(0)
+	_refresh_sell_selection_summary(0)
+
+
+func _adjust_sale_batch_quantity(batch_index: int, delta: int) -> void:
+	if batch_index < 0 or batch_index >= live_well.size():
+		return
+	var batch: Dictionary = live_well[batch_index]
+	var batch_quantity: int = max(0, int(batch.get("quantity", 0)))
+	var selected: int = _selected_sale_quantity_for_batch(batch_index)
+	sale_selection[batch_index] = min(batch_quantity, max(0, selected + delta))
+	_populate_sell_selection_rows(0)
+	_refresh_sell_selection_summary(0)
 
 
 func _populate_sell_rows(quantities: Dictionary, delta_per_fish: int) -> void:
