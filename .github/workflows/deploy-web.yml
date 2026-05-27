@@ -45,6 +45,24 @@ jobs:
           touch builds/web/.nojekyll
           ls -lh builds/web
 
+      - name: Apply phone-shaped browser shell
+        run: |
+          awk '
+            BEGIN {
+              while ((getline line < "web/phone-shell.css") > 0) {
+                css = css line "\n"
+              }
+            }
+            /<\/head>/ {
+              print "<style id=\"raider-bay-phone-shell\">"
+              printf "%s", css
+              print "</style>"
+            }
+            { print }
+          ' builds/web/index.html > builds/web/index.tmp
+          mv builds/web/index.tmp builds/web/index.html
+          grep -n "raider-bay-phone-shell" builds/web/index.html
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
