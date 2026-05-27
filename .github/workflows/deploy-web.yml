@@ -1,0 +1,63 @@
+name: Deploy Web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: web-pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build Web Export
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: barichello/godot-ci:4.6
+    env:
+      HOME: /root
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Compatibility renderer for Web
+        run: |
+          perl -0pi -e 's/renderer\/rendering_method="[^"]+"/renderer\/rendering_method="gl_compatibility"/' project.godot
+          grep -E 'renderer/rendering_method=' project.godot
+
+      - name: Import project
+        timeout-minutes: 3
+        run: timeout 120 godot --headless --import || true
+
+      - name: Build Web export
+        timeout-minutes: 5
+        run: |
+          mkdir -p builds/web
+          timeout 240 godot --headless --export-release "Web" builds/web/index.html
+          touch builds/web/.nojekyll
+          ls -lh builds/web
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: builds/web
+
+  deploy:
+    name: Deploy GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
