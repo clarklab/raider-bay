@@ -5605,7 +5605,7 @@ func _show_game_over_screen() -> void:
 
 	score_col.add_child(_section_label("FINAL RANKING"))
 
-	var ranking_note := _label("Ranked by stars, dollars, ship upgrades, then fish.", FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var ranking_note := _label("Ranked by stars, dollars, ship upgrades, fish, then fewer days.", FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	ranking_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	score_col.add_child(ranking_note)
 
@@ -5852,7 +5852,7 @@ func _rank_banner(rank: int) -> Control:
 	elif rank > MAX_HIGH_SCORES:
 		rank_line = "Outside the top %d" % MAX_HIGH_SCORES
 	copy.add_child(_label(rank_line, FONT_BODY, TEXT_PRIMARY))
-	copy.add_child(_label("Stars break ties first. Cash, upgrades, and fish settle the rest.", FONT_SMALL, TEXT_MUTED))
+	copy.add_child(_label("Stars break ties first. Cash, upgrades, fish, then fewer days settle the rest.", FONT_SMALL, TEXT_MUTED))
 
 	return banner
 
@@ -5987,6 +5987,9 @@ func _is_high_score_better(a, b) -> bool:
 	var fish_diff := _entry_fish_count(ad) - _entry_fish_count(bd)
 	if fish_diff != 0:
 		return fish_diff > 0
+	var day_diff := int(ad.get("day", 99999999)) - int(bd.get("day", 99999999))
+	if day_diff != 0:
+		return day_diff < 0
 	var elapsed_diff := int(ad.get("elapsed_seconds", 99999999)) - int(bd.get("elapsed_seconds", 99999999))
 	if elapsed_diff != 0:
 		return elapsed_diff < 0
@@ -6134,6 +6137,9 @@ func _show_high_scores_screen() -> void:
 		var fish_h := _label("FISH", FONT_SMALL, TEXT_DIM)
 		fish_h.custom_minimum_size = Vector2(46, 0)
 		header.add_child(fish_h)
+		var day_h := _label("DAY", FONT_SMALL, TEXT_DIM)
+		day_h.custom_minimum_size = Vector2(40, 0)
+		header.add_child(day_h)
 		var mode_h := _label("MODE", FONT_SMALL, TEXT_DIM)
 		mode_h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		header.add_child(mode_h)
@@ -6183,6 +6189,10 @@ func _show_high_scores_screen() -> void:
 			var f_lbl := _label("%d" % _entry_fish_count(entry), FONT_BODY, TEXT_MUTED)
 			f_lbl.custom_minimum_size = Vector2(46, 0)
 			row.add_child(f_lbl)
+
+			var d_lbl := _label("%d" % int(entry.get("day", 0)), FONT_BODY, TEXT_MUTED)
+			d_lbl.custom_minimum_size = Vector2(40, 0)
+			row.add_child(d_lbl)
 
 			var mode_text := "VS" if str(entry.get("mode", MODE_SOLO)) == MODE_VERSUS else "Solo"
 			var mode_lbl := _label(mode_text, FONT_SMALL, TEXT_DIM)
