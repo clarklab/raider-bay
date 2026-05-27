@@ -532,24 +532,27 @@ func _build_start_screen() -> void:
 	_anchor_fill(art)
 	overlay.add_child(art)
 
-	var solo := _start_screen_button(START_BUTTON_SOLO_TEXTURE, "SOLO TRIP", 0.7757, _on_solo_trip_pressed, 0)
+	var solo := _start_screen_button(START_BUTTON_SOLO_TEXTURE, "SOLO TRIP", 0.763, _on_solo_trip_pressed, 0)
 	overlay.add_child(solo)
 
-	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.88055, func(): _new_game(true), 7)
+	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.868, func(): _new_game(true), 7)
 	overlay.add_child(battle)
 
 	var hs_btn := Button.new()
 	hs_btn.text = "High Scores"
 	hs_btn.focus_mode = Control.FOCUS_NONE
 	hs_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	hs_btn.anchor_left = 0.25
-	hs_btn.anchor_right = 0.75
-	hs_btn.anchor_top = 0.96
+	hs_btn.anchor_left = 0.18
+	hs_btn.anchor_right = 0.82
+	hs_btn.anchor_top = 0.94
 	hs_btn.anchor_bottom = 0.99
 	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
 		hs_btn.add_theme_stylebox_override(state, _transparent_style())
-	hs_btn.add_theme_font_size_override("font_size", FONT_SMALL)
-	hs_btn.add_theme_color_override("font_color", TEXT_MUTED)
+	hs_btn.add_theme_font_override("font", FONT_TAY_MAKAWAO)
+	hs_btn.add_theme_font_size_override("font_size", 26)
+	hs_btn.add_theme_constant_override("shadow_offset_y", 4)
+	hs_btn.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	hs_btn.add_theme_color_override("font_color", TEXT_PRIMARY)
 	hs_btn.add_theme_color_override("font_hover_color", TEXT_PRIMARY)
 	hs_btn.add_theme_color_override("font_pressed_color", TEXT_DIM)
 	hs_btn.pressed.connect(_show_high_scores_screen)
@@ -5545,15 +5548,15 @@ func _build_game_over_screen() -> void:
 
 	var pad := MarginContainer.new()
 	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	pad.add_theme_constant_override("margin_left", 24)
-	pad.add_theme_constant_override("margin_right", 24)
-	pad.add_theme_constant_override("margin_top", 48)
-	pad.add_theme_constant_override("margin_bottom", 36)
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_right", 14)
+	pad.add_theme_constant_override("margin_top", 20)
+	pad.add_theme_constant_override("margin_bottom", 18)
 	scroll.add_child(pad)
 
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 16)
+	col.add_theme_constant_override("separation", 8)
 	pad.add_child(col)
 	ui["game_over_col"] = col
 
@@ -5573,14 +5576,14 @@ func _show_game_over_screen() -> void:
 	var fish_caught := _final_fish_caught()
 	var elapsed_seconds := int(round(float(game_stats.get("elapsed_seconds", 0.0))))
 
-	var title_lbl := _label(outcome["title"], 28, outcome["title_color"], HORIZONTAL_ALIGNMENT_CENTER)
+	var title_lbl := _label(outcome["title"], 24, outcome["title_color"], HORIZONTAL_ALIGNMENT_CENTER)
 	title_lbl.add_theme_font_override("font", FONT_TAY_MAKAWAO)
 	title_lbl.add_theme_constant_override("shadow_offset_y", 4)
 	title_lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
 	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(title_lbl)
 
-	var subtitle := _label(outcome["subtitle"], FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var subtitle := _label(outcome["subtitle"], FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	subtitle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(subtitle)
 
@@ -5593,14 +5596,14 @@ func _show_game_over_screen() -> void:
 	col.add_child(score_card)
 
 	var score_pad := MarginContainer.new()
-	score_pad.add_theme_constant_override("margin_left", 18)
-	score_pad.add_theme_constant_override("margin_right", 18)
-	score_pad.add_theme_constant_override("margin_top", 16)
-	score_pad.add_theme_constant_override("margin_bottom", 16)
+	score_pad.add_theme_constant_override("margin_left", 10)
+	score_pad.add_theme_constant_override("margin_right", 10)
+	score_pad.add_theme_constant_override("margin_top", 9)
+	score_pad.add_theme_constant_override("margin_bottom", 9)
 	score_card.add_child(score_pad)
 
 	var score_col := VBoxContainer.new()
-	score_col.add_theme_constant_override("separation", 12)
+	score_col.add_theme_constant_override("separation", 6)
 	score_pad.add_child(score_col)
 
 	score_col.add_child(_section_label("FINAL RANKING"))
@@ -5610,10 +5613,10 @@ func _show_game_over_screen() -> void:
 	score_col.add_child(ranking_note)
 
 	var metric_grid := GridContainer.new()
-	metric_grid.columns = 2
+	metric_grid.columns = 4
 	metric_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	metric_grid.add_theme_constant_override("h_separation", 8)
-	metric_grid.add_theme_constant_override("v_separation", 8)
+	metric_grid.add_theme_constant_override("v_separation", 6)
 	score_col.add_child(metric_grid)
 
 	metric_grid.add_child(_end_metric_tile("STARS", "%d/%d" % [_trophy_count(), TROPHY_WIN_COUNT], _star_string(_trophy_count()), GOLD))
@@ -5627,76 +5630,46 @@ func _show_game_over_screen() -> void:
 	col.add_child(trip_card)
 
 	var trip_pad := MarginContainer.new()
-	trip_pad.add_theme_constant_override("margin_left", 14)
-	trip_pad.add_theme_constant_override("margin_right", 14)
-	trip_pad.add_theme_constant_override("margin_top", 12)
-	trip_pad.add_theme_constant_override("margin_bottom", 12)
+	trip_pad.add_theme_constant_override("margin_left", 8)
+	trip_pad.add_theme_constant_override("margin_right", 8)
+	trip_pad.add_theme_constant_override("margin_top", 8)
+	trip_pad.add_theme_constant_override("margin_bottom", 8)
 	trip_card.add_child(trip_pad)
 
 	var trip_grid := GridContainer.new()
-	trip_grid.columns = 2
+	trip_grid.columns = 4
 	trip_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	trip_grid.add_theme_constant_override("h_separation", 8)
-	trip_grid.add_theme_constant_override("v_separation", 8)
+	trip_grid.add_theme_constant_override("v_separation", 6)
 	trip_pad.add_child(trip_grid)
 
-	trip_grid.add_child(_stat_chip("TIME PLAYED", _format_duration(elapsed_seconds), CYAN))
+	trip_grid.add_child(_stat_chip("TIME", _format_duration(elapsed_seconds), CYAN))
 	trip_grid.add_child(_stat_chip("DAYS", "%d/%d" % [min(day, _season_days()), _season_days()], TEXT_PRIMARY))
-	trip_grid.add_child(_stat_chip("EXTRA NIGHTS", "%d" % extra_nights, GOLD if extra_nights > 0 else TEXT_DIM))
+	trip_grid.add_child(_stat_chip("NIGHTS", "%d" % extra_nights, GOLD if extra_nights > 0 else TEXT_DIM))
 	trip_grid.add_child(_stat_chip("MOVES", "%d" % int(game_stats.get("move_actions", 0)), TEXT_PRIMARY))
 	trip_grid.add_child(_stat_chip("SPACES", "%d" % int(game_stats.get("moves_used", 0)), TEXT_MUTED))
 	trip_grid.add_child(_stat_chip("CASTS", "%d" % int(game_stats.get("casts_made", 0)), TEXT_PRIMARY))
-	trip_grid.add_child(_stat_chip("FINDER PINGS", "%d" % int(game_stats.get("finds_used", 0)), TEXT_MUTED))
-	trip_grid.add_child(_stat_chip("TREASURE", "%d / $%d" % [int(game_stats.get("treasures_found", 0)), int(game_stats.get("treasure_money", 0))], GOLD))
-	trip_grid.add_child(_stat_chip("EMPTY CASTS", "%d" % int(game_stats.get("empty_casts", 0)), TEXT_DIM))
+	trip_grid.add_child(_stat_chip("FINDER", "%d" % int(game_stats.get("finds_used", 0)), TEXT_MUTED))
+	trip_grid.add_child(_stat_chip("TREASURE", "%d · $%d" % [int(game_stats.get("treasures_found", 0)), int(game_stats.get("treasure_money", 0))], GOLD))
+	trip_grid.add_child(_stat_chip("EMPTY", "%d" % int(game_stats.get("empty_casts", 0)), TEXT_DIM))
 	trip_grid.add_child(_stat_chip("REPAIRS", "%d" % int(game_stats.get("repairs_made", 0)), TEXT_MUTED))
-	trip_grid.add_child(_stat_chip("WEATHER HITS", "%d" % int(game_stats.get("weather_hits", 0)), RED if int(game_stats.get("weather_hits", 0)) > 0 else TEXT_DIM))
+	trip_grid.add_child(_stat_chip("WEATHER", "%d" % int(game_stats.get("weather_hits", 0)), RED if int(game_stats.get("weather_hits", 0)) > 0 else TEXT_DIM))
 	if versus_mode:
-		trip_grid.add_child(_stat_chip("RAIDS WON", "%d" % int(game_stats.get("raids_won", 0)), GREEN))
-		trip_grid.add_child(_stat_chip("RAIDS LOST", "%d" % int(game_stats.get("raids_lost", 0)), RED if int(game_stats.get("raids_lost", 0)) > 0 else TEXT_DIM))
+		trip_grid.add_child(_stat_chip("WON", "%d" % int(game_stats.get("raids_won", 0)), GREEN))
+		trip_grid.add_child(_stat_chip("LOST", "%d" % int(game_stats.get("raids_lost", 0)), RED if int(game_stats.get("raids_lost", 0)) > 0 else TEXT_DIM))
 
 	# Trophies section
 	col.add_child(_section_label("TROPHIES"))
 
+	var trophy_grid := GridContainer.new()
+	trophy_grid.columns = SPECIES.size()
+	trophy_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	trophy_grid.add_theme_constant_override("h_separation", 6)
+	trophy_grid.add_theme_constant_override("v_separation", 6)
+	col.add_child(trophy_grid)
+
 	for species in SPECIES:
-		var earned := bool(trophies.get(species, false))
-		var trophy_card := _panel(BG_PANEL_DARK if not earned else BG_PANEL_LIGHT, BORDER_DARK if not earned else GOLD_DEEP, 1, 6)
-		trophy_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		col.add_child(trophy_card)
-
-		var trophy_pad := MarginContainer.new()
-		trophy_pad.add_theme_constant_override("margin_left", 12)
-		trophy_pad.add_theme_constant_override("margin_right", 12)
-		trophy_pad.add_theme_constant_override("margin_top", 10)
-		trophy_pad.add_theme_constant_override("margin_bottom", 10)
-		trophy_card.add_child(trophy_pad)
-
-		var trophy_row := HBoxContainer.new()
-		trophy_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		trophy_row.add_theme_constant_override("separation", 12)
-		trophy_pad.add_child(trophy_row)
-
-		var fish_art := TextureRect.new()
-		fish_art.texture = _fish_texture(species)
-		fish_art.custom_minimum_size = Vector2(72, 52)
-		fish_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		fish_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		fish_art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		if not earned:
-			fish_art.modulate = Color(1, 1, 1, 0.25)
-		trophy_row.add_child(fish_art)
-
-		var trophy_info := VBoxContainer.new()
-		trophy_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		trophy_info.add_theme_constant_override("separation", 2)
-		trophy_row.add_child(trophy_info)
-
-		trophy_info.add_child(_label(species, FONT_BODY, TEXT_PRIMARY if earned else TEXT_DIM))
-		var sold_count := int(sold_totals.get(species, 0))
-		trophy_info.add_child(_label("%d sold" % sold_count, FONT_SMALL, TEXT_MUTED if earned else TEXT_DIM))
-
-		var star := _label("★" if earned else "☆", 24, GOLD if earned else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
-		trophy_row.add_child(star)
+		trophy_grid.add_child(_trophy_grid_tile(species))
 
 	# Ship stats section
 	col.add_child(_section_label("SHIP STATUS"))
@@ -5706,75 +5679,39 @@ func _show_game_over_screen() -> void:
 	col.add_child(ship_card)
 
 	var ship_pad := MarginContainer.new()
-	ship_pad.add_theme_constant_override("margin_left", 14)
-	ship_pad.add_theme_constant_override("margin_right", 14)
-	ship_pad.add_theme_constant_override("margin_top", 12)
-	ship_pad.add_theme_constant_override("margin_bottom", 12)
+	ship_pad.add_theme_constant_override("margin_left", 8)
+	ship_pad.add_theme_constant_override("margin_right", 8)
+	ship_pad.add_theme_constant_override("margin_top", 8)
+	ship_pad.add_theme_constant_override("margin_bottom", 8)
 	ship_card.add_child(ship_pad)
 
-	var ship_col := VBoxContainer.new()
-	ship_col.add_theme_constant_override("separation", 6)
-	ship_pad.add_child(ship_col)
+	var ship_grid := GridContainer.new()
+	ship_grid.columns = 5
+	ship_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ship_grid.add_theme_constant_override("h_separation", 8)
+	ship_grid.add_theme_constant_override("v_separation", 6)
+	ship_pad.add_child(ship_grid)
 
 	for key in CONDITION_KEYS:
 		var val := int(conditions[key])
-		var cond_row := HBoxContainer.new()
-		cond_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		cond_row.add_theme_constant_override("separation", 8)
-		ship_col.add_child(cond_row)
-
-		var cond_name := _label(key.capitalize(), FONT_BODY, TEXT_PRIMARY)
-		cond_name.custom_minimum_size = Vector2(100, 0)
-		cond_row.add_child(cond_name)
-
-		var bar_bg := _panel(SEGMENT_EMPTY, BORDER_DARK, 1, 3)
-		bar_bg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		bar_bg.custom_minimum_size = Vector2(0, 22)
-		cond_row.add_child(bar_bg)
-
-		var bar_fill := ColorRect.new()
 		var fill_ratio := float(val) / float(CONDITION_MAX)
 		var bar_color := GREEN if fill_ratio > 0.5 else (GOLD if fill_ratio > 0.2 else RED)
-		bar_fill.color = bar_color
-		bar_fill.anchor_top = 0.1
-		bar_fill.anchor_bottom = 0.9
-		bar_fill.anchor_left = 0.02
-		bar_fill.anchor_right = 0.02 + fill_ratio * 0.96
-		bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bar_bg.add_child(bar_fill)
-
-		cond_row.add_child(_label("%d/%d" % [val, CONDITION_MAX], FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_RIGHT))
-
-	ship_col.add_child(_divider(BORDER_DARK))
+		ship_grid.add_child(_stat_chip(_condition_short_label(key), "%d%%" % int(round(fill_ratio * 100.0)), bar_color))
 
 	for key in UPGRADE_KEYS:
 		var lvl := int(upgrades[key])
-		if lvl <= 0:
-			continue
-		var upg_row := HBoxContainer.new()
-		upg_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		upg_row.add_theme_constant_override("separation", 8)
-		ship_col.add_child(upg_row)
-		upg_row.add_child(_label(key.replace("_", " ").capitalize(), FONT_BODY, TEXT_PRIMARY))
-		var dots := ""
-		for i in range(lvl):
-			dots += "▮"
-		for i in range(UPGRADE_MAX_LEVEL - lvl):
-			dots += "▯"
-		var dots_lbl := _label(dots, FONT_BODY, CYAN, HORIZONTAL_ALIGNMENT_RIGHT)
-		dots_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		upg_row.add_child(dots_lbl)
+		ship_grid.add_child(_stat_chip(_upgrade_short_label(key), "%d/%d" % [lvl, UPGRADE_MAX_LEVEL], CYAN if lvl > 0 else TEXT_DIM))
 
 	col.add_child(_divider(BORDER_FRAME))
 
 	# Buttons
 	var btn_row := HBoxContainer.new()
 	btn_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_row.add_theme_constant_override("separation", 12)
+	btn_row.add_theme_constant_override("separation", 8)
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	col.add_child(btn_row)
 
-	var menu_btn := _tactile_button("MENU", 180, 56, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
+	var menu_btn := _tactile_button("MENU", 160, 46, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
 	menu_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	menu_btn.pressed.connect(func():
 		_hide_game_over_screen()
@@ -5782,7 +5719,7 @@ func _show_game_over_screen() -> void:
 	)
 	btn_row.add_child(menu_btn)
 
-	var again_btn := _tactile_button("PLAY AGAIN", 180, 56, CYAN_DEEP, CYAN, TEXT_PRIMARY)
+	var again_btn := _tactile_button("PLAY AGAIN", 160, 46, CYAN_DEEP, CYAN, TEXT_PRIMARY)
 	again_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	again_btn.pressed.connect(func():
 		_hide_game_over_screen()
@@ -5818,14 +5755,14 @@ func _game_over_outcome() -> Dictionary:
 
 func _rank_banner(rank: int) -> Control:
 	var is_top_10 := rank > 0 and rank <= 10
-	var banner := _panel_lifted(BG_PANEL_LIGHT if is_top_10 else BG_PANEL_DARK, GOLD_DEEP if is_top_10 else BORDER_DARK, 2 if is_top_10 else 1, 8, 8)
+	var banner := _panel_lifted(BG_PANEL_LIGHT if is_top_10 else BG_PANEL_DARK, GOLD_DEEP if is_top_10 else BORDER_DARK, 2 if is_top_10 else 1, 8, 5)
 	banner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 16)
-	pad.add_theme_constant_override("margin_right", 16)
-	pad.add_theme_constant_override("margin_top", 12)
-	pad.add_theme_constant_override("margin_bottom", 12)
+	pad.add_theme_constant_override("margin_left", 10)
+	pad.add_theme_constant_override("margin_right", 10)
+	pad.add_theme_constant_override("margin_top", 8)
+	pad.add_theme_constant_override("margin_bottom", 8)
 	banner.add_child(pad)
 
 	var row := HBoxContainer.new()
@@ -5834,11 +5771,11 @@ func _rank_banner(rank: int) -> Control:
 	pad.add_child(row)
 
 	var marker_text := "TOP 10" if is_top_10 else "RANK"
-	var marker := _label(marker_text, 34 if is_top_10 else 26, GOLD if is_top_10 else CYAN, HORIZONTAL_ALIGNMENT_CENTER)
+	var marker := _label(marker_text, 28 if is_top_10 else 22, GOLD if is_top_10 else CYAN, HORIZONTAL_ALIGNMENT_CENTER)
 	marker.add_theme_font_override("font", FONT_TAY_MAKAWAO)
 	marker.add_theme_constant_override("shadow_offset_y", 4)
 	marker.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
-	marker.custom_minimum_size = Vector2(170, 0)
+	marker.custom_minimum_size = Vector2(118, 0)
 	row.add_child(marker)
 
 	var copy := VBoxContainer.new()
@@ -5852,20 +5789,93 @@ func _rank_banner(rank: int) -> Control:
 	elif rank > MAX_HIGH_SCORES:
 		rank_line = "Outside the top %d" % MAX_HIGH_SCORES
 	copy.add_child(_label(rank_line, FONT_BODY, TEXT_PRIMARY))
-	copy.add_child(_label("Stars break ties first. Cash, upgrades, fish, then fewer days settle the rest.", FONT_SMALL, TEXT_MUTED))
+	copy.add_child(_label("Ties: cash, upgrades, fish, then fewer days.", FONT_SMALL, TEXT_MUTED))
 
 	return banner
+
+
+func _trophy_grid_tile(species: String) -> Control:
+	var earned := bool(trophies.get(species, false))
+	var tile := _panel(BG_PANEL_DARK if not earned else BG_PANEL_LIGHT, BORDER_DARK if not earned else GOLD_DEEP, 1, 6)
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile.custom_minimum_size = Vector2(0, 86)
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 4)
+	pad.add_theme_constant_override("margin_right", 4)
+	pad.add_theme_constant_override("margin_top", 5)
+	pad.add_theme_constant_override("margin_bottom", 5)
+	tile.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 0)
+	pad.add_child(col)
+
+	var fish_art := TextureRect.new()
+	fish_art.texture = _fish_texture(species)
+	fish_art.custom_minimum_size = Vector2(56, 34)
+	fish_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	fish_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	fish_art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if not earned:
+		fish_art.modulate = Color(1, 1, 1, 0.25)
+	col.add_child(fish_art)
+
+	var name_lbl := _label(species.to_upper(), FONT_SMALL, TEXT_PRIMARY if earned else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(name_lbl)
+
+	var sold_count := int(sold_totals.get(species, 0))
+	var footer := _label("%s  %d" % ["★" if earned else "☆", sold_count], FONT_SMALL, GOLD if earned else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	footer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(footer)
+
+	return tile
+
+
+func _condition_short_label(key: String) -> String:
+	match key:
+		"hull":
+			return "HULL"
+		"propeller":
+			return "PROP"
+		"rudder":
+			return "RUDDER"
+		"nets":
+			return "NETS"
+		_:
+			return key.to_upper()
+
+
+func _upgrade_short_label(key: String) -> String:
+	match key:
+		"motor":
+			return "MOTOR"
+		"fish_finder":
+			return "FINDER"
+		"nets":
+			return "NET+"
+		"live_well":
+			return "WELL"
+		"cannons":
+			return "GUNS"
+		"defense":
+			return "DEF"
+		_:
+			return key.to_upper()
 
 
 func _end_metric_tile(title: String, value: String, detail: String, accent: Color) -> Control:
 	var tile := _panel(BG_PANEL_DARK, accent.darkened(0.25), 1, 6)
 	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile.custom_minimum_size = Vector2(0, 66)
 
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 10)
-	pad.add_theme_constant_override("margin_right", 10)
-	pad.add_theme_constant_override("margin_top", 10)
-	pad.add_theme_constant_override("margin_bottom", 10)
+	pad.add_theme_constant_override("margin_left", 7)
+	pad.add_theme_constant_override("margin_right", 7)
+	pad.add_theme_constant_override("margin_top", 6)
+	pad.add_theme_constant_override("margin_bottom", 6)
 	tile.add_child(pad)
 
 	var col := VBoxContainer.new()
@@ -5873,7 +5883,7 @@ func _end_metric_tile(title: String, value: String, detail: String, accent: Colo
 	pad.add_child(col)
 
 	col.add_child(_label(title, FONT_SMALL, TEXT_DIM))
-	var value_lbl := _label(value, 26, accent)
+	var value_lbl := _label(value, 22, accent)
 	value_lbl.add_theme_font_override("font", FONT_JERSEY_25)
 	col.add_child(value_lbl)
 	col.add_child(_label(detail, FONT_SMALL, TEXT_MUTED))
@@ -5883,20 +5893,21 @@ func _end_metric_tile(title: String, value: String, detail: String, accent: Colo
 func _stat_chip(title: String, value: String, accent: Color) -> Control:
 	var chip := _panel(BG_PANEL, BORDER_DARK, 1, 4)
 	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chip.custom_minimum_size = Vector2(0, 32)
 
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 10)
-	pad.add_theme_constant_override("margin_right", 10)
-	pad.add_theme_constant_override("margin_top", 8)
-	pad.add_theme_constant_override("margin_bottom", 8)
+	pad.add_theme_constant_override("margin_left", 6)
+	pad.add_theme_constant_override("margin_right", 6)
+	pad.add_theme_constant_override("margin_top", 5)
+	pad.add_theme_constant_override("margin_bottom", 5)
 	chip.add_child(pad)
 
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", 8)
+	row.add_theme_constant_override("separation", 5)
 	pad.add_child(row)
 	row.add_child(_label(title, FONT_SMALL, TEXT_DIM))
-	var value_lbl := _label(value, FONT_BODY, accent, HORIZONTAL_ALIGNMENT_RIGHT)
+	var value_lbl := _label(value, FONT_SMALL, accent, HORIZONTAL_ALIGNMENT_RIGHT)
 	value_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(value_lbl)
 	return chip
