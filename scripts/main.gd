@@ -25,6 +25,7 @@ const START_CASTS := 1
 const CONDITION_MAX := 10
 const UPGRADE_MAX_LEVEL := 4
 const REPAIR_COST_PER_SEGMENT := 8
+const EXTRA_NIGHT_COST := 250
 const TROPHY_REQUIRED := 10
 const TROPHY_WIN_COUNT := 5
 const TREASURE_VALUES: Array[int] = [100, 100, 200, 200]
@@ -212,6 +213,9 @@ var live_well: Array[Dictionary] = []
 var market_prices: Dictionary = {}
 var sold_totals: Dictionary = {}
 var trophies: Dictionary = {}
+var extra_nights := 0
+var upgrade_cart: Dictionary = {}
+var extra_night_cart := 0
 
 var weather_deck: Array[Dictionary] = []
 var forecast: Array[Dictionary] = []
@@ -1183,11 +1187,75 @@ func _build_upgrades_tab() -> Control:
 	ui["upgrade_funds"] = _label("Funds: $0", 24, TEXT_PRIMARY)
 	col.add_child(ui["upgrade_funds"])
 
+	ui["upgrade_plan"] = _label("Plan: $0", FONT_BODY, TEXT_MUTED)
+	col.add_child(ui["upgrade_plan"])
+
+	var night_panel := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 1, 6, 4)
+	night_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(night_panel)
+
+	var night_pad := MarginContainer.new()
+	night_pad.add_theme_constant_override("margin_left", 12)
+	night_pad.add_theme_constant_override("margin_right", 12)
+	night_pad.add_theme_constant_override("margin_top", 10)
+	night_pad.add_theme_constant_override("margin_bottom", 10)
+	night_panel.add_child(night_pad)
+
+	var night_col := VBoxContainer.new()
+	night_col.add_theme_constant_override("separation", 8)
+	night_pad.add_child(night_col)
+
+	var night_row := HBoxContainer.new()
+	night_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	night_row.add_theme_constant_override("separation", 10)
+	night_col.add_child(night_row)
+
+	var night_copy := VBoxContainer.new()
+	night_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	night_copy.add_theme_constant_override("separation", 2)
+	night_row.add_child(night_copy)
+	night_copy.add_child(_label("Extra Night at Sea", 21, TEXT_PRIMARY))
+	night_copy.add_child(_label("$250 each. Extends the season immediately on checkout.", FONT_SMALL, TEXT_MUTED))
+
+	ui["extra_night_count"] = _label("+0", 26, GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+	ui["extra_night_count"].custom_minimum_size = Vector2(62, 0)
+	night_row.add_child(ui["extra_night_count"])
+
+	var night_buttons := HBoxContainer.new()
+	night_buttons.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	night_buttons.add_theme_constant_override("separation", 8)
+	night_col.add_child(night_buttons)
+
+	ui["extra_night_remove"] = _tactile_button("REMOVE NIGHT", 0, 44, BG_PANEL, BORDER_DARK, TEXT_MUTED)
+	ui["extra_night_remove"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["extra_night_remove"].pressed.connect(_remove_extra_night_from_cart)
+	night_buttons.add_child(ui["extra_night_remove"])
+
+	ui["extra_night_add"] = _tactile_button("ADD NIGHT", 0, 44, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
+	ui["extra_night_add"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["extra_night_add"].pressed.connect(_add_extra_night_to_cart)
+	night_buttons.add_child(ui["extra_night_add"])
+
 	for key in UPGRADE_KEYS:
 		var row := _segment_row(_upgrade_name(key), UPGRADE_MAX_LEVEL, true, key, true)
 		col.add_child(row)
 		boat_segment_panels["up_" + key] = row
 		upgrade_tray_rows[key] = row
+
+	var checkout_row := HBoxContainer.new()
+	checkout_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	checkout_row.add_theme_constant_override("separation", 10)
+	col.add_child(checkout_row)
+
+	ui["upgrade_reset"] = _tactile_button("RESET PLAN", 0, 52, BG_PANEL, BORDER_DARK, TEXT_MUTED)
+	ui["upgrade_reset"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["upgrade_reset"].pressed.connect(_reset_upgrade_plan)
+	checkout_row.add_child(ui["upgrade_reset"])
+
+	ui["upgrade_checkout"] = _tactile_button("CHECKOUT", 0, 52, PURPLE_DEEP, PURPLE, TEXT_PRIMARY)
+	ui["upgrade_checkout"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["upgrade_checkout"].pressed.connect(_checkout_upgrade_cart)
+	checkout_row.add_child(ui["upgrade_checkout"])
 
 	return scroll
 
@@ -2057,19 +2125,21 @@ func _segment_row(title: String, total_segments: int, is_upgrade: bool, key: Str
 	return wrap
 
 
-func _refresh_segment_row(row: Control, value: int, is_upgrade: bool, key: String) -> void:
+func _refresh_segment_row(row: Control, value: int, is_upgrade: bool, key: String, actual_value: int = -1) -> void:
 	var segments: Array = row.get_meta("segments")
 	var total: int = row.get_meta("total")
 	var interactive: bool = row.get_meta("interactive")
 	var cost_label: Label = row.get_meta("cost_label")
 	var percent_label: Label = row.get_meta("percent_label")
 	var damaged := false
+	if actual_value < 0:
+		actual_value = value
 
 	var next_cost := 0
 	var can_afford := false
 	if is_upgrade and value < total:
 		next_cost = _upgrade_cost(key, value)
-		can_afford = money >= next_cost
+		can_afford = money >= _upgrade_cart_cost() + next_cost
 	elif not is_upgrade:
 		next_cost = REPAIR_COST_PER_SEGMENT
 		can_afford = money >= REPAIR_COST_PER_SEGMENT
@@ -2077,13 +2147,22 @@ func _refresh_segment_row(row: Control, value: int, is_upgrade: bool, key: Strin
 	for i in range(total):
 		var seg: Button = segments[i]
 		var filled := i < value
+		var already_owned := i < actual_value
+		var staged := is_upgrade and i >= actual_value and i < value
 		var is_next := interactive and not filled and i == value
 		var color: Color
 		var border: Color
 
 		if is_upgrade:
-			color = CYAN_DEEP if filled else SEGMENT_EMPTY
-			border = CYAN if filled else BORDER_DARK
+			if already_owned:
+				color = CYAN_DEEP
+				border = CYAN
+			elif staged:
+				color = PURPLE_DEEP
+				border = GOLD
+			else:
+				color = SEGMENT_EMPTY
+				border = BORDER_DARK
 		else:
 			var ratio := float(value) / float(total)
 			var bar_color := GREEN
@@ -2112,15 +2191,22 @@ func _refresh_segment_row(row: Control, value: int, is_upgrade: bool, key: Strin
 		seg.add_theme_stylebox_override("focus", normal)
 
 		if interactive:
-			seg.disabled = filled or i != value or not _is_docked()
+			if is_upgrade:
+				seg.disabled = i < actual_value or not _is_docked()
+			else:
+				seg.disabled = filled or i != value or not _is_docked()
 
 	if cost_label:
 		if is_upgrade:
-			if value >= total:
+			var planned_cost := _upgrade_cost_between(key, actual_value, value)
+			if planned_cost > 0:
+				cost_label.text = "(PLAN $%d)" % planned_cost
+				cost_label.add_theme_color_override("font_color", GOLD if money >= _upgrade_cart_cost() and _is_docked() else TEXT_DIM)
+			elif actual_value >= total:
 				cost_label.text = "(MAX)"
 				cost_label.add_theme_color_override("font_color", TEXT_DIM)
 			else:
-				var cost := _upgrade_cost(key, value)
+				var cost := _upgrade_cost(key, actual_value)
 				cost_label.text = "($%d)" % cost
 				cost_label.add_theme_color_override("font_color", GOLD if money >= cost and _is_docked() else TEXT_DIM)
 		else:
@@ -2175,10 +2261,143 @@ func _on_backdrop_input(event: InputEvent) -> void:
 # Segment purchase handlers
 # ────────────────────────────────────────────────────────────────────────
 
-func _on_buy_upgrade_segment(key: String, index: int) -> void:
-	if int(upgrades[key]) != index:
+func _clear_upgrade_cart() -> void:
+	upgrade_cart.clear()
+	extra_night_cart = 0
+
+
+func _reset_upgrade_plan() -> void:
+	_clear_upgrade_cart()
+	_log("Upgrade plan cleared.")
+	_update_ui()
+
+
+func _stage_upgrade_segment(key: String, index: int) -> void:
+	if game_over:
 		return
-	_buy_upgrade(key)
+	if not _is_docked():
+		_log("Plan upgrades at the docks.")
+		return
+	if not UPGRADE_KEYS.has(key):
+		return
+
+	var current := int(upgrades.get(key, 0))
+	var current_target := _upgrade_cart_target(key)
+	var desired := clampi(index + 1, current, UPGRADE_MAX_LEVEL)
+	if desired == current_target and desired > current:
+		desired -= 1
+
+	if desired <= current:
+		upgrade_cart.erase(key)
+	else:
+		upgrade_cart[key] = desired
+	_log_upgrade_cart_status()
+	_update_ui()
+
+
+func _add_extra_night_to_cart() -> void:
+	if game_over:
+		return
+	if not _is_docked():
+		_log("Buy extra nights at the docks.")
+		return
+	extra_night_cart += 1
+	_log_upgrade_cart_status()
+	_update_ui()
+
+
+func _remove_extra_night_from_cart() -> void:
+	if extra_night_cart <= 0:
+		return
+	extra_night_cart -= 1
+	_log_upgrade_cart_status()
+	_update_ui()
+
+
+func _upgrade_cart_target(key: String) -> int:
+	return clampi(int(upgrade_cart.get(key, int(upgrades.get(key, 0)))), int(upgrades.get(key, 0)), UPGRADE_MAX_LEVEL)
+
+
+func _upgrade_cart_cost() -> int:
+	var total := extra_night_cart * EXTRA_NIGHT_COST
+	for key in UPGRADE_KEYS:
+		var current := int(upgrades.get(key, 0))
+		var target := _upgrade_cart_target(key)
+		total += _upgrade_cost_between(key, current, target)
+	return total
+
+
+func _upgrade_cart_count() -> int:
+	var total := extra_night_cart
+	for key in UPGRADE_KEYS:
+		total += max(0, _upgrade_cart_target(key) - int(upgrades.get(key, 0)))
+	return total
+
+
+func _upgrade_cost_between(key: String, from_level: int, to_level: int) -> int:
+	var total := 0
+	for level in range(from_level, to_level):
+		total += _upgrade_cost(key, level)
+	return total
+
+
+func _log_upgrade_cart_status() -> void:
+	var cost := _upgrade_cart_cost()
+	if cost <= 0:
+		_log("No upgrades selected.")
+	else:
+		_log("Upgrade plan: $%d. Remaining after checkout: $%d." % [cost, money - cost])
+
+
+func _checkout_upgrade_cart() -> void:
+	if game_over:
+		return
+	if not _is_docked():
+		_log("Checkout upgrades at the docks.")
+		return
+
+	var cost := _upgrade_cart_cost()
+	if cost <= 0:
+		_log("No upgrades selected.")
+		return
+	if money < cost:
+		_log("Upgrade plan costs $%d. You only have $%d." % [cost, money])
+		return
+
+	var moves_before := _daily_moves()
+	var finder_before := int(upgrades.get("fish_finder", 0))
+	var upgrade_count := 0
+	for key in UPGRADE_KEYS:
+		var current := int(upgrades.get(key, 0))
+		var target := _upgrade_cart_target(key)
+		if target > current:
+			upgrades[key] = target
+			upgrade_count += target - current
+
+	var nights_bought := extra_night_cart
+	money -= cost
+	extra_nights += nights_bought
+	_stat_add("upgrades_bought", upgrade_count)
+	_stat_add("extra_nights_bought", nights_bought)
+
+	var gained_moves: int = max(0, _daily_moves() - moves_before)
+	moves_remaining += gained_moves
+	var gained_finders: int = max(0, int(upgrades.get("fish_finder", 0)) - finder_before)
+	finds_remaining += gained_finders
+
+	_clear_upgrade_cart()
+
+	var parts: Array[String] = []
+	if upgrade_count > 0:
+		parts.append("%d upgrade%s" % [upgrade_count, "" if upgrade_count == 1 else "s"])
+	if nights_bought > 0:
+		parts.append("%d extra night%s" % [nights_bought, "" if nights_bought == 1 else "s"])
+	_log("Checkout complete: %s for $%d." % [", ".join(parts), cost])
+	_update_ui()
+
+
+func _on_buy_upgrade_segment(key: String, index: int) -> void:
+	_stage_upgrade_segment(key, index)
 
 
 func _on_buy_repair_segment(key: String, _index: int) -> void:
@@ -2202,6 +2421,8 @@ func _new_game(enable_versus: bool = false) -> void:
 	board.clear()
 	log_lines.clear()
 	cast_holes_today.clear()
+	extra_nights = 0
+	_clear_upgrade_cart()
 
 	money = START_MONEY
 	upgrades = {
@@ -2323,6 +2544,7 @@ func _save_game() -> void:
 		"market_prices": market_prices,
 		"sold_totals": sold_totals,
 		"trophies": trophies,
+		"extra_nights": extra_nights,
 		"weather_deck": weather_deck,
 		"forecast": forecast,
 		"current_weather": current_weather,
@@ -2392,6 +2614,8 @@ func _load_game() -> bool:
 			market_prices[species] = int(BASE_PRICES[species])
 	sold_totals = _dict_copy(data.get("sold_totals", {}))
 	trophies = _dict_copy(data.get("trophies", {}))
+	extra_nights = int(data.get("extra_nights", 0))
+	_clear_upgrade_cart()
 	for species in SPECIES:
 		if not sold_totals.has(species):
 			sold_totals[species] = 0
@@ -2454,6 +2678,7 @@ func _reset_game_stats() -> void:
 		"treasures_found": 0,
 		"treasure_money": 0,
 		"upgrades_bought": 0,
+		"extra_nights_bought": 0,
 		"repairs_made": 0,
 		"weather_hits": 0,
 		"damage_taken": 0,
@@ -2478,6 +2703,7 @@ func _ensure_game_stats_defaults() -> void:
 		"treasures_found": 0,
 		"treasure_money": 0,
 		"upgrades_bought": _upgrade_total(upgrades),
+		"extra_nights_bought": extra_nights,
 		"repairs_made": 0,
 		"weather_hits": 0,
 		"damage_taken": 0,
@@ -2493,6 +2719,10 @@ func _stat_add(key: String, amount) -> void:
 	if game_stats.is_empty():
 		_ensure_game_stats_defaults()
 	game_stats[key] = game_stats.get(key, 0) + amount
+
+
+func _season_days() -> int:
+	return MAX_DAYS + extra_nights
 
 
 func _serialize_pos(pos: Vector2i) -> Dictionary:
@@ -3253,7 +3483,7 @@ func _end_day() -> void:
 		_age_bot_fish()
 
 	day += 1
-	if day > MAX_DAYS:
+	if day > _season_days():
 		game_over = true
 		if not _is_docked() and not live_well.is_empty():
 			_log("Season over. Unsold fish remain aboard.")
@@ -3755,6 +3985,7 @@ func _update_ui() -> void:
 	_update_tabs()
 	_update_log_label()
 	_update_boat_tab()
+	_update_upgrade_cart_ui()
 	_update_live_well_tab()
 	_update_radio_tab()
 	_update_tray()
@@ -3768,7 +3999,7 @@ func _update_hud() -> void:
 		var current_label: Label = day_row.get_meta("current_label") as Label
 		var total_label: Label = day_row.get_meta("total_label") as Label
 		current_label.text = "%d" % day
-		total_label.text = "/%d" % MAX_DAYS
+		total_label.text = "/%d" % _season_days()
 	if ui.has("top_funds"):
 		(ui["top_funds"] as Label).text = "$%d" % money
 	if ui.has("top_moves"):
@@ -4158,7 +4389,40 @@ func _update_boat_tab() -> void:
 	for key in UPGRADE_KEYS:
 		var row: Control = boat_segment_panels.get("up_" + key)
 		if row:
-			_refresh_segment_row(row, int(upgrades[key]), true, key)
+			var actual := int(upgrades[key])
+			_refresh_segment_row(row, _upgrade_cart_target(key), true, key, actual)
+
+
+func _update_upgrade_cart_ui() -> void:
+	var cost := _upgrade_cart_cost()
+	var remaining := money - cost
+	if ui.has("upgrade_funds"):
+		var funds: Label = ui["upgrade_funds"]
+		funds.text = "Funds: $%d" % money
+		funds.add_theme_color_override("font_color", TEXT_PRIMARY)
+	if ui.has("upgrade_plan"):
+		var plan: Label = ui["upgrade_plan"]
+		var extra_text := ""
+		if extra_night_cart > 0:
+			extra_text = " · +%d night%s" % [extra_night_cart, "" if extra_night_cart == 1 else "s"]
+		plan.text = "Plan: $%d · Remaining: $%d%s" % [cost, remaining, extra_text]
+		plan.add_theme_color_override("font_color", RED if remaining < 0 else (GOLD if cost > 0 else TEXT_MUTED))
+	if ui.has("extra_night_count"):
+		var nights: Label = ui["extra_night_count"]
+		nights.text = "+%d" % extra_night_cart
+		nights.add_theme_color_override("font_color", GOLD if extra_night_cart > 0 else TEXT_DIM)
+	if ui.has("extra_night_add"):
+		var add_btn: Button = ui["extra_night_add"]
+		add_btn.disabled = game_over or not _is_docked()
+	if ui.has("extra_night_remove"):
+		var remove_btn: Button = ui["extra_night_remove"]
+		remove_btn.disabled = game_over or not _is_docked() or extra_night_cart <= 0
+	if ui.has("upgrade_checkout"):
+		var checkout: Button = ui["upgrade_checkout"]
+		checkout.disabled = game_over or not _is_docked() or cost <= 0 or remaining < 0
+	if ui.has("upgrade_reset"):
+		var reset: Button = ui["upgrade_reset"]
+		reset.disabled = game_over or not _is_docked() or cost <= 0
 
 
 func _update_live_well_tab() -> void:
@@ -4256,7 +4520,8 @@ func _update_tray() -> void:
 	if active_tray == "upgrade":
 		for key in UPGRADE_KEYS:
 			if upgrade_tray_rows.has(key):
-				_refresh_segment_row(upgrade_tray_rows[key], int(upgrades[key]), true, key)
+				var actual := int(upgrades[key])
+				_refresh_segment_row(upgrade_tray_rows[key], _upgrade_cart_target(key), true, key, actual)
 	elif active_tray == "repair":
 		for key in CONDITION_KEYS:
 			if repair_tray_rows.has(key):
@@ -4704,7 +4969,7 @@ func _show_board_toast(title: String, detail: String, accent: Color = CYAN, fish
 
 
 func _show_day_transition() -> void:
-	var days_left: int = max(0, MAX_DAYS - day + 1)
+	var days_left: int = max(0, _season_days() - day + 1)
 	var detail := "%d days remain" % days_left
 	if days_left == 1:
 		detail = "Final day"
@@ -5376,7 +5641,8 @@ func _show_game_over_screen() -> void:
 	trip_pad.add_child(trip_grid)
 
 	trip_grid.add_child(_stat_chip("TIME PLAYED", _format_duration(elapsed_seconds), CYAN))
-	trip_grid.add_child(_stat_chip("DAYS", "%d/%d" % [min(day, MAX_DAYS), MAX_DAYS], TEXT_PRIMARY))
+	trip_grid.add_child(_stat_chip("DAYS", "%d/%d" % [min(day, _season_days()), _season_days()], TEXT_PRIMARY))
+	trip_grid.add_child(_stat_chip("EXTRA NIGHTS", "%d" % extra_nights, GOLD if extra_nights > 0 else TEXT_DIM))
 	trip_grid.add_child(_stat_chip("MOVES", "%d" % int(game_stats.get("move_actions", 0)), TEXT_PRIMARY))
 	trip_grid.add_child(_stat_chip("SPACES", "%d" % int(game_stats.get("moves_used", 0)), TEXT_MUTED))
 	trip_grid.add_child(_stat_chip("CASTS", "%d" % int(game_stats.get("casts_made", 0)), TEXT_PRIMARY))
@@ -5670,7 +5936,9 @@ func _record_high_score() -> int:
 		"id": entry_id,
 		"money": money,
 		"trophies": _trophy_count(),
-		"day": min(day, MAX_DAYS),
+		"day": min(day, _season_days()),
+		"season_days": _season_days(),
+		"extra_nights": extra_nights,
 		"fish_sold": _total_fish_sold(),
 		"fish_caught": _final_fish_caught(),
 		"upgrade_total": _upgrade_total(upgrades),
