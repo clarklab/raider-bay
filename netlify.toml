@@ -1,0 +1,12 @@
+[build]
+  command = "bash scripts/build-web.sh"
+  publish = "builds/web"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/api/scores"
+  to = "/.netlify/functions/scores"
+  status = 200

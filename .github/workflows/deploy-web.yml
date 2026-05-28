@@ -28,40 +28,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Compatibility renderer for Web
-        run: |
-          perl -0pi -e 's/renderer\/rendering_method="[^"]+"/renderer\/rendering_method="gl_compatibility"/' project.godot
-          grep -E 'renderer/rendering_method=' project.godot
-
-      - name: Import project
-        timeout-minutes: 3
-        run: timeout 120 godot --headless --import || true
-
       - name: Build Web export
-        timeout-minutes: 5
-        run: |
-          mkdir -p builds/web
-          timeout 240 godot --headless --export-release "Web" builds/web/index.html
-          touch builds/web/.nojekyll
-          ls -lh builds/web
-
-      - name: Apply phone-shaped browser shell
-        run: |
-          awk '
-            BEGIN {
-              while ((getline line < "web/phone-shell.css") > 0) {
-                css = css line "\n"
-              }
-            }
-            /<\/head>/ {
-              print "<style id=\"raider-bay-phone-shell\">"
-              printf "%s", css
-              print "</style>"
-            }
-            { print }
-          ' builds/web/index.html > builds/web/index.tmp
-          mv builds/web/index.tmp builds/web/index.html
-          grep -n "raider-bay-phone-shell" builds/web/index.html
+        timeout-minutes: 8
+        run: bash scripts/build-web.sh
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

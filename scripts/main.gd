@@ -45,6 +45,8 @@ const HUD_BG_SIZE := Vector2(1633, 831)
 const HUD_DISPLAY_HEIGHT := 366
 const SAVE_PATH := "user://raider_bay_save.json"
 const HIGH_SCORES_PATH := "user://raider_bay_high_scores.json"
+const GLOBAL_SCORES_API := "/api/scores"
+const GLOBAL_SCORES_TIMEOUT := 8.0
 const MAX_HIGH_SCORES := 50
 const SAVE_VERSION := 1
 const MODE_SOLO := "solo"
@@ -206,6 +208,8 @@ var game_stats: Dictionary = {}
 var high_score_recorded := false
 var last_high_score_rank := -1
 var last_high_score_top_10 := false
+var global_scores_status := ""
+var global_scores: Array = []
 
 var upgrades: Dictionary = {}
 var conditions: Dictionary = {}
@@ -269,6 +273,8 @@ var birds_phase_time: float = 0.0
 var birds_previous_volume: float = 0.0
 var calm_current_volume: float = 1.0
 var waves_current_volume: float = 0.0
+var global_scores_fetch_request: HTTPRequest
+var global_scores_submit_request: HTTPRequest
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -282,10 +288,23 @@ func _ready() -> void:
 	_build_start_screen()
 	_show_start_screen()
 	_build_audio()
+	_build_global_score_requests()
 	_schedule_ship_roll()
 	_apply_safe_area_inset()
 	get_viewport().size_changed.connect(_apply_safe_area_inset)
 	set_process(true)
+
+
+func _build_global_score_requests() -> void:
+	global_scores_fetch_request = HTTPRequest.new()
+	global_scores_fetch_request.timeout = GLOBAL_SCORES_TIMEOUT
+	global_scores_fetch_request.request_completed.connect(_on_global_scores_fetch_completed)
+	add_child(global_scores_fetch_request)
+
+	global_scores_submit_request = HTTPRequest.new()
+	global_scores_submit_request.timeout = GLOBAL_SCORES_TIMEOUT
+	global_scores_submit_request.request_completed.connect(_on_global_score_submit_completed)
+	add_child(global_scores_submit_request)
 
 
 func _apply_safe_area_inset() -> void:
@@ -6105,6 +6124,7 @@ func _record_high_score() -> int:
 	var outcome := _game_over_outcome()
 	var entry_id := "%d-%d" % [int(Time.get_unix_time_from_system()), rng.randi()]
 	var entry := {
+		"schema": 1,
 		"id": entry_id,
 		"money": money,
 		"trophies": _trophy_count(),
@@ -6137,6 +6157,7 @@ func _record_high_score() -> int:
 	while scores.size() > MAX_HIGH_SCORES:
 		scores.pop_back()
 	_save_high_scores(scores)
+	_submit_global_high_score(entry)
 	return last_high_score_rank
 
 
@@ -6229,6 +6250,88 @@ func _save_high_scores(scores: Array) -> void:
 	file.store_string(JSON.stringify(scores))
 
 
+func _global_scores_enabled() -> bool:
+	return OS.has_feature("web") and global_scores_fetch_request != null and global_scores_submit_request != null
+
+
+func _submit_global_high_score(entry: Dictionary) -> void:
+	if not _global_scores_enabled():
+		return
+	var headers := ["Content-Type: application/json", "Accept: application/json"]
+	var err := global_scores_submit_request.request(GLOBAL_SCORES_API, headers, HTTPClient.METHOD_POST, JSON.stringify(entry))
+	if err != OK:
+		global_scores_status = "Global score submit queued locally."
+
+
+func _fetch_global_high_scores() -> void:
+	if not _global_scores_enabled():
+		return
+	global_scores_status = "Loading global scores..."
+	var err := global_scores_fetch_request.request(GLOBAL_SCORES_API, ["Accept: application/json"], HTTPClient.METHOD_GET)
+	if err != OK:
+		global_scores_status = "Global scores unavailable. Showing local scores."
+
+
+func _on_global_score_submit_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
+		global_scores_status = "Global score submit failed. Saved locally."
+		return
+	var parsed := _global_scores_from_body(body)
+	if not parsed.is_empty():
+		global_scores = parsed
+		if ui.has("high_scores_overlay") and (ui["high_scores_overlay"] as Control).visible:
+			_render_high_scores_screen(global_scores, "GLOBAL HIGH SCORES", "Shared Raider Bay scoreboard.")
+
+
+func _on_global_scores_fetch_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
+		global_scores_status = "Global scores unavailable. Showing local scores."
+		if ui.has("high_scores_overlay") and (ui["high_scores_overlay"] as Control).visible:
+			_render_high_scores_screen(_load_high_scores(), "HIGH SCORES", global_scores_status)
+		return
+	var parsed := _global_scores_from_body(body)
+	if parsed.is_empty():
+		global_scores_status = "No global scores yet."
+		_render_high_scores_screen(_load_high_scores(), "HIGH SCORES", global_scores_status)
+		return
+	global_scores = parsed
+	global_scores_status = "Shared Raider Bay scoreboard."
+	if ui.has("high_scores_overlay") and (ui["high_scores_overlay"] as Control).visible:
+		_render_high_scores_screen(global_scores, "GLOBAL HIGH SCORES", global_scores_status)
+
+
+func _global_scores_from_body(body: PackedByteArray) -> Array:
+	var parser := JSON.new()
+	if parser.parse(body.get_string_from_utf8()) != OK:
+		return []
+	var scores: Array = []
+	if parser.data is Dictionary:
+		var data: Dictionary = parser.data
+		if data.get("scores", []) is Array:
+			scores = data.get("scores", [])
+	elif parser.data is Array:
+		scores = parser.data
+	return _normalize_score_array(scores)
+
+
+func _normalize_score_array(scores: Array) -> Array:
+	var clean: Array = []
+	for item in scores:
+		if item is Dictionary:
+			var entry: Dictionary = item
+			if not entry.has("upgrade_total"):
+				entry["upgrade_total"] = 0
+			if not entry.has("fish_caught"):
+				entry["fish_caught"] = int(entry.get("fish_sold", 0))
+			if not entry.has("elapsed_seconds"):
+				entry["elapsed_seconds"] = 99999999
+			clean.append(entry)
+	_sort_high_scores(clean)
+	while clean.size() > MAX_HIGH_SCORES:
+		clean.pop_back()
+	return clean
+
+
 func _build_high_scores_screen() -> void:
 	var overlay := Control.new()
 	overlay.anchor_right = 1.0
@@ -6285,18 +6388,28 @@ func _show_high_scores_screen() -> void:
 	if not ui.has("high_scores_overlay") or not ui.has("high_scores_col"):
 		return
 
+	global_scores_status = "Loading global scores..." if _global_scores_enabled() else "Local scores on this device."
+	_render_high_scores_screen(_load_high_scores(), "HIGH SCORES", global_scores_status)
+	(ui["high_scores_overlay"] as Control).visible = true
+	_fetch_global_high_scores()
+
+
+func _render_high_scores_screen(scores: Array, title_text: String, status_text: String = "") -> void:
 	var col: VBoxContainer = ui["high_scores_col"]
 	for child in col.get_children():
 		child.queue_free()
 
-	var title := _label("HIGH SCORES", 28, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	var title := _label(title_text, 28, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
 	title.add_theme_font_override("font", FONT_TAY_MAKAWAO)
 	title.add_theme_constant_override("shadow_offset_y", 4)
 	title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(title)
 
-	var scores := _load_high_scores()
+	if status_text != "":
+		var status := _label(status_text, FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(status)
 
 	if scores.is_empty():
 		var empty := _label("No games played yet.", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
@@ -6388,8 +6501,6 @@ func _show_high_scores_screen() -> void:
 			var outcome_text := str(entry.get("outcome", ""))
 			var oc_color := GOLD if outcome_text == "CHAMPION!" else (RED if outcome_text == "SUNK!" or outcome_text == "DEFEATED" else TEXT_MUTED)
 			row.add_child(_label(outcome_text, FONT_SMALL, oc_color, HORIZONTAL_ALIGNMENT_RIGHT))
-
-	(ui["high_scores_overlay"] as Control).visible = true
 
 
 func _return_from_high_scores() -> void:

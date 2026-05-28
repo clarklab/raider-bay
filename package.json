@@ -1,0 +1,10 @@
+{
+  "name": "raider-bay",
+  "private": true,
+  "scripts": {
+    "build": "bash scripts/build-web.sh"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^10.7.8"
+  }
+}

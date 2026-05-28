@@ -1,8 +1,10 @@
 .godot/
+.cache/
 .DS_Store
 .hatch-pet-runs/
 _analysis/
 builds/
+node_modules/
 *.tmp
 *.translation
 export_presets.cfg.user
