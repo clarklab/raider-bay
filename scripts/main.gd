@@ -45,7 +45,7 @@ const HUD_BG_SIZE := Vector2(1633, 831)
 const HUD_DISPLAY_HEIGHT := 366
 const SAVE_PATH := "user://raider_bay_save.json"
 const HIGH_SCORES_PATH := "user://raider_bay_high_scores.json"
-const GLOBAL_SCORES_API := "/api/scores"
+const GLOBAL_SCORES_API := "https://raiderbay.netlify.app/api/scores"
 const GLOBAL_SCORES_TIMEOUT := 8.0
 const MAX_HIGH_SCORES := 50
 const SAVE_VERSION := 1
@@ -6251,7 +6251,7 @@ func _save_high_scores(scores: Array) -> void:
 
 
 func _global_scores_enabled() -> bool:
-	return OS.has_feature("web") and global_scores_fetch_request != null and global_scores_submit_request != null
+	return GLOBAL_SCORES_API != "" and global_scores_fetch_request != null and global_scores_submit_request != null
 
 
 func _submit_global_high_score(entry: Dictionary) -> void:
