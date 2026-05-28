@@ -13,24 +13,24 @@ const jsonHeaders = {
   "Cache-Control": "no-store",
 };
 
-export async function handler(event) {
-  if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 204, headers: jsonHeaders, body: "" };
+export default async function handler(request) {
+  if (request.method === "OPTIONS") {
+    return new Response("", { status: 204, headers: jsonHeaders });
   }
 
   try {
-    if (event.httpMethod === "GET") {
+    if (request.method === "GET") {
       const scores = await readScores();
       return json(200, { scores, max: MAX_SCORES });
     }
 
-    if (event.httpMethod === "POST") {
-      const bodyLength = Number(event.headers["content-length"] || event.headers["Content-Length"] || 0);
+    if (request.method === "POST") {
+      const bodyLength = Number(request.headers.get("content-length") || 0);
       if (bodyLength > MAX_BODY_BYTES) {
         return json(413, { error: "Score payload too large." });
       }
 
-      const entry = sanitizeScore(JSON.parse(event.body || "{}"));
+      const entry = sanitizeScore(JSON.parse(await request.text() || "{}"));
       if (!entry) {
         return json(400, { error: "Invalid Raider Bay score." });
       }
@@ -135,9 +135,8 @@ function safeText(value, maxLength) {
 }
 
 function json(statusCode, body) {
-  return {
-    statusCode,
+  return new Response(JSON.stringify(body), {
+    status: statusCode,
     headers: jsonHeaders,
-    body: JSON.stringify(body),
-  };
+  });
 }
