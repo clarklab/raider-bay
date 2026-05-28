@@ -536,7 +536,7 @@ func _build_start_screen() -> void:
 	var solo := _start_screen_button(START_BUTTON_SOLO_TEXTURE, "SOLO TRIP", 0.763, _on_solo_trip_pressed, 0)
 	overlay.add_child(solo)
 
-	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.868, func(): _new_game(true), 7)
+	var battle := _start_screen_button(START_BUTTON_BATTLE_TEXTURE, "PIRATE BATTLE", 0.817, func(): _new_game(true), 7)
 	overlay.add_child(battle)
 
 	var hs_btn := Button.new()
@@ -6257,7 +6257,7 @@ func _build_high_scores_screen() -> void:
 	pad.add_theme_constant_override("margin_left", 20)
 	pad.add_theme_constant_override("margin_right", 20)
 	pad.add_theme_constant_override("margin_top", 48)
-	pad.add_theme_constant_override("margin_bottom", 36)
+	pad.add_theme_constant_override("margin_bottom", 106)
 	scroll.add_child(pad)
 
 	var col := VBoxContainer.new()
@@ -6265,6 +6265,20 @@ func _build_high_scores_screen() -> void:
 	col.add_theme_constant_override("separation", 10)
 	pad.add_child(col)
 	ui["high_scores_col"] = col
+
+	var back_btn := _tactile_button("BACK", 170, 50, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
+	back_btn.anchor_left = 0.34
+	back_btn.anchor_right = 0.66
+	back_btn.anchor_top = 0.925
+	back_btn.anchor_bottom = 0.975
+	back_btn.offset_left = 0
+	back_btn.offset_right = 0
+	back_btn.offset_top = 0
+	back_btn.offset_bottom = 0
+	back_btn.mouse_filter = Control.MOUSE_FILTER_STOP
+	back_btn.pressed.connect(_return_from_high_scores)
+	overlay.add_child(back_btn)
+	ui["high_scores_back"] = back_btn
 
 
 func _show_high_scores_screen() -> void:
@@ -6375,14 +6389,12 @@ func _show_high_scores_screen() -> void:
 			var oc_color := GOLD if outcome_text == "CHAMPION!" else (RED if outcome_text == "SUNK!" or outcome_text == "DEFEATED" else TEXT_MUTED)
 			row.add_child(_label(outcome_text, FONT_SMALL, oc_color, HORIZONTAL_ALIGNMENT_RIGHT))
 
-	col.add_child(_divider(BORDER_FRAME))
-
-	var back_btn := _tactile_button("BACK", 160, 48, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
-	back_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	back_btn.pressed.connect(_hide_high_scores_screen)
-	col.add_child(back_btn)
-
 	(ui["high_scores_overlay"] as Control).visible = true
+
+
+func _return_from_high_scores() -> void:
+	_hide_high_scores_screen()
+	_show_start_screen()
 
 
 func _hide_high_scores_screen() -> void:
