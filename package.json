@@ -2,7 +2,8 @@
   "name": "raider-bay",
   "private": true,
   "scripts": {
-    "build": "bash scripts/build-web.sh"
+    "build": "bash scripts/build-web.sh",
+    "build:netlify": "mkdir -p netlify/public"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.8"

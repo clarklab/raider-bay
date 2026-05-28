@@ -8,3 +8,6 @@ node_modules/
 *.tmp
 *.translation
 export_presets.cfg.user
+
+# Local Netlify folder
+.netlify

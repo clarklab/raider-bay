@@ -1,6 +1,6 @@
 [build]
-  command = "bash scripts/build-web.sh"
-  publish = "builds/web"
+  command = "npm run build:netlify"
+  publish = "netlify/public"
 
 [functions]
   directory = "netlify/functions"
@@ -10,3 +10,8 @@
   from = "/api/scores"
   to = "/.netlify/functions/scores"
   status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "https://clarklab.github.io/raider-bay/:splat"
+  status = 302
