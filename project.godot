@@ -22,11 +22,11 @@ config/icon="res://assets/app-icon.png"
 
 [display]
 
-window/size/viewport_width=720
-window/size/viewport_height=1460
+window/size/viewport_width=1460
+window/size/viewport_height=820
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation=1
+window/handheld/orientation=0
 
 [rendering]
 

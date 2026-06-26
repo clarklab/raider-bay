@@ -1,6 +1,6 @@
 # Raider Bay
 
-Godot 4.x mobile prototype for Raider Bay, rebuilt around the recovered rules and current art direction.
+Godot 4.x prototype for Raider Bay, rebuilt around the recovered rules and a landscape card-table direction.
 
 ## How To Run
 
@@ -10,9 +10,10 @@ Godot 4.x mobile prototype for Raider Bay, rebuilt around the recovered rules an
 
 ## Implemented
 
-- Portrait-first mobile layout targeting Android.
+- Landscape-first table layout targeting desktop web and rotated mobile play.
+- Constructed HUD/cards for market, weather, ship state, actions, and catch instead of pre-rendered HUD rasters.
 - 7 x 8 hidden bay grid.
-- Five trophy fish: Cod, Salmon, Grouper, Halibut, Tuna.
+- Five trophy fish: Swordfish, Salmon, Grouper, Halibut, Tuna.
 - Three depth bands: 33%, 62%, 71%, with deeper water rewarding riskier travel.
 - Orthogonal and diagonal movement.
 - Three-wide dock with easier entry/exit.
