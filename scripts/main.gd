@@ -4,14 +4,14 @@ extends Control
 # Game constants
 # ────────────────────────────────────────────────────────────────────────
 
-const GRID_COLS := 6
+const GRID_COLS := 8
 const GRID_ROWS := 6
-const DOCK_COL := 3
+const DOCK_COL := 4
 const DOCK_WIDTH_CELLS := 3
 const DOCK_START_COL := DOCK_COL - 1
 const DOCK_END_COL := DOCK_COL + 1
-const DOCK_ACCESS_START_COL := DOCK_START_COL - 1
-const DOCK_ACCESS_END_COL := DOCK_END_COL + 1
+const DOCK_ACCESS_START_COL := DOCK_START_COL
+const DOCK_ACCESS_END_COL := DOCK_END_COL
 const BOARD_CARD_GAP := 4
 const BOARD_CELL_WIDTH := 59
 const BOARD_CELL_HEIGHT := 65
@@ -33,9 +33,15 @@ const TROPHY_WIN_COUNT := 5
 const TREASURE_VALUES: Array[int] = [100, 100, 200, 200]
 const TREASURE_KIND_CASH := "cash"
 const TREASURE_KIND_PAID_NIGHT := "paid_night"
-const SHOAL_TARGET_RANGE := Vector2i(4, 5)
-const MID_TARGET_RANGE := Vector2i(7, 8)
-const DEEP_TARGET_RANGE := Vector2i(8, 9)
+const SHOAL_TARGET_RANGE := Vector2i(5, 6)
+const MID_TARGET_RANGE := Vector2i(8, 8)
+const DEEP_TARGET_RANGE := Vector2i(10, 11)
+const SHOAL_ITEM_COUNT := 2
+const MID_ITEM_COUNT := 3
+const DEEP_ITEM_COUNT := 3
+const SHOAL_CASH_ITEM_COUNT := 1
+const MID_CASH_ITEM_COUNT := 1
+const DEEP_CASH_ITEM_COUNT := 2
 const CASTS_PER_HOLE: Array[int] = [1, 2, 3, 5]
 const CAST_DIE_SIDES := 6
 const SHIP_VIEW_SIZE := Vector2(231, 231)
@@ -1279,7 +1285,7 @@ func _build_start_screen() -> void:
 	mini.add_theme_constant_override("h_separation", 10)
 	mini.add_theme_constant_override("v_separation", 10)
 	preview_col.add_child(mini)
-	mini.add_child(_stat_card("BOARD", "7x8", CYAN))
+	mini.add_child(_stat_card("BOARD", "%dx%d" % [GRID_COLS, GRID_ROWS], CYAN))
 	mini.add_child(_stat_card("DECK", "25", PURPLE))
 	mini.add_child(_stat_card("FISH", "%d" % SPECIES.size(), GREEN))
 	mini.add_child(_stat_card("DAYS", "%d" % MAX_DAYS, GOLD))
@@ -1675,13 +1681,14 @@ func _toggle_audio_mute() -> void:
 
 
 func _rules_text() -> String:
+	var board_size := "%dx%d" % [GRID_COLS, GRID_ROWS]
 	return ("[b]OBJECTIVE[/b]\n"
 			+ "Catch fish and sell 10 of one species at the docks to claim that fish's trophy. Collect all five trophies "
 			+ "(Swordfish, Salmon, Grouper, Halibut, Tuna) before the 14-day season ends. In Pirate Battle the first captain to "
 		+ "earn enough trophies — or sink their rival — takes the bay.\n\n"
 		+ "[b]THE BAY[/b]\n"
-		+ "A 7x8 hidden grid of water. The dock is a 3-wide strip below the bottom row. Three depth zones layer the bay:\n"
-		+ "  • shallow water (33%)\n  • middle water (62%)\n  • deep water (71%)\n"
+		+ "A " + board_size + " hidden grid of water. The dock is a 3-wide strip below the bottom row. Three depth zones layer the bay:\n"
+		+ "  • shallow water (about 1 in 3, with 2 items)\n  • middle water (1 in 2, with 3 items)\n  • deep water (about 2 in 3, with 3 items)\n"
 			+ "Deeper water yields bigger fish but punishes mistakes harder. Each non-dock square may hide a fish hole, "
 			+ "cash treasure, a Paid Night treasure that grants one extra night at sea, or nothing.\n\n"
 		+ "[b]DAILY BUDGETS[/b]\n"
@@ -2080,6 +2087,7 @@ func _build_board(parent: Container) -> void:
 			btn.pressed.connect(_on_cell_pressed.bind(cell))
 			slot.add_child(btn)
 			btn.set_meta("board_slot", slot)
+			_add_board_card_shell_layer(btn)
 			_add_bot_boat_layer(btn)
 			_add_player_boat_corner_layer(btn)
 			_add_player_boat_reticle_layer(btn)
@@ -2131,6 +2139,7 @@ func _setup_board_card_button(btn: Button, cell: Vector2i) -> void:
 	btn.add_theme_color_override("font_color", TEXT_PRIMARY)
 	btn.add_theme_constant_override("icon_max_width", 32)
 	btn.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_apply_transparent_button_style(btn)
 	_anchor_fill(btn)
 	var tilt := _board_card_tilt(cell)
 	btn.rotation_degrees = tilt
@@ -2163,9 +2172,12 @@ func _deal_board_cards() -> void:
 		var btn := cell_buttons[order[rank]]
 		if not is_instance_valid(btn):
 			continue
-		var old_tween: Tween = btn.get_meta("board_card_tween", null) as Tween
+		var old_tween: Tween = null
+		if btn.has_meta("board_card_tween"):
+			old_tween = btn.get_meta("board_card_tween") as Tween
 		if old_tween:
 			old_tween.kill()
+		var shell := _board_card_shell(btn)
 		var home := Vector2.ZERO
 		# Fresh hand-dealt tilt each game (shuffled), about a degree either way.
 		var tilt := randf_range(-1.2, 1.2)
@@ -2175,6 +2187,12 @@ func _deal_board_cards() -> void:
 		btn.position = home + Vector2(-64.0 + randf_range(-22.0, 22.0), -52.0 + randf_range(-16.0, 16.0))
 		btn.scale = Vector2(0.46, 0.46)
 		btn.rotation_degrees = tilt - 16.0
+		if shell:
+			shell.z_index = 15 + rank
+			shell.modulate = btn.modulate
+			shell.position = btn.position
+			shell.scale = btn.scale
+			shell.rotation_degrees = btn.rotation_degrees
 
 		# The interval MUST be its own sequential step. set_parallel(true) right after
 		# tween_interval() would run the props in parallel WITH the interval — ignoring the
@@ -2186,10 +2204,18 @@ func _deal_board_cards() -> void:
 		tween.parallel().tween_property(btn, "position", home, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tween.parallel().tween_property(btn, "scale", Vector2.ONE, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tween.parallel().tween_property(btn, "rotation_degrees", tilt, 0.34).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		if shell:
+			tween.parallel().tween_property(shell, "modulate:a", 1.0, 0.14)
+			tween.parallel().tween_property(shell, "position", home, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tween.parallel().tween_property(shell, "scale", Vector2.ONE, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tween.parallel().tween_property(shell, "rotation_degrees", tilt, 0.34).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		var card_btn := btn
+		var card_shell := shell
 		tween.tween_callback(func():
 			if is_instance_valid(card_btn):
 				card_btn.z_index = 0
+			if is_instance_valid(card_shell):
+				card_shell.z_index = 0
 	)
 
 
@@ -2199,14 +2225,74 @@ func _queue_board_deal() -> void:
 	call_deferred("_deal_board_cards")
 
 
+func _apply_transparent_button_style(button: Button) -> void:
+	for state in ["normal", "hover", "pressed", "focus", "disabled"]:
+		button.add_theme_stylebox_override(state, _transparent_style())
+
+
+func _board_card_shell(btn: Button) -> Control:
+	if not btn.has_meta("board_card_shell"):
+		return null
+	return btn.get_meta("board_card_shell") as Control
+
+
+func _add_board_card_shell_layer(btn: Button) -> void:
+	var shell := Control.new()
+	shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shell.pivot_offset = Vector2(BOARD_CELL_WIDTH, BOARD_CELL_HEIGHT) * 0.5
+	shell.rotation_degrees = btn.rotation_degrees
+	shell.modulate = btn.modulate
+	_anchor_fill(shell)
+	var slot: Control = btn.get_meta("board_slot", null) as Control
+	if slot:
+		slot.add_child(shell)
+		slot.move_child(shell, 0)
+	else:
+		btn.add_child(shell)
+	btn.set_meta("board_card_shell", shell)
+
+
+func _render_board_card_shell(btn: Button, fill: Color, dead_card: bool = false) -> void:
+	var shell := _board_card_shell(btn)
+	if shell == null:
+		return
+	for child in shell.get_children():
+		child.queue_free()
+
+	var card_size := Vector2(BOARD_CELL_WIDTH, BOARD_CELL_HEIGHT)
+	var border_px := 4
+	var steps := 2
+	var step_px := 2
+	_draw_squarestep_card(shell, card_size, fill, Color.WHITE, border_px, steps, step_px)
+
+	if dead_card:
+		var wash := ColorRect.new()
+		wash.color = _with_alpha(Color("#020914"), 0.22)
+		wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		wash.position = Vector2(border_px + step_px, border_px + step_px)
+		wash.size = card_size - Vector2(border_px + step_px, border_px + step_px) * 2.0
+		shell.add_child(wash)
+
+
+func _draw_squarestep_card(parent: Control, card_size: Vector2, fill: Color, border_color: Color, border_px: int, steps: int, step_px: int) -> void:
+	var w := card_size.x
+	var h := card_size.y
+	_gallery_chunky_rrect(parent, 0.0, 0.0, w, h, border_color, steps, step_px)
+	var inset := float(border_px)
+	_gallery_chunky_rrect(parent, inset, inset, w - inset * 2.0, h - inset * 2.0, fill, steps, step_px)
+
+
 func _decorate_dock_button(dock_btn: Button) -> void:
 	dock_btn.text = ""
 	dock_btn.icon = null
 	dock_btn.expand_icon = false
 	dock_btn.clip_text = true
+	_apply_transparent_button_style(dock_btn)
+	_add_dock_card_shell_layer(dock_btn)
 
 	var label := Label.new()
 	label.text = "THE\nDOCKS"
+	label.z_index = 10
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2221,6 +2307,7 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 
 	var boat := TextureRect.new()
 	boat.texture = ICON_CARD_SHIP_TEXTURE
+	boat.z_index = 12
 	boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	boat.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -2237,6 +2324,25 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	boat.offset_bottom = 18
 	dock_btn.add_child(boat)
 	dock_btn.set_meta("dock_boat", boat)
+
+
+func _add_dock_card_shell_layer(dock_btn: Button) -> void:
+	var shell := Control.new()
+	shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shell.z_index = 0
+	_anchor_fill(shell)
+	dock_btn.add_child(shell)
+	dock_btn.set_meta("dock_card_shell", shell)
+
+
+func _render_dock_card_shell(dock_btn: Button, fill: Color) -> void:
+	var shell: Control = dock_btn.get_meta("dock_card_shell", null) as Control
+	if shell == null:
+		return
+	for child in shell.get_children():
+		child.queue_free()
+	var size := Vector2(BOARD_CELL_WIDTH * DOCK_WIDTH_CELLS + BOARD_CARD_GAP * (DOCK_WIDTH_CELLS - 1), BOARD_CELL_HEIGHT)
+	_draw_squarestep_card(shell, size, fill, Color.WHITE, 4, 2, 2)
 
 
 func _add_cast_dot_layer(btn: Button) -> void:
@@ -2397,10 +2503,10 @@ func _add_board_dead_x_layer(btn: Button) -> void:
 
 	var bounds := Vector2(BOARD_CELL_WIDTH - inset * 2.0, BOARD_CELL_HEIGHT - inset * 2.0)
 	var angle := atan2(bounds.y, bounds.x)
-	_add_board_dead_x_line(x_layer, angle, 6.0, _with_alpha(Color("#061426"), 0.16), 0, bounds)
-	_add_board_dead_x_line(x_layer, -angle, 6.0, _with_alpha(Color("#061426"), 0.16), 0, bounds)
-	_add_board_dead_x_line(x_layer, angle, 3.0, _with_alpha(RED.lightened(0.08), 0.20), 1, bounds)
-	_add_board_dead_x_line(x_layer, -angle, 3.0, _with_alpha(RED.lightened(0.08), 0.20), 1, bounds)
+	_add_board_dead_x_line(x_layer, angle, 8.0, _with_alpha(Color("#061426"), 0.58), 0, bounds)
+	_add_board_dead_x_line(x_layer, -angle, 8.0, _with_alpha(Color("#061426"), 0.58), 0, bounds)
+	_add_board_dead_x_line(x_layer, angle, 4.0, _with_alpha(Color.WHITE, 0.86), 1, bounds)
+	_add_board_dead_x_line(x_layer, -angle, 4.0, _with_alpha(Color.WHITE, 0.86), 1, bounds)
 	btn.set_meta("dead_x", x_layer)
 
 
@@ -4294,10 +4400,21 @@ func _generate_board() -> void:
 		for col in range(GRID_COLS):
 			board.append(_empty_tile(row))
 
-	_seed_treasures()
-	_seed_band_targets(4, 5, rng.randi_range(SHOAL_TARGET_RANGE.x, SHOAL_TARGET_RANGE.y))
-	_seed_band_targets(2, 3, rng.randi_range(MID_TARGET_RANGE.x, MID_TARGET_RANGE.y))
-	_seed_band_targets(0, 1, rng.randi_range(DEEP_TARGET_RANGE.x, DEEP_TARGET_RANGE.y))
+	var shoal_hits := rng.randi_range(SHOAL_TARGET_RANGE.x, SHOAL_TARGET_RANGE.y)
+	var mid_hits := rng.randi_range(MID_TARGET_RANGE.x, MID_TARGET_RANGE.y)
+	var deep_hits := rng.randi_range(DEEP_TARGET_RANGE.x, DEEP_TARGET_RANGE.y)
+	var fish_total := 0
+	fish_total += max(0, shoal_hits - SHOAL_ITEM_COUNT)
+	fish_total += max(0, mid_hits - MID_ITEM_COUNT)
+	fish_total += max(0, deep_hits - DEEP_ITEM_COUNT)
+
+	var fish_deck := _balanced_species_deck(fish_total)
+	var cash_values: Array[int] = TREASURE_VALUES.duplicate()
+	_shuffle_indices(cash_values)
+
+	_seed_band_contents(4, 5, shoal_hits, SHOAL_ITEM_COUNT, SHOAL_CASH_ITEM_COUNT, fish_deck, cash_values)
+	_seed_band_contents(2, 3, mid_hits, MID_ITEM_COUNT, MID_CASH_ITEM_COUNT, fish_deck, cash_values)
+	_seed_band_contents(0, 1, deep_hits, DEEP_ITEM_COUNT, DEEP_CASH_ITEM_COUNT, fish_deck, cash_values)
 
 
 func _empty_tile(row: int) -> Dictionary:
@@ -4317,51 +4434,88 @@ func _empty_tile(row: int) -> Dictionary:
 	}
 
 
-func _seed_treasures() -> void:
+func _seed_band_contents(row_start: int, row_end: int, target_count: int, item_count: int, cash_item_count: int, fish_deck: Array[String], cash_values: Array[int]) -> void:
 	var candidates: Array[int] = []
-	for row in range(GRID_ROWS):
+	for row in range(row_start, row_end + 1):
 		for col in range(GRID_COLS):
 			candidates.append(row * GRID_COLS + col)
 
 	_shuffle_indices(candidates)
-	var values: Array[int] = TREASURE_VALUES.duplicate()
-	_shuffle_indices(values)
-	var treasures: Array[Dictionary] = []
-	for value in values:
-		treasures.append({"type": TREASURE_KIND_CASH, "value": value})
-	for i in range(TREASURE_VALUES.size()):
-		treasures.append({"type": TREASURE_KIND_PAID_NIGHT, "value": 0})
+	var hit_count: int = clampi(target_count, 0, candidates.size())
+	var treasure_count: int = clampi(item_count, 0, hit_count)
+	var treasures := _treasure_specs_for_band(treasure_count, cash_item_count, cash_values)
 
-	_shuffle_treasure_specs(treasures)
-	var count: int = min(treasures.size(), candidates.size())
-	for i in range(count):
-		var index := candidates[i]
-		var tile: Dictionary = board[index]
-		var treasure: Dictionary = treasures[i]
-		tile["content"] = "treasure"
-		tile["treasure_type"] = str(treasure.get("type", TREASURE_KIND_CASH))
-		tile["value"] = int(treasure.get("value", 0))
-		board[index] = tile
+	for i in range(treasures.size()):
+		_populate_treasure_tile(candidates[i], treasures[i])
+
+	var fish_count := hit_count - treasures.size()
+	for i in range(fish_count):
+		var index := candidates[treasures.size() + i]
+		_populate_fish_tile(index, _draw_species_from_deck(fish_deck))
 
 
-func _seed_band_targets(row_start: int, row_end: int, target_count: int) -> void:
-	var candidates: Array[int] = []
-	var existing_targets := 0
-	for row in range(row_start, row_end + 1):
-		for col in range(GRID_COLS):
-			var index := row * GRID_COLS + col
-			if str(board[index]["content"]) == "empty":
-				candidates.append(index)
-			else:
-				existing_targets += 1
+func _treasure_specs_for_band(item_count: int, cash_item_count: int, cash_values: Array[int]) -> Array[Dictionary]:
+	var specs: Array[Dictionary] = []
+	var cash_count: int = clampi(cash_item_count, 0, item_count)
+	for i in range(cash_count):
+		var cash_value := 100
+		if not cash_values.is_empty():
+			cash_value = cash_values.pop_back()
+		specs.append({"type": TREASURE_KIND_CASH, "value": cash_value})
 
-	_shuffle_indices(candidates)
-	var count: int = min(max(0, target_count - existing_targets), candidates.size())
-	for i in range(count):
-		_populate_fish_tile(candidates[i])
+	for i in range(item_count - cash_count):
+		specs.append({"type": TREASURE_KIND_PAID_NIGHT, "value": 0})
+
+	_shuffle_treasure_specs(specs)
+	return specs
+
+
+func _populate_treasure_tile(index: int, treasure: Dictionary) -> void:
+	var tile: Dictionary = board[index]
+	tile["content"] = "treasure"
+	tile["treasure_type"] = str(treasure.get("type", TREASURE_KIND_CASH))
+	tile["value"] = int(treasure.get("value", 0))
+	board[index] = tile
+
+
+func _balanced_species_deck(count: int) -> Array[String]:
+	var deck: Array[String] = []
+	if count <= 0:
+		return deck
+
+	var cycles := int(count / SPECIES.size())
+	if count % SPECIES.size() != 0:
+		cycles += 1
+
+	for i in range(cycles):
+		var species_cycle: Array[String] = SPECIES.duplicate()
+		_shuffle_species(species_cycle)
+		for species in species_cycle:
+			if deck.size() >= count:
+				break
+			deck.append(species)
+
+	_shuffle_species(deck)
+	return deck
+
+
+func _draw_species_from_deck(deck: Array[String]) -> String:
+	if deck.is_empty():
+		return SPECIES[rng.randi_range(0, SPECIES.size() - 1)]
+	return deck.pop_back()
 
 
 func _shuffle_indices(values: Array[int]) -> void:
+	var i := values.size() - 1
+	while i > 0:
+		var j := rng.randi_range(0, i)
+		var tmp := values[i]
+		values[i] = values[j]
+		values[j] = tmp
+		i -= 1
+
+
+func _shuffle_species(values: Array[String]) -> void:
 	var i := values.size() - 1
 	while i > 0:
 		var j := rng.randi_range(0, i)
@@ -4398,12 +4552,12 @@ func _treasure_board_label(tile: Dictionary) -> String:
 	return "$%d" % int(tile.get("value", 0))
 
 
-func _populate_fish_tile(index: int) -> void:
+func _populate_fish_tile(index: int, species: String) -> void:
 	var row := int(index / GRID_COLS)
 	var tile: Dictionary = board[index]
 	var rating: float = float(tile["rating"])
 	tile["content"] = "fish"
-	tile["species"] = _pick_species(row)
+	tile["species"] = species
 	var casts := _roll_casts(rating)
 	tile["casts_total"] = casts
 	tile["casts_remaining"] = casts
@@ -4430,17 +4584,6 @@ func _depth_info(row: int) -> Dictionary:
 	if row <= 3:
 		return {"zone": "Mid", "rating": 0.62}
 	return {"zone": "Shoal", "rating": 0.33}
-
-
-func _pick_species(row: int) -> String:
-	var choices: Array[String] = []
-	if row <= 1:
-		choices = ["Halibut", "Halibut", "Tuna", "Tuna", "Tuna"]
-	elif row <= 3:
-		choices = ["Salmon", "Grouper", "Grouper", "Halibut", "Tuna"]
-	else:
-		choices = ["Swordfish", "Swordfish", "Salmon", "Grouper"]
-	return choices[rng.randi_range(0, choices.size() - 1)]
 
 
 func _build_weather_deck() -> void:
@@ -5987,7 +6130,6 @@ func _update_board() -> void:
 				btn.text = ""
 
 			var base_color := _board_zone_card_color(row)
-			var border := Color.WHITE
 			var label_color := TEXT_PRIMARY
 
 			var known := bool(tile["found"]) or bool(tile["revealed"])
@@ -5998,51 +6140,25 @@ func _update_board() -> void:
 			var is_revealed_empty := known and content_str == "empty"
 			var is_dead_card := is_depleted or is_revealed_empty
 			var show_fish_icon := known and is_fish and not is_depleted
-			var has_move_targets := game_started and not game_over and active_tray == "" and moves_remaining > 0
-			var is_move_target := _can_move_to_cell(pos)
-			var subdue_for_move := has_move_targets and not player_here and not bot_here and not is_move_target
 
 			if is_dead_card:
-				base_color = _with_alpha(base_color.darkened(0.18), 0.30)
-				border = _with_alpha(Color("#fbfdff"), 0.30)
-				label_color = _with_alpha(TEXT_MUTED, 0.52)
+				base_color = base_color.darkened(0.46)
+				label_color = TEXT_DIM
 			elif known and is_treasure:
 				base_color = base_color.lerp(GOLD_DEEP.lightened(0.12), 0.50)
-				border = _with_alpha(GOLD, 0.9)
 				label_color = TEXT_PRIMARY
 			elif known and is_fish:
 				base_color = base_color.lightened(0.04)
-				border = _with_alpha(_species_accent(str(tile.get("species", ""))), 0.95)
 				label_color = TEXT_PRIMARY
 
 			if player_here:
 				base_color = base_color.lightened(0.08)
-				border = _with_alpha(GOLD, 0.95)
 				label_color = TEXT_PRIMARY
 			elif bot_here:
 				base_color = base_color.lerp(RED_DEEP, 0.34)
-				border = _with_alpha(RED, 0.95)
 				label_color = TEXT_PRIMARY
 
-			if is_move_target:
-				base_color = base_color.lightened(0.10)
-				border = _with_alpha(CYAN.lightened(0.08), 0.94)
-				label_color = TEXT_PRIMARY
-			elif subdue_for_move:
-				base_color = _with_alpha(base_color.darkened(0.18), minf(base_color.a, 0.54))
-				border = _with_alpha(border, minf(border.a, 0.30))
-				label_color = _with_alpha(label_color, minf(label_color.a, 0.46))
-
-			var hover := base_color.lightened(0.1)
-			var press := base_color.darkened(0.12)
-
-			var border_w := 4 if (player_here or bot_here or known) else 3
-
-			var pad := 0
-			btn.add_theme_stylebox_override("normal", _board_card_style(base_color, border, border_w, pad))
-			btn.add_theme_stylebox_override("hover",  _board_card_style(hover, border.lightened(0.2), border_w, pad))
-			btn.add_theme_stylebox_override("pressed", _board_card_style(press, border, border_w, pad))
-			btn.add_theme_stylebox_override("focus", _board_card_style(base_color, border.lightened(0.12), border_w, pad))
+			_render_board_card_shell(btn, base_color, is_dead_card)
 			btn.add_theme_color_override("font_color", label_color)
 
 			var font_size := 14
@@ -6052,7 +6168,7 @@ func _update_board() -> void:
 				font_size = FONT_CELL_BIG if is_treasure else FONT_CELL
 			btn.add_theme_font_size_override("font_size", font_size)
 			_update_cell_cast_dots(btn, tile, known and is_fish and not is_depleted, player_here or bot_here, label_color)
-			_update_cell_markers(btn, tile, show_fish_icon, is_dead_card, player_here, bot_here, subdue_for_move)
+			_update_cell_markers(btn, tile, show_fish_icon, is_dead_card, player_here, bot_here)
 
 
 func _update_board_presence_fx() -> void:
@@ -6086,38 +6202,14 @@ func _update_dock_strip() -> void:
 	if dock_boat:
 		dock_boat.visible = docked
 
-	if docked:
-		_apply_tactile_style(btn, WOOD_LIGHT, GOLD_DEEP)
-		if dock_label:
-			dock_label.add_theme_color_override("font_color", _with_alpha(BG_DEEP, 0.70))
-		for sb_name in ["normal", "hover", "pressed", "focus"]:
-			var sb := btn.get_theme_stylebox(sb_name) as StyleBoxFlat
-			if sb:
-				sb.content_margin_left = 3
-				sb.content_margin_right = 3
-				sb.content_margin_top = 3
-				sb.content_margin_bottom = 3
-	elif can_dock:
-		_apply_tactile_style(btn, WOOD_DARK, GOLD_DEEP)
-		if dock_label:
-			dock_label.add_theme_color_override("font_color", _with_alpha(GOLD, 0.72))
-	else:
-		_apply_tactile_style(btn, WOOD_DARK, BORDER_DARK)
-		if dock_label:
-			dock_label.add_theme_color_override("font_color", _with_alpha(TEXT_DIM, 0.48))
-
 	var dock_fill := Color("#142449")
-	var dock_border := _with_alpha(Color("#fbfdff"), 0.96)
 	if docked:
 		dock_fill = Color("#1e355a")
-		dock_border = _with_alpha(GOLD, 0.95)
 	elif can_dock:
 		dock_fill = Color("#102d47")
-		dock_border = _with_alpha(CYAN, 0.90)
-	for sb_name in ["normal", "focus", "disabled"]:
-		btn.add_theme_stylebox_override(sb_name, _board_card_style(dock_fill, dock_border, 3, 2))
-	btn.add_theme_stylebox_override("hover", _board_card_style(dock_fill.lightened(0.10), dock_border.lightened(0.10), 3, 2))
-	btn.add_theme_stylebox_override("pressed", _board_card_style(dock_fill.darkened(0.10), dock_border, 3, 2))
+	_render_dock_card_shell(btn, dock_fill)
+	if dock_label:
+		dock_label.add_theme_color_override("font_color", _with_alpha(Color.WHITE, 0.96 if (docked or can_dock) else 0.68))
 
 
 func _update_action_buttons() -> void:
@@ -6576,23 +6668,40 @@ func _animate_board_card_reveal(pos: Vector2i) -> void:
 	var btn := cell_buttons[index]
 	if not is_instance_valid(btn):
 		return
-	var old_tween: Tween = btn.get_meta("board_card_tween", null) as Tween
+	var old_tween: Tween = null
+	if btn.has_meta("board_card_tween"):
+		old_tween = btn.get_meta("board_card_tween") as Tween
 	if old_tween:
 		old_tween.kill()
+	var shell := _board_card_shell(btn)
 	var tilt := float(btn.get_meta("card_tilt", 0.0))
 	btn.pivot_offset = btn.size * 0.5
 	btn.z_index = 24
+	if shell:
+		shell.z_index = 23
 	var tween := btn.create_tween()
 	btn.set_meta("board_card_tween", tween)
 	tween.tween_property(btn, "scale", Vector2(0.18, 1.08), 0.08).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.parallel().tween_property(btn, "rotation_degrees", tilt + 3.4, 0.08).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	if shell:
+		tween.parallel().tween_property(shell, "scale", Vector2(0.18, 1.08), 0.08).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		tween.parallel().tween_property(shell, "rotation_degrees", tilt + 3.4, 0.08).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	tween.tween_property(btn, "scale", Vector2(1.10, 1.06), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.parallel().tween_property(btn, "rotation_degrees", tilt - 1.2, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if shell:
+		tween.parallel().tween_property(shell, "scale", Vector2(1.10, 1.06), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.parallel().tween_property(shell, "rotation_degrees", tilt - 1.2, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(btn, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.parallel().tween_property(btn, "rotation_degrees", tilt, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if shell:
+		tween.parallel().tween_property(shell, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tween.parallel().tween_property(shell, "rotation_degrees", tilt, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	var card_shell := shell
 	tween.tween_callback(func():
 		if is_instance_valid(btn):
 			btn.z_index = 0
+		if is_instance_valid(card_shell):
+			card_shell.z_index = 0
 	)
 
 
@@ -6827,23 +6936,10 @@ func _row_water_color(row: int) -> Color:
 
 func _board_zone_card_color(row: int) -> Color:
 	if row <= 1:
-		return Color("#0d4fa8")
+		return Color("#0f4fa8")
 	if row <= 3:
-		return Color("#2d78d2")
-	return Color("#6ea0dc")
-
-
-func _board_card_style(fill: Color, border: Color, border_w: int, padding: int = 0) -> StyleBoxFlat:
-	var s := _styled(fill, border, border_w, 7)
-	s.anti_aliasing = false
-	s.content_margin_left = padding
-	s.content_margin_right = padding
-	s.content_margin_top = padding
-	s.content_margin_bottom = padding
-	s.shadow_color = _with_alpha(Color("#00152d"), 0.62)
-	s.shadow_offset = Vector2(4, 5)
-	s.shadow_size = 0
-	return s
+		return Color("#2f79d8")
+	return Color("#6b9bd8")
 
 
 func _water_cell_style(fill: Color, border: Color, border_w: int, highlight: bool, padding: int = -1, pos: Vector2i = Vector2i(-1, -1)) -> StyleBoxFlat:
@@ -6865,7 +6961,7 @@ func _water_cell_style(fill: Color, border: Color, border_w: int, highlight: boo
 	return s
 
 
-func _update_cell_markers(btn: Button, tile: Dictionary, show_fish: bool, dead_card: bool, player_here: bool, bot_here: bool, subdued: bool) -> void:
+func _update_cell_markers(btn: Button, tile: Dictionary, show_fish: bool, dead_card: bool, player_here: bool, bot_here: bool) -> void:
 	var fish_icon: TextureRect = null
 	if btn.has_meta("fish_icon"):
 		fish_icon = btn.get_meta("fish_icon") as TextureRect
@@ -6880,7 +6976,7 @@ func _update_cell_markers(btn: Button, tile: Dictionary, show_fish: bool, dead_c
 		var show_fish_icon := show_fish and not dead_card and not player_here and not bot_here
 		if show_fish_icon:
 			fish_icon.texture = _board_fish_icon_texture(str(tile.get("species", "")))
-			fish_icon.modulate = Color(1, 1, 1, 0.40 if subdued else 0.96)
+			fish_icon.modulate = Color(1, 1, 1, 0.96)
 			fish_icon.visible = true
 		else:
 			fish_icon.visible = false
