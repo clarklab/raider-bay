@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d2hhmuh8qm18r"
-path="res://.godot/imported/ship-orca-docks.webp-a0d4d88eaa0a49dd8361aa41633e1719.ctex"
+uid="uid://frri6iwyqt4l"
+path="res://.godot/imported/icon-moves.svg-0f10976b6fa147b558bef02c9b6cf730.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ship-orca-docks.webp"
-dest_files=["res://.godot/imported/ship-orca-docks.webp-a0d4d88eaa0a49dd8361aa41633e1719.ctex"]
+source_file="res://assets/icons/icon-moves.svg"
+dest_files=["res://.godot/imported/icon-moves.svg-0f10976b6fa147b558bef02c9b6cf730.ctex"]
 
 [params]
 
@@ -38,3 +38,6 @@ process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
 detect_3d/compress_to=1
+svg/scale=1.0
+editor/scale_with_editor_scale=false
+editor/convert_colors_with_editor_theme=false

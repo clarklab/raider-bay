@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dg2547t7t8eui"
-path="res://.godot/imported/ship-orca-chop.webp-c97a153fc83209d1a60a19f67025b38a.ctex"
+uid="uid://3jremhw1377y"
+path="res://.godot/imported/card-nets-1.png-854a81dba4b7a428794461b03a505849.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ship-orca-chop.webp"
-dest_files=["res://.godot/imported/ship-orca-chop.webp-c97a153fc83209d1a60a19f67025b38a.ctex"]
+source_file="res://assets/cards/card-nets-1.png"
+dest_files=["res://.godot/imported/card-nets-1.png-854a81dba4b7a428794461b03a505849.ctex"]
 
 [params]
 

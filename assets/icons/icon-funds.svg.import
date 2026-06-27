@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b4cuhknadott5"
-path="res://.godot/imported/ship-orca-storm.webp-a4cfd0d0f1fa69cebaa8f095fd406bae.ctex"
+uid="uid://1lt1wjid0cxf"
+path="res://.godot/imported/icon-funds.svg-adc2e2ffee69bac248a1fd6b0b1822fb.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ship-orca-storm.webp"
-dest_files=["res://.godot/imported/ship-orca-storm.webp-a4cfd0d0f1fa69cebaa8f095fd406bae.ctex"]
+source_file="res://assets/icons/icon-funds.svg"
+dest_files=["res://.godot/imported/icon-funds.svg-adc2e2ffee69bac248a1fd6b0b1822fb.ctex"]
 
 [params]
 
@@ -38,3 +38,6 @@ process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
 detect_3d/compress_to=1
+svg/scale=1.0
+editor/scale_with_editor_scale=false
+editor/convert_colors_with_editor_theme=false

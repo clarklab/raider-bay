@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cyw0n20865txo"
-path="res://.godot/imported/ship-orca-calm.png-a7f75e0a15bd762174e105f951f1ebd5.ctex"
+uid="uid://td8h4a327fgd"
+path="res://.godot/imported/icon-rocket-fish.svg-5e3aebf1d3396083d2c7ff37f0df3f29.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/ship-orca-calm.png"
-dest_files=["res://.godot/imported/ship-orca-calm.png-a7f75e0a15bd762174e105f951f1ebd5.ctex"]
+source_file="res://assets/icons/icon-rocket-fish.svg"
+dest_files=["res://.godot/imported/icon-rocket-fish.svg-5e3aebf1d3396083d2c7ff37f0df3f29.ctex"]
 
 [params]
 
@@ -38,3 +38,6 @@ process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
 detect_3d/compress_to=1
+svg/scale=1.0
+editor/scale_with_editor_scale=false
+editor/convert_colors_with_editor_theme=false

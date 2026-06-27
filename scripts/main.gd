@@ -7,13 +7,15 @@ extends Control
 const GRID_COLS := 8
 const GRID_ROWS := 6
 const DOCK_COL := 4
-const DOCK_WIDTH_CELLS := 3
-const DOCK_START_COL := DOCK_COL - 1
-const DOCK_END_COL := DOCK_COL + 1
-const DOCK_ACCESS_START_COL := DOCK_START_COL
-const DOCK_ACCESS_END_COL := DOCK_END_COL
+const DOCK_WIDTH_CELLS := 1
+# The dock is a single narrow cell at DOCK_COL...
+const DOCK_START_COL := DOCK_COL
+const DOCK_END_COL := DOCK_COL
+# ...but you may enter/leave it via the three water cells above it (straight up or diagonal).
+const DOCK_ACCESS_START_COL := DOCK_COL - 1
+const DOCK_ACCESS_END_COL := DOCK_COL + 1
 const BOARD_CARD_GAP := 4
-const BOARD_CELL_WIDTH := 59
+const BOARD_CELL_WIDTH := 50
 const BOARD_CELL_HEIGHT := 65
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
@@ -44,15 +46,8 @@ const MID_CASH_ITEM_COUNT := 1
 const DEEP_CASH_ITEM_COUNT := 2
 const CASTS_PER_HOLE: Array[int] = [1, 2, 3, 5]
 const CAST_DIE_SIDES := 6
-const SHIP_VIEW_SIZE := Vector2(231, 231)
-const SHIP_SCREEN_INSET := 0.15
-const SHIP_STATIC_SECONDS := 0.5
-const SHIP_STATIC_SIZE := Vector2i(96, 96)
-const SHIP_CRT_SIZE := Vector2i(162, 162)
-const SHIP_ROLL_SECONDS := 0.72
-const SHIP_ROLL_BAND_HEIGHT := 24.0
 const TABLE_SIDE_WIDTH := 280
-const TABLE_COMMAND_WIDTH := 300
+const TABLE_COMMAND_WIDTH := 332
 const TABLE_HEADER_HEIGHT := 118
 const SAVE_PATH := "user://raider_bay_save.json"
 const HIGH_SCORES_PATH := "user://raider_bay_high_scores.json"
@@ -75,11 +70,6 @@ const FISH_HALIBUT_TEXTURE: Texture2D = preload("res://assets/fish-halibut.webp"
 const FISH_SALMON_TEXTURE: Texture2D = preload("res://assets/fish-salmon.webp")
 const FISH_SWORDFISH_TEXTURE: Texture2D = preload("res://assets/fish-swordish.webp")
 const FISH_TUNA_TEXTURE: Texture2D = preload("res://assets/fish-tuna.webp")
-const SHIP_CALM_TEXTURE: Texture2D = preload("res://assets/ship-orca-calm.webp")
-const SHIP_CHOP_TEXTURE: Texture2D = preload("res://assets/ship-orca-chop.webp")
-const SHIP_DOCKS_TEXTURE: Texture2D = preload("res://assets/ship-orca-docks.webp")
-const SHIP_STORM_TEXTURE: Texture2D = preload("res://assets/ship-orca-storm.webp")
-const SHIP_FRAME_TEXTURE: Texture2D = preload("res://assets/frame-screen.webp")
 const ICON_HEALTH_TEXTURE: Texture2D = preload("res://assets/icons/material-cardiology.png")
 const ICON_LIVE_WELL_TEXTURE: Texture2D = preload("res://assets/icons/material-set-meal.png")
 const ICON_MAP_TEXTURE: Texture2D = preload("res://assets/icons/material-explore.png")
@@ -89,6 +79,14 @@ const ICON_CLEAR_TEXTURE: Texture2D = preload("res://assets/icons/material-sunny
 const ICON_STORM_TEXTURE: Texture2D = preload("res://assets/icons/material-thunderstorm.png")
 const ICON_HURRICANE_TEXTURE: Texture2D = preload("res://assets/icons/material-cyclone.png")
 const ICON_CARD_SHIP_TEXTURE: Texture2D = preload("res://assets/icons/icon-card-ship.svg")
+const ICON_ROCKET_FISH_TEXTURE: Texture2D = preload("res://assets/icons/icon-rocket-fish.svg")
+const ICON_TROPHY_OUTLINE: Texture2D = preload("res://assets/icons/trophy-outline.svg")
+const ICON_TROPHY_SOLID: Texture2D = preload("res://assets/icons/trophy-solid.svg")
+const ICON_DAY_TEXTURE: Texture2D = preload("res://assets/icons/icon-day.svg")
+const ICON_FUNDS_TEXTURE: Texture2D = preload("res://assets/icons/icon-funds.svg")
+const ICON_MOVES_TEXTURE: Texture2D = preload("res://assets/icons/icon-moves.svg")
+const ICON_FIND_FISH_TEXTURE: Texture2D = preload("res://assets/icons/icon-find-fish.svg")
+const ICON_CAST_TEXTURE: Texture2D = preload("res://assets/icons/icon-cast.svg")
 const ICON_CARD_GROUPER_TEXTURE: Texture2D = preload("res://assets/icons/icon-card-grouper.png")
 const ICON_CARD_HALIBUT_TEXTURE: Texture2D = preload("res://assets/icons/icon-card-halibut.png")
 const ICON_CARD_SALMON_TEXTURE: Texture2D = preload("res://assets/icons/icon-card-salmon.png")
@@ -116,6 +114,13 @@ const CARD_FISH_FINDER_TEXTURES: Array[Texture2D] = [
 	preload("res://assets/cards/card-fish-finder-3.png"),
 	preload("res://assets/cards/card-fish-finder-4.png"),
 	preload("res://assets/cards/card-fish-finder-5.png"),
+]
+const CARD_NETS_TEXTURES: Array[Texture2D] = [
+	preload("res://assets/cards/card-nets-1.png"),
+	preload("res://assets/cards/card-nets-2.png"),
+	preload("res://assets/cards/card-nets-3.png"),
+	preload("res://assets/cards/card-nets-4.png"),
+	preload("res://assets/cards/card-nets-5.png"),
 ]
 
 const BG_CALM_STREAM: AudioStream = preload("res://assets/bg-calm.mp3")
@@ -233,7 +238,6 @@ const SHADOW         := Color(0, 0, 0, 0.32)
 # ────────────────────────────────────────────────────────────────────────
 
 var rng := RandomNumberGenerator.new()
-var ship_static_rng := RandomNumberGenerator.new()
 
 var game_started := false
 var versus_mode := false
@@ -287,10 +291,7 @@ var active_tray: String = ""     # "" | upgrade | repair
 var selected_upgrade_card_key := ""
 var selected_upgrade_card_level := 0
 var upgrade_card_purchase_locked := false
-var ship_view_state := ""
-var ship_static_time := 0.0
-var ship_roll_time := 0.0
-var ship_roll_wait := 0.0
+var card_tooltip_token := 0
 var end_day_prompt_time := 0.0
 var catch_card_token := 0
 var board_fx_time := 0.0
@@ -333,14 +334,18 @@ var global_scores_submit_request: HTTPRequest
 
 func _ready() -> void:
 	rng.randomize()
-	ship_static_rng.randomize()
 	_apply_global_font_theme()
+	# Balatro.otf only has a limited glyph set; fall back to Godot's bundled font (full Unicode
+	# coverage, ships in the export) so symbols like · ● × → don't render as tofu squares.
+	# (Via a local Font var because you can't assign to a const's property directly.)
+	var balatro_font: Font = FONT_BALATRO
+	if ThemeDB.fallback_font and balatro_font.fallbacks.is_empty():
+		balatro_font.fallbacks = [ThemeDB.fallback_font]
 	_build_ui()
 	_build_start_screen()
 	_show_start_screen()
 	_build_audio()
 	_build_global_score_requests()
-	_schedule_ship_roll()
 	_apply_safe_area_inset()
 	get_viewport().size_changed.connect(_apply_safe_area_inset)
 	set_process(true)
@@ -536,19 +541,22 @@ func _apply_safe_area_inset() -> void:
 		fill.offset_bottom = float(top_inset)
 
 
+var title_letters: Array = []
+var title_ebb_active: bool = false
+var title_ebb_time: float = 0.0
+
+
 func _process(delta: float) -> void:
 	if game_started and not game_over:
 		_stat_add("elapsed_seconds", delta)
 	board_fx_time += delta
-	if ui.has("ship_static"):
-		_update_ship_static(delta)
-	if ui.has("ship_roll"):
-		_update_ship_roll(delta)
 	if ui.has("board_wrap"):
 		_update_board_presence_fx()
 	if action_buttons.has("end_day"):
 		_update_end_day_prompt(delta)
 	_update_audio(delta)
+	if title_ebb_active and ui.has("start_overlay") and (ui["start_overlay"] as Control).visible:
+		_update_title_ebb(delta)
 
 
 func _build_audio() -> void:
@@ -689,42 +697,6 @@ func _update_audio(delta: float) -> void:
 	audio_birds.volume_db = AUDIO_SILENT_DB if birds_v <= 0.001 else linear_to_db(birds_v)
 
 
-func _update_ship_static(delta: float) -> void:
-	if ship_static_time <= 0.0:
-		return
-	ship_static_time = max(0.0, ship_static_time - delta)
-	_refresh_ship_static_texture()
-
-	var overlay: TextureRect = ui["ship_static"]
-	var fade_in := clampf(ship_static_time / 0.20, 0.0, 1.0)
-	var fade_out := clampf((SHIP_STATIC_SECONDS - ship_static_time) / 0.16, 0.0, 1.0)
-	overlay.modulate = Color(1, 1, 1, min(fade_in, fade_out))
-	if ship_static_time <= 0.0:
-		overlay.visible = false
-
-
-func _update_ship_roll(delta: float) -> void:
-	var band: TextureRect = ui["ship_roll"]
-	if ship_roll_time > 0.0:
-		ship_roll_time = max(0.0, ship_roll_time - delta)
-		var progress := 1.0 - (ship_roll_time / SHIP_ROLL_SECONDS)
-		band.visible = true
-		band.modulate = Color(1, 1, 1, 1)
-		_refresh_ship_roll_texture(progress)
-		if ship_roll_time <= 0.0:
-			band.visible = false
-			_schedule_ship_roll()
-		return
-
-	ship_roll_wait = max(0.0, ship_roll_wait - delta)
-	if ship_roll_wait <= 0.0:
-		ship_roll_time = SHIP_ROLL_SECONDS
-
-
-func _schedule_ship_roll() -> void:
-	ship_roll_wait = ship_static_rng.randf_range(3.5, 7.5)
-
-
 func _update_end_day_prompt(delta: float) -> void:
 	var b: Button = action_buttons["end_day"]
 	if not b.visible or b.disabled or not bool(b.get_meta("action_prompt", false)):
@@ -790,13 +762,14 @@ func _build_ui() -> void:
 	_build_rules_modal()
 	_build_tray_overlay()
 	_build_catch_card_overlay()
+	_build_card_tooltip_overlay()
 	_build_game_over_screen()
 	_build_high_scores_screen()
+	_build_deck_training_screen()
 
 
 func _build_table_layout(parent: Container) -> void:
-	_build_table_header(parent)
-
+	# Board gets the full vertical space: no top header, no bottom log strip flanking it.
 	var main := HBoxContainer.new()
 	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -806,8 +779,6 @@ func _build_table_layout(parent: Container) -> void:
 	_build_left_table_rail(main)
 	_build_center_table(main)
 	_build_command_rail(main)
-
-	_build_log_strip(parent)
 
 
 func _build_table_header(parent: Container) -> void:
@@ -896,21 +867,18 @@ func _build_left_table_rail(parent: Container) -> void:
 	pad.add_theme_constant_override("margin_bottom", 12)
 	rail.add_child(pad)
 
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	pad.add_child(scroll)
-
+	# Five status counter-buttons, stacked and sharing the full rail height.
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 10)
-	scroll.add_child(col)
+	pad.add_child(col)
 
-	_build_ship_monitor_card(col)
-	_build_market_card(col)
-	_build_trophy_card(col)
-	_build_compact_ship_card(col)
+	col.add_child(_counter_button("stat_day", ICON_DAY_TEXTURE, "DAY", Color("#8ad5f3"), Callable()))
+	col.add_child(_counter_button("stat_funds", ICON_FUNDS_TEXTURE, "FUNDS", Color("#ffba00"), Callable()))
+	col.add_child(_counter_button("stat_moves", ICON_MOVES_TEXTURE, "MOVES", Color("#ff6161"), _request_end_day))
+	col.add_child(_counter_button("stat_finds", ICON_FIND_FISH_TEXTURE, "FIND FISH", Color("#c889ff"), _find_fish))
+	col.add_child(_counter_button("stat_casts", ICON_CAST_TEXTURE, "CAST", Color("#84ed72"), _cast))
 
 
 func _build_center_table(parent: Container) -> void:
@@ -958,78 +926,36 @@ func _build_command_rail(parent: Container) -> void:
 	col.add_theme_constant_override("separation", 10)
 	scroll.add_child(col)
 
+	_build_forecast_card(col)
 	_build_action_bar(col)
+	_build_market_card(col)
+	_build_compact_ship_card(col)
 	_build_live_well_card(col)
 	_build_radio_card(col)
+	_build_log_strip(col)
 
 
-func _build_ship_monitor_card(parent: Container) -> void:
-	var card := _panel(Color("#0a2132"), BORDER_FRAME, 1, 5)
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(card)
+func _build_forecast_card(parent: Container) -> void:
+	var forecast_panel := _panel(Color("#0a2132"), BORDER_DARK, 1, 5)
+	forecast_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(forecast_panel)
 
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 9)
-	pad.add_theme_constant_override("margin_right", 9)
-	pad.add_theme_constant_override("margin_top", 9)
-	pad.add_theme_constant_override("margin_bottom", 9)
-	card.add_child(pad)
+	var forecast_pad := MarginContainer.new()
+	forecast_pad.add_theme_constant_override("margin_left", 9)
+	forecast_pad.add_theme_constant_override("margin_right", 9)
+	forecast_pad.add_theme_constant_override("margin_top", 7)
+	forecast_pad.add_theme_constant_override("margin_bottom", 7)
+	forecast_panel.add_child(forecast_pad)
 
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 7)
-	pad.add_child(col)
-	col.add_child(_label("SHIP CAM", 14, TEXT_MUTED))
+	var forecast_col := VBoxContainer.new()
+	forecast_col.add_theme_constant_override("separation", 6)
+	forecast_pad.add_child(forecast_col)
+	forecast_col.add_child(_label("WEATHER DECK", 14, TEXT_MUTED))
 
-	var screen := _panel_inset(BG_DEEP, BORDER_DARK, 4)
-	screen.custom_minimum_size = Vector2(0, 126)
-	screen.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(screen)
-
-	var window := Control.new()
-	window.clip_contents = true
-	window.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_anchor_fill(window)
-	screen.add_child(window)
-
-	var ship_art := TextureRect.new()
-	ship_art.texture = SHIP_DOCKS_TEXTURE
-	ship_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	ship_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	ship_art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	ship_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_anchor_fill(ship_art)
-	window.add_child(ship_art)
-	ui["ship_art"] = ship_art
-
-	var ship_scanlines := TextureRect.new()
-	ship_scanlines.texture = _create_ship_scanline_texture()
-	ship_scanlines.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	ship_scanlines.stretch_mode = TextureRect.STRETCH_SCALE
-	ship_scanlines.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	ship_scanlines.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_anchor_fill(ship_scanlines)
-	window.add_child(ship_scanlines)
-	ui["ship_scanlines"] = ship_scanlines
-
-	var ship_roll := TextureRect.new()
-	ship_roll.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	ship_roll.stretch_mode = TextureRect.STRETCH_SCALE
-	ship_roll.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	ship_roll.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ship_roll.visible = false
-	_anchor_fill(ship_roll)
-	window.add_child(ship_roll)
-	ui["ship_roll"] = ship_roll
-
-	var ship_static := TextureRect.new()
-	ship_static.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	ship_static.stretch_mode = TextureRect.STRETCH_SCALE
-	ship_static.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	ship_static.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ship_static.visible = false
-	_anchor_fill(ship_static)
-	window.add_child(ship_static)
-	ui["ship_static"] = ship_static
+	ui["forecast_chips"] = HBoxContainer.new()
+	ui["forecast_chips"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["forecast_chips"].add_theme_constant_override("separation", 6)
+	forecast_col.add_child(ui["forecast_chips"])
 
 
 func _build_market_card(parent: Container) -> void:
@@ -1053,27 +979,6 @@ func _build_market_card(parent: Container) -> void:
 	col.add_child(ui["top_market_rows"])
 
 
-func _build_trophy_card(parent: Container) -> void:
-	var card := _panel(Color("#0a2132"), BORDER_DARK, 1, 5)
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(card)
-
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 9)
-	pad.add_theme_constant_override("margin_right", 9)
-	pad.add_theme_constant_override("margin_top", 9)
-	pad.add_theme_constant_override("margin_bottom", 9)
-	card.add_child(pad)
-
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 6)
-	pad.add_child(col)
-	col.add_child(_label("TROPHIES", 14, CYAN))
-	ui["trophy_rows"] = VBoxContainer.new()
-	ui["trophy_rows"].add_theme_constant_override("separation", 3)
-	col.add_child(ui["trophy_rows"])
-
-
 func _build_compact_ship_card(parent: Container) -> void:
 	var card := _panel(Color("#0a2132"), BORDER_DARK, 1, 5)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1092,21 +997,12 @@ func _build_compact_ship_card(parent: Container) -> void:
 	col.add_theme_constant_override("separation", 7)
 	pad.add_child(col)
 
-	var head := HBoxContainer.new()
-	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(head)
-	head.add_child(_label("SHIP CARDS", 14, PURPLE))
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(spacer)
-	ui["ship_card_funds"] = _label("$0", 14, GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
-	head.add_child(ui["ship_card_funds"])
+	col.add_child(_label("SHIP CARDS", 15, PURPLE))
 
 	ui["compact_ship_cards"] = GridContainer.new()
-	ui["compact_ship_cards"].columns = 2
+	ui["compact_ship_cards"].columns = 1
 	ui["compact_ship_cards"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["compact_ship_cards"].add_theme_constant_override("h_separation", 6)
-	ui["compact_ship_cards"].add_theme_constant_override("v_separation", 6)
+	ui["compact_ship_cards"].add_theme_constant_override("v_separation", 5)
 	col.add_child(ui["compact_ship_cards"])
 
 
@@ -1187,112 +1083,372 @@ func _build_start_screen() -> void:
 	add_child(overlay)
 	ui["start_overlay"] = overlay
 
-	var art := TextureRect.new()
-	art.texture = GAME_BG_TEXTURE
-	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_anchor_fill(art)
-	overlay.add_child(art)
+	var bg := ColorRect.new()
+	bg.color = Color("#0b1a3a")
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(bg)
+	overlay.add_child(bg)
 
-	var wash := ColorRect.new()
-	wash.color = Color(2.0 / 255.0, 7.0 / 255.0, 19.0 / 255.0, 0.62)
-	wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_anchor_fill(wash)
-	overlay.add_child(wash)
+	var vp := get_viewport().get_visible_rect().size
+	var cx := vp.x * 0.5
 
-	var root := MarginContainer.new()
-	root.anchor_right = 1.0
-	root.anchor_bottom = 1.0
-	root.add_theme_constant_override("margin_left", 54)
-	root.add_theme_constant_override("margin_right", 54)
-	root.add_theme_constant_override("margin_top", 42)
-	root.add_theme_constant_override("margin_bottom", 42)
-	overlay.add_child(root)
+	var title_layer := Control.new()
+	title_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(title_layer)
+	overlay.add_child(title_layer)
+	_build_arched_title(title_layer, "RAIDER BAY", cx, vp.y * 0.30, 122)
 
-	var row := HBoxContainer.new()
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", 24)
-	root.add_child(row)
+	var btn_w := 440.0
+	var btn_gap := 44.0
+	var btn_y := vp.y * 0.58
+	var solo := _pixel_button("SOLO TRIP", CYAN, Color("#15273f"), TEXT_PRIMARY, ICON_ROCKET_FISH_TEXTURE, _on_solo_trip_pressed)
+	solo.position = Vector2(cx - btn_w - btn_gap * 0.5, btn_y)
+	overlay.add_child(solo)
+	var battle := _pixel_button("PIRATE BATTLE", RED, Color("#2b1417"), Color("#ff6b6b"), null, func(): _new_game(true))
+	battle.position = Vector2(cx + btn_gap * 0.5, btn_y)
+	overlay.add_child(battle)
 
-	var copy := VBoxContainer.new()
-	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	copy.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	copy.alignment = BoxContainer.ALIGNMENT_CENTER
-	copy.add_theme_constant_override("separation", 12)
-	row.add_child(copy)
+	var links := HBoxContainer.new()
+	links.alignment = BoxContainer.ALIGNMENT_CENTER
+	links.add_theme_constant_override("separation", 14)
+	links.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	links.add_child(_title_link("DECK TRAINING", _show_deck_training))
+	links.add_child(_title_link_sep())
+	links.add_child(_title_link("HIGH SCORES", _show_high_scores_screen))
+	links.add_child(_title_link_sep())
+	links.add_child(_title_link("SETTINGS", _show_settings_screen))
+	links.add_child(_title_link_sep())
+	links.add_child(_title_link("CREDITS", _show_credits_screen))
 
-	var title := _label("RAIDER BAY", 78, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
-	title.add_theme_constant_override("outline_size", 5)
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.82))
-	copy.add_child(title)
-	copy.add_child(_label("FISH DEEP. DOCK RICH. PLAY THE TABLE.", 24, TEXT_PRIMARY))
-
-	var buttons := HBoxContainer.new()
-	buttons.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	buttons.add_theme_constant_override("separation", 12)
-	copy.add_child(buttons)
-
-	var solo := _tactile_button("SOLO TRIP", 0, 72, BG_PANEL_LIGHT, GOLD_DEEP, TEXT_PRIMARY)
-	solo.add_theme_font_size_override("font_size", 28)
-	solo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	solo.pressed.connect(_on_solo_trip_pressed)
-	buttons.add_child(solo)
-
-	var battle := _tactile_button("PIRATE BATTLE", 0, 72, BG_PANEL_LIGHT, RED_DEEP, RED)
-	battle.add_theme_font_size_override("font_size", 28)
-	battle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	battle.pressed.connect(func(): _new_game(true))
-	buttons.add_child(battle)
-
-	var high_scores := _tactile_button("HIGH SCORES", 0, 54, BG_PANEL, BORDER_HI, TEXT_PRIMARY)
-	high_scores.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	high_scores.pressed.connect(_show_high_scores_screen)
-	copy.add_child(high_scores)
-
-	var preview := _panel_lifted(Color("#071829"), BORDER_FRAME, 1, 6, 8)
-	preview.custom_minimum_size = Vector2(420, 0)
-	preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_child(preview)
-
-	var preview_pad := MarginContainer.new()
-	preview_pad.add_theme_constant_override("margin_left", 16)
-	preview_pad.add_theme_constant_override("margin_right", 16)
-	preview_pad.add_theme_constant_override("margin_top", 16)
-	preview_pad.add_theme_constant_override("margin_bottom", 16)
-	preview.add_child(preview_pad)
-
-	var preview_col := VBoxContainer.new()
-	preview_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	preview_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	preview_col.add_theme_constant_override("separation", 12)
-	preview_pad.add_child(preview_col)
-	preview_col.add_child(_label("TABLE BUILD", 18, CYAN))
-
-	var ship := TextureRect.new()
-	ship.texture = SHIP_DOCKS_TEXTURE
-	ship.custom_minimum_size = Vector2(0, 220)
-	ship.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	ship.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	ship.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	preview_col.add_child(ship)
-
-	var mini := GridContainer.new()
-	mini.columns = 2
-	mini.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mini.add_theme_constant_override("h_separation", 10)
-	mini.add_theme_constant_override("v_separation", 10)
-	preview_col.add_child(mini)
-	mini.add_child(_stat_card("BOARD", "%dx%d" % [GRID_COLS, GRID_ROWS], CYAN))
-	mini.add_child(_stat_card("DECK", "25", PURPLE))
-	mini.add_child(_stat_card("FISH", "%d" % SPECIES.size(), GREEN))
-	mini.add_child(_stat_card("DAYS", "%d" % MAX_DAYS, GOLD))
+	var links_wrap := Control.new()
+	links_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	links_wrap.anchor_right = 1.0
+	links_wrap.offset_top = vp.y * 0.80
+	links_wrap.offset_bottom = vp.y * 0.80 + 40.0
+	overlay.add_child(links_wrap)
+	var lc := CenterContainer.new()
+	lc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(lc)
+	links_wrap.add_child(lc)
+	lc.add_child(links)
 
 	var chooser := _build_solo_save_chooser()
 	overlay.add_child(chooser)
 	ui["start_solo_chooser"] = chooser
+
+
+# Vertical gradient over rendered glyphs, by the glyph's local Y (per-letter, so it stays consistent
+# across the arched title). Applied to each title letter's fill Label.
+func _title_gradient_material(top: Color, bot: Color, y0: float, y1: float) -> ShaderMaterial:
+	var sh := Shader.new()
+	sh.code = "shader_type canvas_item;\nuniform vec4 c_top : source_color;\nuniform vec4 c_bot : source_color;\nuniform float y0;\nuniform float y1;\nvarying float v_y;\nvoid vertex() { v_y = VERTEX.y; }\nvoid fragment() {\n\tfloat cov = texture(TEXTURE, UV).a;\n\tfloat t = clamp((v_y - y0) / max(y1 - y0, 1.0), 0.0, 1.0);\n\tCOLOR = vec4(mix(c_top.rgb, c_bot.rgb, t), cov * COLOR.a);\n}"
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("c_top", top)
+	mat.set_shader_parameter("c_bot", bot)
+	mat.set_shader_parameter("y0", y0)
+	mat.set_shader_parameter("y1", y1)
+	return mat
+
+
+func _title_letter(parent: Control, ch: String, center: Vector2, rot: float, font_size: int, cell: Vector2, grad: ShaderMaterial) -> void:
+	# Each letter is its own group (so it can pop in and ebb as a unit); inside: drop shadow,
+	# dark pixel stroke (fattened outline), and the gradient fill, stacked back-to-front.
+	var g := Control.new()
+	g.custom_minimum_size = cell
+	g.size = cell
+	g.pivot_offset = cell * 0.5
+	g.position = center - cell * 0.5
+	g.rotation_degrees = rot
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(g)
+	var passes := [
+		{"off": Vector2(6, 11), "col": Color("#04091c"), "outline": 0, "grad": false},
+		{"off": Vector2.ZERO, "col": Color("#0b1736"), "outline": 6, "grad": false},
+		{"off": Vector2.ZERO, "col": Color.WHITE, "outline": 0, "grad": true},
+	]
+	for p in passes:
+		var lbl := Label.new()
+		lbl.text = ch
+		lbl.add_theme_font_override("font", FONT_BALATRO)
+		lbl.add_theme_font_size_override("font_size", font_size)
+		lbl.add_theme_color_override("font_color", p["col"])
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var ol := int(p["outline"])
+		if ol > 0:
+			lbl.add_theme_constant_override("outline_size", ol)
+			lbl.add_theme_color_override("font_outline_color", p["col"])
+		if bool(p["grad"]):
+			lbl.material = grad
+		lbl.custom_minimum_size = cell
+		lbl.size = cell
+		lbl.position = p["off"] as Vector2
+		g.add_child(lbl)
+	title_letters.append({"node": g, "base_y": g.position.y, "base_rot": rot, "phase": float(title_letters.size()) * 0.55})
+
+
+func _build_arched_title(parent: Control, text: String, center_x: float, base_y: float, font_size: int) -> void:
+	title_letters.clear()
+	var line_h := float(font_size) * 1.25
+	var grad := _title_gradient_material(Color("#5b8fd6"), Color("#d6e8ff"), line_h * 0.26, line_h * 0.82)
+	var advances: Array[float] = []
+	var total := 0.0
+	for i in range(text.length()):
+		var cw := FONT_BALATRO.get_char_size(text.unicode_at(i), font_size).x
+		advances.append(cw)
+		total += cw
+	var half := maxf(total * 0.5, 1.0)
+	var arch_depth := float(font_size) * 0.5
+	var arch_tilt := 9.0
+	var x := center_x - total * 0.5
+	for i in range(text.length()):
+		var cw: float = advances[i]
+		var cc := x + cw * 0.5
+		x += cw
+		if text[i] == " ":
+			continue
+		var xn := (cc - center_x) / half
+		var y_off := arch_depth * xn * xn
+		_title_letter(parent, text[i], Vector2(cc, base_y + y_off), arch_tilt * xn, font_size, Vector2(cw, line_h), grad)
+
+
+# Janky pop-twist intro: each letter snaps in from tiny + spun, staggered one at a time.
+func _play_title_intro() -> void:
+	title_ebb_active = false
+	title_ebb_time = 0.0
+	for i in range(title_letters.size()):
+		var e = title_letters[i]
+		var g: Control = e["node"]
+		if not is_instance_valid(g):
+			continue
+		var base_rot: float = e["base_rot"]
+		var dir := 1.0 if i % 2 == 0 else -1.0
+		var old: Tween = g.get_meta("intro_tween", null) as Tween
+		if old:
+			old.kill()
+		g.position.y = float(e["base_y"])
+		g.scale = Vector2(0.04, 0.04)
+		g.rotation_degrees = base_rot + dir * randf_range(30.0, 60.0)
+		g.modulate = Color(1, 1, 1, 0)
+		var t := g.create_tween()
+		g.set_meta("intro_tween", t)
+		t.tween_interval(float(i) * 0.08)
+		t.tween_property(g, "modulate:a", 1.0, 0.05)
+		t.parallel().tween_property(g, "scale", Vector2(1.2, 1.2), 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(g, "rotation_degrees", base_rot, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_property(g, "scale", Vector2.ONE, 0.1).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	var settle := create_tween()
+	settle.tween_interval(float(title_letters.size()) * 0.08 + 0.30)
+	settle.tween_callback(func(): title_ebb_active = true)
+
+
+# Once in, the letters bob and sway on a per-letter phase so the title undulates like water.
+func _update_title_ebb(delta: float) -> void:
+	title_ebb_time += delta
+	# Ease the sway in from zero so it grows smoothly out of the intro (no snap onto the wave).
+	var ramp := smoothstep(0.0, 0.8, title_ebb_time)
+	var amp := 7.0 * ramp
+	var rot_amp := 2.2 * ramp
+	var speed := 1.6
+	for e in title_letters:
+		var g: Control = e["node"]
+		if not is_instance_valid(g):
+			continue
+		var ph: float = e["phase"]
+		g.position.y = float(e["base_y"]) + amp * sin(title_ebb_time * speed + ph)
+		g.rotation_degrees = float(e["base_rot"]) + rot_amp * sin(title_ebb_time * speed + ph + 0.6)
+
+
+func _pixel_button(text: String, accent: Color, fill: Color, text_color: Color, icon: Texture2D, on_pressed: Callable) -> Control:
+	var bw := 440.0
+	var bh := 92.0
+	var card := Control.new()
+	card.custom_minimum_size = Vector2(bw, bh)
+	card.size = Vector2(bw, bh)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_gallery_chunky_rrect(card, 7.0, 12.0, bw, bh, Color(0, 0, 0, 0.40), 2, 4)
+	_gallery_chunky_rrect(card, 0.0, 0.0, bw, bh, accent, 2, 4)
+	_gallery_chunky_rrect(card, 3.0, 3.0, bw - 6.0, bh - 6.0, fill, 2, 4)
+	if icon != null:
+		var ic := TextureRect.new()
+		ic.texture = icon
+		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		ic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ic.position = Vector2(22, (bh - 56.0) * 0.5)
+		ic.size = Vector2(56, 56)
+		card.add_child(ic)
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_override("font", FONT_BALATRO)
+	lbl.add_theme_font_size_override("font_size", 34)
+	lbl.add_theme_color_override("font_color", text_color)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(lbl)
+	lbl.offset_left = 70.0 if icon != null else 22.0
+	lbl.offset_right = -22.0
+	card.add_child(lbl)
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_anchor_fill(btn)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(st, _transparent_style())
+	btn.pressed.connect(on_pressed)
+	card.add_child(btn)
+	return card
+
+
+func _title_link(text: String, on_pressed: Callable) -> Button:
+	var b := Button.new()
+	b.flat = true
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	b.add_theme_font_override("font", FONT_BALATRO)
+	b.add_theme_font_size_override("font_size", 22)
+	b.add_theme_color_override("font_color", _with_alpha(CYAN, 0.82))
+	b.add_theme_color_override("font_hover_color", TEXT_PRIMARY)
+	b.add_theme_color_override("font_pressed_color", CYAN)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(st, _transparent_style())
+	b.pressed.connect(on_pressed)
+	return b
+
+
+func _title_link_sep() -> Control:
+	# A drawn dot rather than a "·" glyph, so the separator never depends on font coverage.
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(16, 30)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var dot := ColorRect.new()
+	dot.color = _with_alpha(TEXT_DIM, 0.7)
+	dot.anchor_left = 0.5
+	dot.anchor_right = 0.5
+	dot.anchor_top = 0.5
+	dot.anchor_bottom = 0.5
+	dot.offset_left = -3.0
+	dot.offset_right = 3.0
+	dot.offset_top = -3.0
+	dot.offset_bottom = 3.0
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(dot)
+	return wrap
+
+
+func _show_info_overlay(title_text: String, body_text: String) -> void:
+	if ui.has("info_overlay") and is_instance_valid(ui["info_overlay"]):
+		(ui["info_overlay"] as Control).queue_free()
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 260
+	add_child(overlay)
+	ui["info_overlay"] = overlay
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.5)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	_anchor_fill(shade)
+	overlay.add_child(shade)
+	var cc := CenterContainer.new()
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(cc)
+	overlay.add_child(cc)
+	var panel := _panel_lifted(Color("#0a1730"), BORDER_FRAME, 2, 6, 10)
+	panel.custom_minimum_size = Vector2(540, 0)
+	cc.add_child(panel)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 30)
+	pad.add_theme_constant_override("margin_right", 30)
+	pad.add_theme_constant_override("margin_top", 26)
+	pad.add_theme_constant_override("margin_bottom", 26)
+	panel.add_child(pad)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 18)
+	pad.add_child(col)
+	col.add_child(_label(title_text, 34, CYAN, HORIZONTAL_ALIGNMENT_CENTER))
+	var body := _label(body_text, 18, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(body)
+	var close := _tactile_button("CLOSE", 0, 48, BG_PANEL, BORDER_HI, TEXT_PRIMARY)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	close.pressed.connect(func(): overlay.queue_free())
+	col.add_child(close)
+
+
+# Yes/no confirm in the pixel-modal style (clone of _show_info_overlay with two buttons).
+func _show_confirm_overlay(title_text: String, body_text: String, confirm_label: String, on_confirm: Callable) -> void:
+	if ui.has("info_overlay") and is_instance_valid(ui["info_overlay"]):
+		(ui["info_overlay"] as Control).queue_free()
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 262
+	add_child(overlay)
+	ui["info_overlay"] = overlay
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.55)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	_anchor_fill(shade)
+	overlay.add_child(shade)
+	var cc := CenterContainer.new()
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(cc)
+	overlay.add_child(cc)
+	var panel := _panel_lifted(Color("#0a1730"), BORDER_FRAME, 2, 6, 10)
+	panel.custom_minimum_size = Vector2(520, 0)
+	cc.add_child(panel)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 30)
+	pad.add_theme_constant_override("margin_right", 30)
+	pad.add_theme_constant_override("margin_top", 26)
+	pad.add_theme_constant_override("margin_bottom", 26)
+	panel.add_child(pad)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 18)
+	pad.add_child(col)
+	col.add_child(_label(title_text, 30, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	var body := _label(body_text, 18, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(body)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 12)
+	col.add_child(row)
+	var cancel := _tactile_button("CANCEL", 130, 48, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_MUTED)
+	cancel.pressed.connect(func(): overlay.queue_free())
+	row.add_child(cancel)
+	var confirm := _tactile_button(confirm_label, 130, 48, GREEN_DEEP, GOLD_DEEP, TEXT_PRIMARY)
+	confirm.pressed.connect(func():
+		overlay.queue_free()
+		on_confirm.call())
+	row.add_child(confirm)
+
+
+# The MOVES/END-DAY button: confirm first if the player still has actions to spend.
+func _request_end_day() -> void:
+	if game_over or active_tray != "":
+		return
+	if moves_remaining > 0 or casts_remaining > 0 or finds_remaining > 0:
+		_show_confirm_overlay("END YOUR DAY?", "You still have moves, casts, or finds left. Are you sure you want to end your day?", "END DAY", _end_day)
+	else:
+		_end_day()
+
+
+func _show_settings_screen() -> void:
+	_show_info_overlay("SETTINGS", "Settings are coming soon — audio, controls, and display options will live here.")
+
+
+func _show_credits_screen() -> void:
+	_show_info_overlay("CREDITS", "RAIDER BAY\n\nA Superfun joint, built in Godot.")
 
 
 func _show_start_screen() -> void:
@@ -1301,6 +1457,7 @@ func _show_start_screen() -> void:
 		(ui["start_solo_chooser"] as Control).visible = false
 	if ui.has("start_overlay"):
 		(ui["start_overlay"] as Control).visible = true
+	_play_title_intro()
 
 
 func _hide_start_screen() -> void:
@@ -2102,24 +2259,22 @@ func _build_board(parent: Container) -> void:
 	dock_row.add_theme_constant_override("separation", BOARD_CARD_GAP)
 	col.add_child(dock_row)
 
-	for i in range(GRID_COLS):
-		if i == DOCK_START_COL:
-			var dock_btn := Button.new()
-			dock_btn.custom_minimum_size = Vector2(BOARD_CELL_WIDTH * DOCK_WIDTH_CELLS + BOARD_CARD_GAP * (DOCK_WIDTH_CELLS - 1), BOARD_CELL_HEIGHT)
-			dock_btn.focus_mode = Control.FOCUS_NONE
-			dock_btn.add_theme_font_override("font", FONT_BALATRO)
-			dock_btn.add_theme_font_size_override("font_size", FONT_BODY)
-			dock_btn.pressed.connect(_on_dock_strip_pressed)
-			_decorate_dock_button(dock_btn)
-			dock_row.add_child(dock_btn)
-			ui["dock_strip"] = dock_btn
-		elif i > DOCK_START_COL and i <= DOCK_END_COL:
-			continue
-		else:
-			var spacer := Control.new()
-			spacer.custom_minimum_size = Vector2(BOARD_CELL_WIDTH, BOARD_CELL_HEIGHT)
-			spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			dock_row.add_child(spacer)
+	# Dotted left parking zone | the narrow dock | dotted right parking zone.
+	# The dashed side zones are where up to four ships park in a 4-player game.
+	if DOCK_COL > 0:
+		dock_row.add_child(_dock_parking_zone(DOCK_COL))
+	var dock_btn := Button.new()
+	dock_btn.custom_minimum_size = Vector2(BOARD_CELL_WIDTH * DOCK_WIDTH_CELLS + BOARD_CARD_GAP * (DOCK_WIDTH_CELLS - 1), BOARD_CELL_HEIGHT)
+	dock_btn.focus_mode = Control.FOCUS_NONE
+	dock_btn.add_theme_font_override("font", FONT_BALATRO)
+	dock_btn.add_theme_font_size_override("font_size", FONT_BODY)
+	dock_btn.pressed.connect(_on_dock_strip_pressed)
+	_decorate_dock_button(dock_btn)
+	dock_row.add_child(dock_btn)
+	ui["dock_strip"] = dock_btn
+	var right_cells := GRID_COLS - DOCK_COL - 1
+	if right_cells > 0:
+		dock_row.add_child(_dock_parking_zone(right_cells))
 
 	# Depth reads from card color alone — no rail/markings.
 	_build_board_toast(board_wrap)
@@ -2282,6 +2437,30 @@ func _draw_squarestep_card(parent: Control, card_size: Vector2, fill: Color, bor
 	_gallery_chunky_rrect(parent, inset, inset, w - inset * 2.0, h - inset * 2.0, fill, steps, step_px)
 
 
+# A dashed-outline parking placeholder spanning `width_cells` cells of the dock row.
+func _dock_parking_zone(width_cells: int) -> Control:
+	var zone := Control.new()
+	var w := BOARD_CELL_WIDTH * width_cells + BOARD_CARD_GAP * (width_cells - 1)
+	zone.custom_minimum_size = Vector2(w, BOARD_CELL_HEIGHT)
+	zone.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	zone.draw.connect(_draw_parking_zone.bind(zone))
+	return zone
+
+
+func _draw_parking_zone(zone: Control) -> void:
+	var sz := zone.size
+	var col := _with_alpha(BORDER_HI, 0.5)
+	var inset := 3.0
+	var a := Vector2(inset, inset)
+	var b := Vector2(sz.x - inset, inset)
+	var c := Vector2(sz.x - inset, sz.y - inset)
+	var d := Vector2(inset, sz.y - inset)
+	zone.draw_dashed_line(a, b, col, 2.0, 7.0)
+	zone.draw_dashed_line(b, c, col, 2.0, 7.0)
+	zone.draw_dashed_line(c, d, col, 2.0, 7.0)
+	zone.draw_dashed_line(d, a, col, 2.0, 7.0)
+
+
 func _decorate_dock_button(dock_btn: Button) -> void:
 	dock_btn.text = ""
 	dock_btn.icon = null
@@ -2297,7 +2476,7 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_override("font", FONT_BALATRO)
-	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_font_size_override("font_size", 12)
 	label.add_theme_color_override("font_color", _with_alpha(TEXT_DIM, 0.48))
 	label.add_theme_constant_override("outline_size", 2)
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.46))
@@ -2318,10 +2497,10 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	boat.anchor_right = 0.5
 	boat.anchor_top = 0.5
 	boat.anchor_bottom = 0.5
-	boat.offset_left = -34
-	boat.offset_right = 34
-	boat.offset_top = -34
-	boat.offset_bottom = 18
+	boat.offset_left = -20
+	boat.offset_right = 20
+	boat.offset_top = -26
+	boat.offset_bottom = 12
 	dock_btn.add_child(boat)
 	dock_btn.set_meta("dock_boat", boat)
 
@@ -2821,6 +3000,7 @@ func _build_tray_overlay() -> void:
 	overlay.anchor_bottom = 1.0
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.visible = false
+	overlay.z_index = 90
 	add_child(overlay)
 	ui["tray_overlay"] = overlay
 
@@ -3063,6 +3243,74 @@ func _build_upgrade_card_preview_overlay(parent: Control) -> void:
 	col.add_child(ui["upgrade_card_preview_close"])
 
 
+func _build_card_tooltip_overlay() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.visible = false
+	overlay.z_index = 140
+	add_child(overlay)
+	ui["card_tooltip_overlay"] = overlay
+
+	var panel := Panel.new()
+	panel.visible = false
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	panel.gui_input.connect(_on_card_tooltip_panel_input)
+	overlay.add_child(panel)
+	ui["card_tooltip_panel"] = panel
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_right", 14)
+	pad.add_theme_constant_override("margin_top", 12)
+	pad.add_theme_constant_override("margin_bottom", 12)
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(pad)
+	ui["card_tooltip_pad"] = pad
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	col.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	pad.add_child(col)
+	ui["card_tooltip_col"] = col
+
+	ui["card_tooltip_title"] = _label("", 25, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["card_tooltip_title"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["card_tooltip_title"].size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.add_child(ui["card_tooltip_title"])
+
+	var effect_box := PanelContainer.new()
+	var effect_style := _styled(Color("#fafdff"), Color.WHITE, 2, 5)
+	effect_style.content_margin_left = 12
+	effect_style.content_margin_right = 12
+	effect_style.content_margin_top = 8
+	effect_style.content_margin_bottom = 8
+	effect_box.add_theme_stylebox_override("panel", effect_style)
+	effect_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	effect_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.add_child(effect_box)
+	ui["card_tooltip_effect_box"] = effect_box
+
+	ui["card_tooltip_effect"] = _label("", FONT_BODY, Color("#36494f"), HORIZONTAL_ALIGNMENT_CENTER)
+	ui["card_tooltip_effect"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ui["card_tooltip_effect"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["card_tooltip_effect"].size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	effect_box.add_child(ui["card_tooltip_effect"])
+
+	ui["card_tooltip_badge"] = PanelContainer.new()
+	ui["card_tooltip_badge"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ui["card_tooltip_badge"].size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.add_child(ui["card_tooltip_badge"])
+
+	ui["card_tooltip_badge_label"] = _label("", 21, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["card_tooltip_badge_label"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["card_tooltip_badge_label"].size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ui["card_tooltip_badge"].add_child(ui["card_tooltip_badge_label"])
+
+
 func _upgrade_store_lane(key: String) -> Button:
 	var lane := Button.new()
 	lane.text = ""
@@ -3123,7 +3371,7 @@ func _upgrade_store_lane(key: String) -> Button:
 		var slot := Control.new()
 		slot.custom_minimum_size = _store_mini_card_size() + Vector2(8, 8)
 		slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.mouse_filter = Control.MOUSE_FILTER_PASS
 		slots.add_child(slot)
 		slot_nodes.append(slot)
 
@@ -3207,6 +3455,16 @@ func _refresh_upgrade_store_lane(lane: Control) -> void:
 		slot.add_child(card)
 		if is_next:
 			_add_store_slot_badge(card, mini_size, "$%d" % next_cost, GOLD)
+		elif owned:
+			var hit := Button.new()
+			hit.text = ""
+			hit.focus_mode = Control.FOCUS_NONE
+			hit.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+			hit.tooltip_text = _upgrade_effect_text(key, level)
+			_apply_transparent_button_style(hit)
+			_anchor_fill(hit)
+			hit.pressed.connect(_show_owned_upgrade_card_tooltip.bind(key, level, slot))
+			slot.add_child(hit)
 
 
 func _apply_upgrade_lane_style(button: Button, accent: Color, current: int, maxed: bool) -> void:
@@ -3237,6 +3495,7 @@ func _apply_upgrade_lane_style(button: Button, accent: Color, current: int, maxe
 func _open_upgrade_card_preview(key: String) -> void:
 	if not UPGRADE_KEYS.has(key) or game_over:
 		return
+	_hide_card_tooltip()
 	selected_upgrade_card_key = key
 	var current := int(upgrades.get(key, 0))
 	selected_upgrade_card_level = clampi(current + 1, 1, UPGRADE_MAX_LEVEL)
@@ -3249,6 +3508,7 @@ func _open_upgrade_card_preview(key: String) -> void:
 
 
 func _close_upgrade_card_preview() -> void:
+	_hide_card_tooltip()
 	selected_upgrade_card_key = ""
 	selected_upgrade_card_level = 0
 	upgrade_card_purchase_locked = false
@@ -3574,6 +3834,8 @@ func _upgrade_art_texture(key: String, level: int) -> Texture2D:
 			return CARD_MOTOR_TEXTURES[idx]
 		"fish_finder":
 			return CARD_FISH_FINDER_TEXTURES[idx]
+		"nets":
+			return CARD_NETS_TEXTURES[idx]
 	return null
 
 
@@ -3829,6 +4091,7 @@ func _refresh_segment_row(row: Control, value: int, is_upgrade: bool, key: Strin
 func _open_upgrade_tray() -> void:
 	if game_over or not _is_docked():
 		return
+	_hide_card_tooltip()
 	active_tray = "upgrade"
 	if ui.has("tray_title"):
 		(ui["tray_title"] as Label).text = "SHIP CARD STORE"
@@ -3844,6 +4107,7 @@ func _open_upgrade_tray() -> void:
 func _open_repair_tray() -> void:
 	if game_over or not _is_docked():
 		return
+	_hide_card_tooltip()
 	active_tray = "repair"
 	if ui.has("tray_title"):
 		(ui["tray_title"] as Label).text = "SHIP REPAIRS"
@@ -3857,6 +4121,7 @@ func _open_repair_tray() -> void:
 
 
 func _close_tray() -> void:
+	_hide_card_tooltip()
 	_close_upgrade_card_preview()
 	active_tray = ""
 	if ui.has("tray_overlay"):
@@ -4606,7 +4871,16 @@ func _build_weather_deck() -> void:
 func _draw_weather() -> Dictionary:
 	if weather_deck.is_empty():
 		_build_weather_deck()
-	return weather_deck.pop_back()
+	var w: Dictionary = weather_deck.pop_back()
+	# Roll the catch multiplier fresh each draw: rain boosts, hurricanes cut.
+	match str(w["name"]):
+		"Storm":
+			w["mult"] = rng.randf_range(1.0, 1.5)
+		"Hurricane":
+			w["mult"] = rng.randf_range(0.7, 0.9)
+		_:
+			w["mult"] = 1.0
+	return w
 
 
 func _refresh_daily_actions(reset_cast_locks: bool = false) -> void:
@@ -4647,9 +4921,16 @@ func _on_cell_pressed(cell: Vector2i) -> void:
 		return
 
 	var delta := cell - boat_pos
+	if cell == boat_pos and _show_board_card_tooltip(cell):
+		return
 	if _is_adjacent_delta(delta):
+		var before := boat_pos
 		_move(delta)
+		if boat_pos != before and boat_pos == cell:
+			_show_board_card_tooltip(cell)
 	else:
+		if _show_board_card_tooltip(cell):
+			return
 		_log("Tap an adjacent square to move there.")
 
 
@@ -4851,13 +5132,16 @@ func _cast() -> void:
 		# Fish: roll d6 + nets, decrement casts on the hole.
 		var nets_bonus: int = int(upgrades["nets"]) if int(conditions["nets"]) > 0 else 0
 		var roll := rng.randi_range(1, CAST_DIE_SIDES)
-		var amount: int = roll + nets_bonus
+		var weather_mult: float = float(current_weather.get("mult", 1.0))
+		var amount: int = int(ceil(float(roll) * weather_mult)) + nets_bonus
 		_stat_add("fish_caught", amount)
 		live_well.append({"species": tile["species"], "quantity": amount, "age": 0})
 		tile["casts_remaining"] = max(0, int(tile["casts_remaining"]) - 1)
 		if int(tile["casts_remaining"]) <= 0:
 			tile["depleted"] = true
 		var bonus_text := "" if nets_bonus == 0 else " (rolled %d + nets %d)" % [roll, nets_bonus]
+		if abs(weather_mult - 1.0) > 0.001:
+			bonus_text += " · %s x%.1f" % [str(current_weather.get("name", "weather")), weather_mult]
 		_log("Caught %d %s%s." % [amount, str(tile["species"]), bonus_text])
 		_show_catch_card_fan(str(tile["species"]), amount, 1, catch_origin)
 		cast_outcome = "catch"
@@ -5876,145 +6160,24 @@ func _update_ui() -> void:
 
 
 func _update_hud() -> void:
-	_update_ship_art()
-	if ui.has("stat_day"):
-		_stat_card_set(ui["stat_day"], "%d/%d" % [day, _season_days()], CYAN)
-	if ui.has("stat_funds"):
-		_stat_card_set(ui["stat_funds"], "$%d" % money, GOLD)
-	if ui.has("stat_moves"):
-		_stat_card_set(ui["stat_moves"], "%d" % moves_remaining, BORDER_HI)
-	if ui.has("stat_casts"):
-		_stat_card_set(ui["stat_casts"], "%d" % casts_remaining, GREEN)
-	if ui.has("stat_finds"):
-		_stat_card_set(ui["stat_finds"], "%d" % finds_remaining, PURPLE)
-	if ui.has("top_day") and ui["top_day"] is HBoxContainer:
-		var day_row: HBoxContainer = ui["top_day"] as HBoxContainer
-		var current_label: Label = day_row.get_meta("current_label") as Label
-		var total_label: Label = day_row.get_meta("total_label") as Label
-		current_label.text = "%d" % day
-		total_label.text = "/%d" % _season_days()
-	if ui.has("top_funds") and ui["top_funds"] is Label:
-		(ui["top_funds"] as Label).text = "$%d" % money
-	if ui.has("top_moves") and ui["top_moves"] is Label:
-		(ui["top_moves"] as Label).text = "%d" % moves_remaining
-	if ui.has("top_casts") and ui["top_casts"] is Label:
-		(ui["top_casts"] as Label).text = "%d" % casts_remaining
-	if ui.has("top_finds") and ui["top_finds"] is Label:
-		(ui["top_finds"] as Label).text = "%d" % finds_remaining
+	_counter_set("stat_day", "%d/%d" % [day, _season_days()], true)
+	_counter_set("stat_funds", "$%d" % money, true)
+	if moves_remaining > 0:
+		_counter_set("stat_moves", "%d" % moves_remaining, true, "MOVES")
+	else:
+		_counter_set("stat_moves", "GO", true, "END DAY")
+	_counter_set("stat_finds", "%d" % finds_remaining, finds_remaining > 0)
+	_counter_set("stat_casts", "%d" % casts_remaining, casts_remaining > 0)
 	if ui.has("top_where"):
 		if _is_docked():
 			(ui["top_where"] as Label).text = "Docks"
 		else:
 			var tile: Dictionary = board[_cell_index(boat_pos)]
 			(ui["top_where"] as Label).text = "%s Water" % str(tile["zone"])
-	if ui.has("ship_card_funds"):
-		(ui["ship_card_funds"] as Label).text = "$%d" % money
 	if ui.has("health_funds"):
 		(ui["health_funds"] as Label).text = "Funds: $%d" % money
 	if ui.has("upgrade_funds"):
 		(ui["upgrade_funds"] as Label).text = "Funds: $%d" % money
-
-
-func _update_ship_art() -> void:
-	if not ui.has("ship_art"):
-		return
-	var next_state := _ship_state()
-	var ship_art: TextureRect = ui["ship_art"]
-	ship_art.texture = _ship_texture_for_state(next_state)
-	if ship_view_state == "":
-		ship_view_state = next_state
-		return
-	if ship_view_state != next_state:
-		ship_view_state = next_state
-		_start_ship_static()
-
-
-func _ship_state() -> String:
-	if _is_docked():
-		return "docks"
-	if _is_weather_damaging(current_weather):
-		return "storm"
-	if forecast.size() > 0 and _is_weather_damaging(forecast[0]):
-		return "chop"
-	return "calm"
-
-
-func _ship_texture_for_state(state: String) -> Texture2D:
-	match state:
-		"docks":
-			return SHIP_DOCKS_TEXTURE
-		"storm":
-			return SHIP_STORM_TEXTURE
-		"chop":
-			return SHIP_CHOP_TEXTURE
-	return SHIP_CALM_TEXTURE
-
-
-func _is_weather_damaging(weather: Dictionary) -> bool:
-	return int(weather.get("strength", 0)) > 0
-
-
-func _create_ship_scanline_texture() -> Texture2D:
-	var image := Image.create(SHIP_CRT_SIZE.x, SHIP_CRT_SIZE.y, false, Image.FORMAT_RGBA8)
-	for y in range(SHIP_CRT_SIZE.y):
-		var line_color := Color(0, 0, 0, 0)
-		if y % 4 == 0:
-			line_color = Color(0, 0, 0, 0.16)
-		elif y % 9 == 5:
-			line_color = Color(0.55, 0.88, 1.0, 0.035)
-		for x in range(SHIP_CRT_SIZE.x):
-			image.set_pixel(x, y, line_color)
-	return ImageTexture.create_from_image(image)
-
-
-func _start_ship_static() -> void:
-	if not ui.has("ship_static"):
-		return
-	ship_static_time = SHIP_STATIC_SECONDS
-	var overlay: TextureRect = ui["ship_static"]
-	overlay.visible = true
-	overlay.modulate = Color(1, 1, 1, 0)
-	_refresh_ship_static_texture()
-
-
-func _refresh_ship_static_texture() -> void:
-	if not ui.has("ship_static"):
-		return
-	var image := Image.create(SHIP_STATIC_SIZE.x, SHIP_STATIC_SIZE.y, false, Image.FORMAT_RGBA8)
-	var tear_y := ship_static_rng.randi_range(0, SHIP_STATIC_SIZE.y - 1)
-	var tear_height := ship_static_rng.randi_range(2, 6)
-	for y in range(SHIP_STATIC_SIZE.y):
-		var scanline := 0.18 if y % 2 == 0 else -0.08
-		var tear := y >= tear_y and y < tear_y + tear_height
-		for x in range(SHIP_STATIC_SIZE.x):
-			var value := ship_static_rng.randf_range(0.06, 0.96)
-			if tear:
-				value = clampf(value + ship_static_rng.randf_range(0.18, 0.42), 0.0, 1.0)
-			value = clampf(value + scanline, 0.0, 1.0)
-			var tint := Color(value * 0.72, value * 0.90, value, 0.92)
-			image.set_pixel(x, y, tint)
-	var texture := ImageTexture.create_from_image(image)
-	var overlay: TextureRect = ui["ship_static"]
-	overlay.texture = texture
-
-
-func _refresh_ship_roll_texture(progress: float) -> void:
-	if not ui.has("ship_roll"):
-		return
-	var image := Image.create(SHIP_CRT_SIZE.x, SHIP_CRT_SIZE.y, false, Image.FORMAT_RGBA8)
-	var center: float = lerpf(-SHIP_ROLL_BAND_HEIGHT, float(SHIP_CRT_SIZE.y) + SHIP_ROLL_BAND_HEIGHT, progress)
-	var pulse: float = sin(progress * PI)
-	for y in range(SHIP_CRT_SIZE.y):
-		var distance: float = abs(float(y) - center)
-		var alpha := 0.0
-		if distance < SHIP_ROLL_BAND_HEIGHT:
-			alpha = (1.0 - distance / SHIP_ROLL_BAND_HEIGHT) * 0.28 * pulse
-		for x in range(SHIP_CRT_SIZE.x):
-			var flicker: float = 0.88 + ship_static_rng.randf_range(0.0, 0.18)
-			image.set_pixel(x, y, Color(0.58 * flicker, 0.86 * flicker, 1.0 * flicker, alpha))
-	var texture := ImageTexture.create_from_image(image)
-	var band: TextureRect = ui["ship_roll"]
-	band.texture = texture
 
 
 func _update_forecast() -> void:
@@ -6056,36 +6219,33 @@ func _update_top_market() -> void:
 		child.queue_free()
 
 	for species in SPECIES:
-		var card := _panel(BG_PANEL_DARK, GREEN_DEEP if bool(trophies.get(species, false)) else BORDER_DARK, 1, 4)
+		var earned := bool(trophies.get(species, false))
+		var card := _panel(BG_PANEL_DARK, GOLD_DEEP if earned else BORDER_DARK, 1, 4)
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		rows.add_child(card)
 
 		var pad := MarginContainer.new()
-		pad.add_theme_constant_override("margin_left", 7)
-		pad.add_theme_constant_override("margin_right", 8)
+		pad.add_theme_constant_override("margin_left", 8)
+		pad.add_theme_constant_override("margin_right", 9)
 		pad.add_theme_constant_override("margin_top", 5)
 		pad.add_theme_constant_override("margin_bottom", 5)
 		card.add_child(pad)
 
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_theme_constant_override("separation", 7)
+		row.add_theme_constant_override("separation", 9)
 		pad.add_child(row)
 
-		var art := TextureRect.new()
-		art.texture = _fish_texture(species)
-		art.custom_minimum_size = Vector2(42, 28)
-		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		row.add_child(art)
+		# Trophy: gold filled when earned, muted outline otherwise.
+		var trophy := _icon_texture_rect(ICON_TROPHY_SOLID if earned else ICON_TROPHY_OUTLINE, Vector2(17, 17), GOLD if earned else Color("#5b6480"))
+		trophy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(trophy)
 
-		var name := _label(species.to_upper(), 13, TEXT_PRIMARY)
+		var name := _label(species.to_upper(), 14, TEXT_PRIMARY if earned else TEXT_MUTED)
 		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(name)
 
-		var trophy_text := "TROPHY" if bool(trophies.get(species, false)) else "%d" % int(sold_totals.get(species, 0))
-		row.add_child(_label(trophy_text, 12, GREEN if bool(trophies.get(species, false)) else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT))
 		row.add_child(_label("$%d" % int(market_prices[species]), 16, GOLD, HORIZONTAL_ALIGNMENT_RIGHT))
 
 
@@ -6434,6 +6594,12 @@ func _update_compact_ship_cards() -> void:
 	for child in grid.get_children():
 		child.queue_free()
 
+	# Upgrades first (motor, finder, nets, well, guns, defense), ship health below — all on a 5-blip scale.
+	for key in UPGRADE_KEYS:
+		var value := int(upgrades.get(key, 0))
+		var accent := PURPLE if value > 0 else TEXT_DIM
+		grid.add_child(_compact_system_card(_upgrade_short_label(key), float(value), float(UPGRADE_MAX_LEVEL), 5, "%d/%d" % [value, UPGRADE_MAX_LEVEL], accent))
+
 	for key in CONDITION_KEYS:
 		var value := int(conditions.get(key, CONDITION_MAX))
 		var ratio := float(value) / float(CONDITION_MAX)
@@ -6442,34 +6608,86 @@ func _update_compact_ship_cards() -> void:
 			accent = RED
 		elif ratio < 0.7:
 			accent = GOLD
-		grid.add_child(_compact_system_card(_condition_short_label(key), "%d%%" % int(round(ratio * 100.0)), accent))
-
-	for key in UPGRADE_KEYS:
-		var value := int(upgrades.get(key, 0))
-		var accent := PURPLE if value > 0 else TEXT_DIM
-		grid.add_child(_compact_system_card(_upgrade_short_label(key), "%d/%d" % [value, UPGRADE_MAX_LEVEL], accent))
+		grid.add_child(_compact_system_card(_condition_short_label(key), float(value), float(CONDITION_MAX), 5, "%d%%" % int(round(ratio * 100.0)), accent))
 
 
-func _compact_system_card(title: String, value: String, accent: Color) -> Control:
+func _compact_system_card(title: String, value: float, max_value: float, pips: int, value_text: String, accent: Color) -> Control:
 	var card := _panel(BG_PANEL_DARK.lerp(accent, 0.07), accent.darkened(0.25), 1, 4)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var style := _styled(BG_PANEL_DARK.lerp(accent, 0.07), accent.darkened(0.25), 1, 4)
-	style.content_margin_left = 7
-	style.content_margin_right = 7
-	style.content_margin_top = 5
-	style.content_margin_bottom = 5
+	style.content_margin_left = 9
+	style.content_margin_right = 9
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
 	card.add_theme_stylebox_override("panel", style)
 
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", 6)
+	row.add_theme_constant_override("separation", 8)
 	card.add_child(row)
 
-	var title_label := _label(title, 12, TEXT_MUTED)
+	var title_label := _label(title, 14, TEXT_PRIMARY)
 	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(title_label)
-	row.add_child(_label(value, 15, accent, HORIZONTAL_ALIGNMENT_RIGHT))
+
+	var meter := _pip_meter(value, max_value, pips, accent)
+	meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(meter)
+
+	var num := _label(value_text, 13, accent, HORIZONTAL_ALIGNMENT_RIGHT)
+	num.custom_minimum_size = Vector2(40, 0)
+	num.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(num)
 	return card
+
+
+# `pips` playing-card-shaped blips, filled bottom-up to value/max_value (supports half-fills).
+func _pip_meter(value: float, max_value: float, pips: int, accent: Color) -> Control:
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
+	box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var step := max_value / float(pips)
+	for i in range(pips):
+		box.add_child(_card_pip(clampf((value - float(i) * step) / step, 0.0, 1.0), accent))
+	return box
+
+
+# One portrait card-shaped blip, filled from the bottom up to `fraction` (0..1).
+func _card_pip(fraction: float, accent: Color) -> Control:
+	var pip := Panel.new()
+	pip.custom_minimum_size = Vector2(11, 17)
+	pip.clip_contents = true
+	var lit := fraction > 0.001
+	var frame := StyleBoxFlat.new()
+	frame.bg_color = Color("#1d2937")
+	frame.border_color = accent.lightened(0.1) if lit else Color("#313e4d")
+	frame.set_border_width_all(1)
+	frame.set_corner_radius_all(3)
+	frame.anti_aliasing = false
+	pip.add_theme_stylebox_override("panel", frame)
+	if lit:
+		var full := fraction >= 0.999
+		var fs := StyleBoxFlat.new()
+		fs.bg_color = accent
+		fs.corner_radius_bottom_left = 2
+		fs.corner_radius_bottom_right = 2
+		fs.corner_radius_top_left = 2 if full else 0
+		fs.corner_radius_top_right = 2 if full else 0
+		fs.anti_aliasing = false
+		var fill := Panel.new()
+		fill.add_theme_stylebox_override("panel", fs)
+		fill.anchor_left = 0.0
+		fill.anchor_right = 1.0
+		fill.anchor_top = 1.0 - fraction
+		fill.anchor_bottom = 1.0
+		fill.offset_left = 1.0
+		fill.offset_right = -1.0
+		fill.offset_top = 1.0 if full else 0.0
+		fill.offset_bottom = -1.0
+		fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pip.add_child(fill)
+	return pip
 
 
 func _update_tray() -> void:
@@ -7754,6 +7972,230 @@ func _catch_label_bug(text: String, font_size: int, accent: Color, bug_size: Vec
 	return bug
 
 
+func _show_card_tooltip(title: String, effect: String, badge: String, accent: Color, anchor_global: Vector2, badge_accent: Color = Color(0, 0, 0, 0)) -> void:
+	if not ui.has("card_tooltip_overlay") or not ui.has("card_tooltip_panel"):
+		return
+	card_tooltip_token += 1
+	var token := card_tooltip_token
+	var overlay: Control = ui["card_tooltip_overlay"]
+	var panel: Panel = ui["card_tooltip_panel"]
+	var pad: MarginContainer = ui["card_tooltip_pad"]
+	var col: VBoxContainer = ui["card_tooltip_col"]
+	var title_label: Label = ui["card_tooltip_title"]
+	var effect_box: PanelContainer = ui["card_tooltip_effect_box"]
+	var effect_label: Label = ui["card_tooltip_effect"]
+	var badge_panel: PanelContainer = ui["card_tooltip_badge"]
+	var badge_label: Label = ui["card_tooltip_badge_label"]
+
+	if badge_accent.a == 0.0:
+		badge_accent = accent
+
+	title_label.text = title
+	title_label.add_theme_color_override("font_color", TEXT_PRIMARY)
+	effect_label.text = effect
+	badge_label.text = badge
+
+	var panel_style := _styled_shadow(Color("#3f4b4f"), Color("#fbfdff"), 3, 7, 10)
+	panel_style.content_margin_left = 0
+	panel_style.content_margin_right = 0
+	panel_style.content_margin_top = 0
+	panel_style.content_margin_bottom = 0
+	panel_style.shadow_color = _with_alpha(Color("#00152d"), 0.68)
+	panel_style.shadow_offset = Vector2(7, 8)
+	panel.add_theme_stylebox_override("panel", panel_style)
+
+	var effect_style := _styled(Color("#fafdff"), Color.WHITE, 2, 5)
+	effect_style.content_margin_left = 12
+	effect_style.content_margin_right = 12
+	effect_style.content_margin_top = 8
+	effect_style.content_margin_bottom = 8
+	effect_box.add_theme_stylebox_override("panel", effect_style)
+
+	var badge_style := _styled_shadow(badge_accent.darkened(0.16), badge_accent.darkened(0.34), 1, 8, 4)
+	badge_style.content_margin_left = 18
+	badge_style.content_margin_right = 18
+	badge_style.content_margin_top = 4
+	badge_style.content_margin_bottom = 5
+	badge_style.shadow_color = _with_alpha(Color("#00152d"), 0.48)
+	badge_style.shadow_offset = Vector2(4, 5)
+	badge_panel.add_theme_stylebox_override("panel", badge_style)
+	badge_label.add_theme_color_override("font_color", TEXT_PRIMARY)
+
+	var viewport_size := get_viewport().get_visible_rect().size
+	var effect_chars := int(ceil(float(effect.length()) * 0.52))
+	var widest_chars: int = maxi(title.length(), effect_chars)
+	var overflow_chars: int = maxi(0, effect.length() - 58)
+	var width := clampf(286.0 + float(widest_chars) * 5.4, 330.0, 500.0)
+	var height := clampf(138.0 + float(overflow_chars) * 0.46, 138.0, 198.0)
+	var panel_size := Vector2(width, height)
+	title_label.custom_minimum_size = Vector2(width - 28.0, 30.0)
+	effect_box.custom_minimum_size = Vector2(width - 28.0, 44.0)
+	effect_label.custom_minimum_size = Vector2(width - 56.0, 30.0)
+	badge_panel.custom_minimum_size = Vector2(clampf(128.0 + float(badge.length()) * 8.0, 190.0, width - 84.0), 36.0)
+	panel.custom_minimum_size = panel_size
+	panel.size = panel_size
+	panel.pivot_offset = Vector2(panel_size.x * 0.5, panel_size.y)
+	pad.position = Vector2.ZERO
+	pad.custom_minimum_size = panel_size
+	pad.size = panel_size
+	col.custom_minimum_size = Vector2(width - 28.0, maxf(0.0, height - 24.0))
+	col.size = col.custom_minimum_size
+
+	var anchor := anchor_global
+	if anchor.x < 0.0 or anchor.y < 0.0:
+		anchor = viewport_size * 0.5
+	else:
+		anchor = overlay.get_global_transform().affine_inverse() * anchor_global
+
+	var pos := anchor + Vector2(-panel_size.x * 0.5, -panel_size.y - 20.0)
+	if pos.y < 14.0:
+		pos.y = anchor.y + 24.0
+	pos.x = clampf(pos.x, 14.0, viewport_size.x - panel_size.x - 14.0)
+	pos.y = clampf(pos.y, 14.0, viewport_size.y - panel_size.y - 14.0)
+
+	if ui.has("card_tooltip_tween"):
+		var old_tween: Tween = ui["card_tooltip_tween"]
+		if old_tween:
+			old_tween.kill()
+
+	overlay.visible = true
+	panel.visible = true
+	panel.position = pos + Vector2(0, 8)
+	panel.scale = Vector2(0.92, 0.92)
+	panel.modulate = Color(1, 1, 1, 0)
+
+	var tween := panel.create_tween()
+	ui["card_tooltip_tween"] = tween
+	tween.set_parallel(true)
+	tween.tween_property(panel, "modulate:a", 1.0, 0.12)
+	tween.tween_property(panel, "position", pos, 0.16).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_property(panel, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.set_parallel(false)
+	tween.tween_interval(3.45)
+	tween.tween_callback(_hide_card_tooltip.bind(token))
+
+
+func _hide_card_tooltip(expected_token: int = -1) -> void:
+	if expected_token >= 0 and expected_token != card_tooltip_token:
+		return
+	if expected_token < 0:
+		card_tooltip_token += 1
+	if ui.has("card_tooltip_tween"):
+		var old_tween: Tween = ui["card_tooltip_tween"]
+		if old_tween:
+			old_tween.kill()
+	if not ui.has("card_tooltip_overlay") or not ui.has("card_tooltip_panel"):
+		return
+	var overlay: Control = ui["card_tooltip_overlay"]
+	var panel: Panel = ui["card_tooltip_panel"]
+	if not overlay.visible or not panel.visible:
+		overlay.visible = false
+		panel.visible = false
+		return
+	var fade := panel.create_tween()
+	ui["card_tooltip_tween"] = fade
+	fade.tween_property(panel, "modulate:a", 0.0, 0.10)
+	fade.parallel().tween_property(panel, "position:y", panel.position.y - 8.0, 0.10)
+	fade.tween_callback(func():
+		panel.visible = false
+		overlay.visible = false
+	)
+
+
+func _on_card_tooltip_panel_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		_hide_card_tooltip()
+
+
+func _show_owned_upgrade_card_tooltip(key: String, level: int, anchor_node: Control) -> void:
+	if not UPGRADE_KEYS.has(key) or level <= 0:
+		return
+	var anchor := Vector2(-1, -1)
+	if is_instance_valid(anchor_node):
+		anchor = anchor_node.get_global_rect().get_center()
+	var accent := _upgrade_accent(key)
+	_show_card_tooltip(
+		_upgrade_name(key).to_upper(),
+		_upgrade_effect_text(key, level),
+		"OWNED CARD %d/%d" % [level, UPGRADE_MAX_LEVEL],
+		accent,
+		anchor,
+		GREEN
+	)
+	_play_catch_plonk(0)
+
+
+func _show_board_card_tooltip(pos: Vector2i) -> bool:
+	var payload := _board_card_tooltip_payload(pos)
+	if payload.is_empty():
+		return false
+	_show_card_tooltip(
+		str(payload.get("title", "")),
+		str(payload.get("effect", "")),
+		str(payload.get("badge", "")),
+		payload.get("accent", CYAN),
+		_board_card_global_center(pos),
+		payload.get("badge_accent", payload.get("accent", CYAN))
+	)
+	return true
+
+
+func _board_card_tooltip_payload(pos: Vector2i) -> Dictionary:
+	if pos.x < 0 or pos.x >= GRID_COLS or pos.y < 0 or pos.y >= GRID_ROWS:
+		return {}
+	var tile: Dictionary = board[_cell_index(pos)]
+	var known := bool(tile.get("found", false)) or bool(tile.get("revealed", false)) or bool(tile.get("depleted", false))
+	if not known:
+		return {}
+
+	var content := str(tile.get("content", "empty"))
+	if content == "fish":
+		var species := str(tile.get("species", "Fish"))
+		var total := int(tile.get("casts_total", 0))
+		var remaining := int(tile.get("casts_remaining", 0))
+		var cast_word := "cast" if total == 1 else "casts"
+		var badge := "%d REMAINING" % remaining
+		var badge_color := CYAN if remaining > 1 else RED
+		if bool(tile.get("depleted", false)):
+			badge = "DEPLETED"
+			badge_color = RED
+		return {
+			"title": species.to_upper(),
+			"effect": "%s hole: %d %s total. %d remaining." % [species, total, cast_word, remaining],
+			"badge": badge,
+			"accent": _species_accent(species),
+			"badge_accent": badge_color,
+		}
+
+	if content == "treasure":
+		var recovered := bool(tile.get("depleted", false))
+		if _is_paid_night_treasure(tile):
+			return {
+				"title": "PAID NIGHT",
+				"effect": "+1 night at sea%s." % (" recovered" if recovered else " hidden here"),
+				"badge": "RECOVERED" if recovered else "ITEM",
+				"accent": CYAN,
+				"badge_accent": CYAN if not recovered else GOLD,
+			}
+		var value := int(tile.get("value", 0))
+		return {
+			"title": "TREASURE",
+			"effect": "$%d cash%s." % [value, " recovered" if recovered else " hidden here"],
+			"badge": "RECOVERED" if recovered else "ITEM",
+			"accent": GOLD,
+			"badge_accent": GOLD,
+		}
+
+	var empty_badge := "USED" if bool(tile.get("depleted", false)) else "EMPTY"
+	return {
+		"title": "EMPTY WATER",
+		"effect": "No fish or item in this card.",
+		"badge": empty_badge,
+		"accent": TEXT_MUTED,
+		"badge_accent": RED if bool(tile.get("depleted", false)) else TEXT_DIM,
+	}
+
+
 func _show_board_toast(title: String, detail: String, accent: Color = CYAN, fish_texture: Texture2D = null) -> void:
 	if not ui.has("board_toast"):
 		return
@@ -8206,6 +8648,111 @@ func _stat_card_set(card: PanelContainer, value: String, color: Color = TEXT_PRI
 	label.add_theme_color_override("font_color", color)
 
 
+# A left-rail HUD counter: dark-accent card body, accent icon+title, and a brighter inset "well"
+# holding the count. Pushes/pops like a physical button on touch. Optionally clickable.
+func _counter_button(key: String, icon: Texture2D, title: String, accent: Color, on_pressed: Callable) -> Control:
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card.custom_minimum_size = Vector2(0, 84)
+	card.clip_contents = false
+	var style := _styled_shadow(accent.darkened(0.66), accent.darkened(0.04), 2, 9, 5)
+	style.content_margin_left = 12
+	style.content_margin_right = 12
+	style.content_margin_top = 10
+	style.content_margin_bottom = 11
+	card.add_theme_stylebox_override("panel", style)
+
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 7)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(col)
+
+	var head := HBoxContainer.new()
+	head.alignment = BoxContainer.ALIGNMENT_CENTER
+	head.add_theme_constant_override("separation", 7)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(head)
+	var ic := _icon_texture_rect(icon, Vector2(22, 22), accent)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(ic)
+	var title_label := _label(title, 15, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	title_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(title_label)
+
+	# Inset "well" — a brighter, more saturated take on the card body.
+	var well := PanelContainer.new()
+	well.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var well_style := _styled(accent.darkened(0.44).lerp(accent, 0.12), Color(0, 0, 0, 0.5), 1, 6)
+	well_style.border_width_top = 2
+	well_style.border_width_bottom = 0
+	well_style.content_margin_top = 3
+	well_style.content_margin_bottom = 4
+	well_style.content_margin_left = 8
+	well_style.content_margin_right = 8
+	well.add_theme_stylebox_override("panel", well_style)
+	col.add_child(well)
+	var value_label := _label("0", 26, accent.lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER)
+	value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	value_label.add_theme_constant_override("outline_size", 2)
+	value_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+	well.add_child(value_label)
+
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	_anchor_fill(btn)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(st, _transparent_style())
+	if on_pressed.is_valid():
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		btn.pressed.connect(on_pressed)
+	card.add_child(btn)
+	_add_press_pop(card, btn)
+
+	card.set_meta("value_label", value_label)
+	card.set_meta("title_label", title_label)
+	card.set_meta("icon_rect", ic)
+	card.set_meta("button", btn)
+	card.set_meta("accent", accent)
+	ui[key] = card
+	return card
+
+
+# Update a counter's value, optional title, and enabled (lit vs greyed-out) state.
+func _counter_set(key: String, value_text: String, enabled: bool = true, title_override: String = "") -> void:
+	if not ui.has(key):
+		return
+	var card: Control = ui[key]
+	if not is_instance_valid(card):
+		return
+	(card.get_meta("value_label") as Label).text = value_text
+	if title_override != "":
+		(card.get_meta("title_label") as Label).text = title_override
+	var btn := card.get_meta("button") as Button
+	if btn != null:
+		btn.disabled = not enabled
+	card.modulate = Color(1, 1, 1, 1) if enabled else Color(0.5, 0.56, 0.64, 0.8)
+
+
+# Physical "push/pop" — scale down on press, overshoot back on release.
+func _add_press_pop(target: Control, trigger: BaseButton) -> void:
+	trigger.button_down.connect(func() -> void:
+		if not is_instance_valid(target):
+			return
+		target.pivot_offset = target.size * 0.5
+		var t := target.create_tween()
+		t.tween_property(target, "scale", Vector2(0.93, 0.93), 0.06).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
+	trigger.button_up.connect(func() -> void:
+		if not is_instance_valid(target):
+			return
+		target.pivot_offset = target.size * 0.5
+		var t := target.create_tween()
+		t.tween_property(target, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
+
+
 func _pill(text: String, accent: Color, text_color: Color = Color(0, 0, 0, 0)) -> PanelContainer:
 	if text_color.a == 0:
 		text_color = accent
@@ -8232,6 +8779,29 @@ func _pill_set_text(pill: PanelContainer, text: String) -> void:
 		l.text = text
 
 
+# Small green/red rocket badge showing a weather's catch multiplier (nothing at 1.0).
+func _weather_mult_badge(mult: float) -> Control:
+	if abs(mult - 1.0) <= 0.001:
+		return null
+	var accent := GREEN if mult > 1.0 else RED
+	var badge := _panel(BG_PANEL_DARK.lerp(accent, 0.22), accent.darkened(0.1), 1, 4)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 4)
+	pad.add_theme_constant_override("margin_right", 5)
+	pad.add_theme_constant_override("margin_top", 1)
+	pad.add_theme_constant_override("margin_bottom", 1)
+	badge.add_child(pad)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 2)
+	pad.add_child(row)
+	var icon := _icon_texture_rect(ICON_ROCKET_FISH_TEXTURE, Vector2(11, 11), accent)
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(icon)
+	row.add_child(_label("%.1fX" % mult, 11, accent.lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER))
+	return badge
+
+
 func _forecast_chip(weather: Dictionary, is_current: bool) -> Control:
 	var weather_name := str(weather["name"])
 	var strength := int(weather["strength"])
@@ -8250,7 +8820,7 @@ func _forecast_chip(weather: Dictionary, is_current: bool) -> Control:
 
 	var card := _panel(BG_PANEL_DARK.lerp(accent, 0.06), accent.darkened(0.18), 1, 4)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(0, 48)
+	card.custom_minimum_size = Vector2(0, 62)
 
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", 5)
@@ -8271,6 +8841,10 @@ func _forecast_chip(weather: Dictionary, is_current: bool) -> Control:
 	var label := _label(label_text, 12, TEXT_PRIMARY if is_current else TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(label)
+	var badge := _weather_mult_badge(float(weather.get("mult", 1.0)))
+	if badge != null:
+		badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		row.add_child(badge)
 	return card
 
 
@@ -9031,6 +9605,213 @@ func _normalize_score_array(scores: Array) -> Array:
 	while clean.size() > MAX_HIGH_SCORES:
 		clean.pop_back()
 	return clean
+
+
+# ── Deck Training (animated single-player tutorial) ─────────────────────────
+
+var deck_training_index := 0
+
+
+func _deck_training_slides() -> Array:
+	return [
+		{"title": "WELCOME ABOARD", "accent": GOLD, "icon": ICON_ROCKET_FISH_TEXTURE,
+			"body": "Raider Bay is a solo fishing run. Work the bay each day, reel in fish, sell your haul at the docks, and upgrade your boat — all before the season runs out."},
+		{"title": "THE BAY", "accent": CYAN, "icon": ICON_FIND_FISH_TEXTURE,
+			"body": "The board is a grid of face-down cards: the bay. Shallow rows up top hide small fish; the deep rows below hold the big money. Your boat starts docked in the middle."},
+		{"title": "YOUR DAILY BUDGET", "accent": Color("#ff6161"), "icon": ICON_MOVES_TEXTURE,
+			"body": "The left rail is your budget for the day: MOVES to sail, FIND FISH scans to reveal fish, and CASTS to reel them in. When MOVES hit zero the button becomes END DAY."},
+		{"title": "SCAN FOR FISH", "accent": Color("#c889ff"), "icon": ICON_FIND_FISH_TEXTURE,
+			"body": "Sail beside open water and tap FIND FISH to scan the nearby cards. Fish you uncover become catchable holes. Upgrade your fish finder to scan more times each day."},
+		{"title": "CAST & REEL", "accent": Color("#84ed72"), "icon": ICON_CAST_TEXTURE,
+			"body": "Sitting on a fish hole, tap CAST to reel one in — a dice roll plus your nets. Your catch fans out as cards. Each hole only holds so many casts before it is fished out."},
+		{"title": "DOCKS & LIVE WELL", "accent": GOLD, "icon": ICON_CARD_SHIP_TEXTURE,
+			"body": "Your catch rides in the live well, but it spoils after a few days. Slip back in through the narrow dock mouth — straight up or diagonally — and sell before it goes bad."},
+		{"title": "UPGRADE YOUR BOAT", "accent": PURPLE, "icon": ICON_FUNDS_TEXTURE,
+			"body": "Spend your earnings on a stronger motor for more moves, a fish finder for more scans, and bigger nets for bigger hauls. Repair the hull so storms do not sink you."},
+		{"title": "WEATHER & TROPHIES", "accent": CYAN, "icon": ICON_DAY_TEXTURE,
+			"body": "Watch the weather deck: rain boosts your catch, hurricanes cut it and batter your hull. Land enough of each species to win its trophy — then survive the whole season."},
+	]
+
+
+func _build_deck_training_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 220
+	overlay.visible = false
+	add_child(overlay)
+	ui["deck_training_overlay"] = overlay
+
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.62)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	_anchor_fill(shade)
+	overlay.add_child(shade)
+
+	var cc := CenterContainer.new()
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(cc)
+	overlay.add_child(cc)
+
+	var panel := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 6, 12)
+	panel.custom_minimum_size = Vector2(740, 540)
+	cc.add_child(panel)
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 28)
+	pad.add_theme_constant_override("margin_right", 28)
+	pad.add_theme_constant_override("margin_top", 24)
+	pad.add_theme_constant_override("margin_bottom", 24)
+	panel.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 16)
+	pad.add_child(col)
+
+	var header := HBoxContainer.new()
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(header)
+	var head_label := _label("DECK TRAINING", 22, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+	head_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(head_label)
+	var close := _tactile_button("X", 44, 40, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_MUTED)
+	close.pressed.connect(_hide_deck_training)
+	header.add_child(close)
+
+	var content := Control.new()
+	content.custom_minimum_size = Vector2(684, 358)
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content.clip_contents = false
+	col.add_child(content)
+	ui["deck_training_content"] = content
+
+	var dots := HBoxContainer.new()
+	dots.alignment = BoxContainer.ALIGNMENT_CENTER
+	dots.add_theme_constant_override("separation", 9)
+	col.add_child(dots)
+	ui["deck_training_dots"] = dots
+
+	var nav := HBoxContainer.new()
+	nav.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nav.add_theme_constant_override("separation", 12)
+	col.add_child(nav)
+	var back := _tactile_button("BACK", 150, 50, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_PRIMARY)
+	back.pressed.connect(_deck_training_prev)
+	nav.add_child(back)
+	ui["deck_training_back"] = back
+	var nav_spacer := Control.new()
+	nav_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nav.add_child(nav_spacer)
+	var next := _tactile_button("NEXT", 150, 50, GREEN_DEEP, GOLD_DEEP, TEXT_PRIMARY)
+	next.pressed.connect(_deck_training_next)
+	nav.add_child(next)
+	ui["deck_training_next"] = next
+
+
+func _render_deck_training_slide() -> void:
+	if not ui.has("deck_training_content"):
+		return
+	var slides := _deck_training_slides()
+	deck_training_index = clampi(deck_training_index, 0, slides.size() - 1)
+	var content: Control = ui["deck_training_content"]
+	for ch in content.get_children():
+		ch.queue_free()
+	var slide: Dictionary = slides[deck_training_index]
+	var accent: Color = slide["accent"]
+
+	var box := VBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 18)
+	_anchor_fill(box)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(box)
+
+	var icon := _icon_texture_rect(slide["icon"], Vector2(96, 96), accent)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	icon.pivot_offset = Vector2(48, 48)
+	box.add_child(icon)
+
+	var title := _label(slide["title"], 30, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_constant_override("outline_size", 2)
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+	box.add_child(title)
+
+	var body := _label(slide["body"], 18, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size = Vector2(600, 0)
+	box.add_child(body)
+
+	# Entrance: the whole slide fades in while the icon pops.
+	box.modulate = Color(1, 1, 1, 0)
+	var t := box.create_tween()
+	t.tween_property(box, "modulate:a", 1.0, 0.2)
+	icon.scale = Vector2(0.3, 0.3)
+	var it := icon.create_tween()
+	it.tween_property(icon, "scale", Vector2(1.14, 1.14), 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	it.tween_property(icon, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+	_update_deck_training_dots()
+	_update_deck_training_nav()
+
+
+func _update_deck_training_dots() -> void:
+	if not ui.has("deck_training_dots"):
+		return
+	var dots: HBoxContainer = ui["deck_training_dots"]
+	for ch in dots.get_children():
+		ch.queue_free()
+	var n := _deck_training_slides().size()
+	for i in range(n):
+		var on := i == deck_training_index
+		var dot := PanelContainer.new()
+		dot.custom_minimum_size = Vector2(12 if on else 9, 12 if on else 9)
+		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var st := StyleBoxFlat.new()
+		st.bg_color = GOLD if on else _with_alpha(TEXT_DIM, 0.55)
+		st.set_corner_radius_all(6)
+		st.anti_aliasing = false
+		dot.add_theme_stylebox_override("panel", st)
+		dots.add_child(dot)
+
+
+func _update_deck_training_nav() -> void:
+	var n := _deck_training_slides().size()
+	if ui.has("deck_training_back"):
+		var back: Button = ui["deck_training_back"]
+		back.disabled = deck_training_index <= 0
+		back.modulate = Color(1, 1, 1, 1) if deck_training_index > 0 else Color(1, 1, 1, 0.4)
+	if ui.has("deck_training_next"):
+		var next: Button = ui["deck_training_next"]
+		next.text = "LET'S FISH" if deck_training_index >= n - 1 else "NEXT"
+
+
+func _deck_training_prev() -> void:
+	if deck_training_index > 0:
+		deck_training_index -= 1
+		_render_deck_training_slide()
+
+
+func _deck_training_next() -> void:
+	if deck_training_index >= _deck_training_slides().size() - 1:
+		_hide_deck_training()
+	else:
+		deck_training_index += 1
+		_render_deck_training_slide()
+
+
+func _show_deck_training() -> void:
+	deck_training_index = 0
+	_render_deck_training_slide()
+	if ui.has("deck_training_overlay"):
+		(ui["deck_training_overlay"] as Control).visible = true
+
+
+func _hide_deck_training() -> void:
+	if ui.has("deck_training_overlay"):
+		(ui["deck_training_overlay"] as Control).visible = false
 
 
 func _build_high_scores_screen() -> void:
