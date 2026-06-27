@@ -4,17 +4,17 @@ extends Control
 # Game constants
 # ────────────────────────────────────────────────────────────────────────
 
-const GRID_COLS := 7
-const GRID_ROWS := 8
+const GRID_COLS := 6
+const GRID_ROWS := 6
 const DOCK_COL := 3
 const DOCK_WIDTH_CELLS := 3
 const DOCK_START_COL := DOCK_COL - 1
 const DOCK_END_COL := DOCK_COL + 1
 const DOCK_ACCESS_START_COL := DOCK_START_COL - 1
 const DOCK_ACCESS_END_COL := DOCK_END_COL + 1
-const BOARD_CARD_GAP := 3
-const BOARD_CELL_WIDTH := 51
-const BOARD_CELL_HEIGHT := 54
+const BOARD_CARD_GAP := 4
+const BOARD_CELL_WIDTH := 59
+const BOARD_CELL_HEIGHT := 65
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
 const BOARD_WRAP_WIDTH := BOARD_GRID_WIDTH + 54
@@ -33,9 +33,9 @@ const TROPHY_WIN_COUNT := 5
 const TREASURE_VALUES: Array[int] = [100, 100, 200, 200]
 const TREASURE_KIND_CASH := "cash"
 const TREASURE_KIND_PAID_NIGHT := "paid_night"
-const SHOAL_TARGET_RANGE := Vector2i(7, 7)
-const MID_TARGET_RANGE := Vector2i(13, 13)
-const DEEP_TARGET_RANGE := Vector2i(10, 10)
+const SHOAL_TARGET_RANGE := Vector2i(4, 5)
+const MID_TARGET_RANGE := Vector2i(7, 8)
+const DEEP_TARGET_RANGE := Vector2i(8, 9)
 const CASTS_PER_HOLE: Array[int] = [1, 2, 3, 5]
 const CAST_DIE_SIDES := 6
 const SHIP_VIEW_SIZE := Vector2(231, 231)
@@ -115,9 +115,11 @@ const AUDIO_SILENT_DB := -80.0
 const BOT_STEP_SECONDS := 0.5
 const CATCH_CARD_MAX_DRAW := 12
 const CATCH_CARD_ASPECT := 2514.0 / 1880.0
-const CATCH_CARD_DRAW_STAGGER := 0.105
-const CATCH_CARD_DRAW_SECONDS := 0.30
-const CATCH_TOTAL_POP_DELAY := 0.34
+const CATCH_CARD_DRAW_STAGGER := 0.7
+const CATCH_CARD_DRAW_SECONDS := 0.34
+const CATCH_TOTAL_POP_DELAY := 0.74
+# Per-card plonk pitch ramp (semitone offsets): plonk → PLONK → plink → PLINK → PLANK …
+const PLONK_SEMITONES: Array[int] = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 23, 24]
 
 # Typography — mobile-friendly defaults. Bump in one place to scale the whole UI.
 const FONT_TITLE      := 30
@@ -287,6 +289,8 @@ var audio_birds: AudioStreamPlayer
 var audio_reel: AudioStreamPlayer
 var audio_bonk: AudioStreamPlayer
 var audio_catch: AudioStreamPlayer
+var plonk_players: Array[AudioStreamPlayer] = []
+var plonk_index: int = 0
 var cast_audio_token: int = 0
 var audio_muted: bool = false
 var birds_phase_index: int = 0
@@ -340,9 +344,9 @@ func _build_global_score_requests() -> void:
 
 
 func _schedule_catch_preview_from_query() -> void:
-	if not OS.has_feature("web"):
+	if not OS.has_feature("web") and not ClassDB.class_exists("JavaScriptBridge"):
 		return
-	var search := str(JavaScriptBridge.eval("window.location.search", true))
+	var search := str(JavaScriptBridge.eval("window.location.search + window.location.hash", true))
 	if search.find("catch_preview=") == -1:
 		return
 
@@ -353,6 +357,8 @@ func _schedule_catch_preview_from_query() -> void:
 			raw = part.trim_prefix("catch_preview=").to_lower()
 			break
 	if raw == "":
+		return
+	if _schedule_fan_preview(raw):
 		return
 	if _schedule_finder_preview(raw):
 		return
@@ -379,6 +385,22 @@ func _schedule_catch_preview_from_query() -> void:
 	var quantity: int = clampi(int(quantity_text) if quantity_text != "" else 4, 1, CATCH_CARD_MAX_DRAW)
 	var multiplier: int = max(1, int(multiplier_text) if multiplier_text != "" else 1)
 	call_deferred("_run_catch_preview", species, quantity, multiplier)
+
+
+func _schedule_fan_preview(raw: String) -> bool:
+	var compact := raw.replace("-", "").replace("_", "")
+	if compact in ["cardgallery", "gallery", "cardstyles", "cardedges", "edges"]:
+		call_deferred("_run_card_gallery")
+		return true
+	if compact in ["fanlab", "fans", "fanpreview", "cardfan", "cardfans"]:
+		call_deferred("_run_fan_lab_preview", "")
+		return true
+	if compact.begins_with("fan"):
+		var variant := compact.trim_prefix("fan")
+		if variant in ["a", "b", "c", "d"]:
+			call_deferred("_run_fan_lab_preview", variant)
+			return true
+	return false
 
 
 func _schedule_treasure_preview(raw: String) -> bool:
@@ -432,6 +454,23 @@ func _run_finder_preview(species: String, casts: int) -> void:
 		(ui["start_overlay"] as Control).visible = false
 	await get_tree().create_timer(0.35).timeout
 	_show_finder_card_fan(species, casts)
+
+
+func _run_fan_lab_preview(variant_key: String = "") -> void:
+	if ui.has("start_overlay"):
+		(ui["start_overlay"] as Control).visible = false
+	await get_tree().create_timer(0.35).timeout
+
+	var variants: Array = ["a", "b", "c", "d"]
+	var normalized := variant_key.to_lower()
+	if normalized in variants:
+		variants = [normalized]
+
+	for i in range(variants.size()):
+		var config := _catch_fan_preview_variant(str(variants[i]))
+		_show_fan_preview_variant(config)
+		if i < variants.size() - 1:
+			await get_tree().create_timer(_catch_fan_sequence_seconds(config)).timeout
 
 
 func _run_treasure_preview(kind: String, value: int) -> void:
@@ -494,6 +533,53 @@ func _build_audio() -> void:
 	audio_reel = _make_one_shot_player(SOUND_REEL_STREAM)
 	audio_bonk = _make_one_shot_player(SOUND_BONK_STREAM)
 	audio_catch = _make_one_shot_player(SOUND_CATCH_STREAM)
+	_build_plonk_players()
+
+
+# A short synthesized "pluck" used for the ascending per-card catch ticks. Built in
+# code so there is no asset to ship; pitch_scale shifts it up the scale per card.
+func _build_plonk_stream() -> AudioStreamWAV:
+	var rate := 44100
+	var sample_count := int(rate * 0.2)
+	var base_freq := 392.0
+	var data := PackedByteArray()
+	data.resize(sample_count * 2)
+	for i in range(sample_count):
+		var t := float(i) / float(rate)
+		var attack := clampf(t / 0.003, 0.0, 1.0)
+		var env := exp(-t * 24.0) * attack
+		var wave := sin(TAU * base_freq * t) * 0.72 + sin(TAU * base_freq * 2.0 * t) * 0.16
+		data.encode_s16(i * 2, int(clampf(wave * env, -1.0, 1.0) * 32767.0))
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = rate
+	stream.stereo = false
+	stream.data = data
+	return stream
+
+
+func _build_plonk_players() -> void:
+	var stream := _build_plonk_stream()
+	for i in range(6):
+		var p := AudioStreamPlayer.new()
+		p.stream = stream
+		p.volume_db = -4.0
+		p.autoplay = false
+		add_child(p)
+		plonk_players.append(p)
+
+
+# Plays the pluck pitched up the pentatonic ramp for the index-th card in a cascade,
+# a little louder each step, so a bigger catch climbs higher and prouder.
+func _play_catch_plonk(index: int) -> void:
+	if plonk_players.is_empty():
+		return
+	var semis := float(PLONK_SEMITONES[clampi(index, 0, PLONK_SEMITONES.size() - 1)])
+	var player := plonk_players[plonk_index % plonk_players.size()]
+	plonk_index += 1
+	player.pitch_scale = clampf(pow(2.0, semis / 12.0), 1.0, 4.0)
+	player.volume_db = lerpf(-5.0, 1.5, clampf(float(index) / 6.0, 0.0, 1.0))
+	player.play()
 
 
 func _make_one_shot_player(stream: AudioStream) -> AudioStreamPlayer:
@@ -2008,7 +2094,7 @@ func _build_board(parent: Container) -> void:
 			spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			dock_row.add_child(spacer)
 
-	_build_depth_rail(board_wrap)
+	# Depth reads from card color alone — no rail/markings.
 	_build_board_toast(board_wrap)
 
 
@@ -2042,32 +2128,45 @@ func _board_card_tilt(cell: Vector2i) -> float:
 func _deal_board_cards() -> void:
 	if cell_buttons.is_empty():
 		return
+	# Deal trends top-left → bottom-right (by diagonal x+y), but each card's place in the order
+	# gets a random nudge so it deals hand-shuffled rather than a rigid sweep.
+	var order: Array[int] = []
+	var deal_score: Dictionary = {}
 	for i in range(cell_buttons.size()):
-		var btn := cell_buttons[i]
+		var c: Vector2i = cell_buttons[i].get_meta("cell_pos", Vector2i.ZERO)
+		deal_score[i] = float(c.x + c.y) + randf_range(-2.0, 2.0)
+		order.append(i)
+	order.sort_custom(func(a: int, b: int) -> bool:
+		return float(deal_score[a]) < float(deal_score[b])
+	)
+	var per_card := 0.045
+	for rank in range(order.size()):
+		var btn := cell_buttons[order[rank]]
 		if not is_instance_valid(btn):
 			continue
 		var old_tween: Tween = btn.get_meta("board_card_tween", null) as Tween
 		if old_tween:
 			old_tween.kill()
 		var home := Vector2.ZERO
-		var tilt := float(btn.get_meta("card_tilt", 0.0))
-		var cell: Vector2i = btn.get_meta("cell_pos", Vector2i.ZERO)
-		var stagger_index := cell.y * GRID_COLS + cell.x
-		btn.z_index = 16 + stagger_index
+		# Fresh hand-dealt tilt each game (shuffled), about a degree either way.
+		var tilt := randf_range(-1.2, 1.2)
+		btn.set_meta("card_tilt", tilt)
+		btn.z_index = 16 + rank
 		btn.modulate = Color(1, 1, 1, 0)
-		btn.position = home + Vector2(-18.0 + float(cell.x % 3) * 6.0, 38.0 + float(GRID_ROWS - cell.y) * 2.0)
-		btn.scale = Vector2(0.78, 0.78)
-		btn.rotation_degrees = tilt + 8.0
+		btn.position = home + Vector2(-64.0 + randf_range(-22.0, 22.0), -52.0 + randf_range(-16.0, 16.0))
+		btn.scale = Vector2(0.46, 0.46)
+		btn.rotation_degrees = tilt - 16.0
 
+		# The interval MUST be its own sequential step. set_parallel(true) right after
+		# tween_interval() would run the props in parallel WITH the interval — ignoring the
+		# stagger (that was the "all cards at once" bug). Use parallel() per-tweener instead.
 		var tween := btn.create_tween()
 		btn.set_meta("board_card_tween", tween)
-		tween.tween_interval(float(stagger_index) * 0.024)
-		tween.set_parallel(true)
-		tween.tween_property(btn, "modulate:a", 1.0, 0.12)
-		tween.tween_property(btn, "position", home, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		tween.tween_property(btn, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		tween.tween_property(btn, "rotation_degrees", tilt, 0.32).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tween.set_parallel(false)
+		tween.tween_interval(float(rank) * per_card)
+		tween.tween_property(btn, "modulate:a", 1.0, 0.14)
+		tween.parallel().tween_property(btn, "position", home, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.parallel().tween_property(btn, "scale", Vector2.ONE, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.parallel().tween_property(btn, "rotation_degrees", tilt, 0.34).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		var card_btn := btn
 		tween.tween_callback(func():
 			if is_instance_valid(card_btn):
@@ -2119,45 +2218,6 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	boat.offset_bottom = 18
 	dock_btn.add_child(boat)
 	dock_btn.set_meta("dock_boat", boat)
-
-
-func _build_depth_rail(parent: Control) -> void:
-	var rail := Control.new()
-	rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rail.anchor_left = 0.5
-	rail.anchor_right = 0.5
-	rail.anchor_top = 0.0
-	rail.anchor_bottom = 0.0
-	rail.offset_left = BOARD_GRID_WIDTH / 2.0
-	rail.offset_right = rail.offset_left + 18
-	rail.offset_top = 0
-	rail.offset_bottom = BOARD_GRID_HEIGHT
-	parent.add_child(rail)
-
-	var row_step := BOARD_CELL_HEIGHT + BOARD_CARD_GAP
-	for y in [0, row_step * 2, row_step * 5, BOARD_GRID_HEIGHT]:
-		_add_depth_tick(rail, y)
-	_add_depth_label(rail, "71%", row_step)
-	_add_depth_label(rail, "62%", row_step * 3.5)
-	_add_depth_label(rail, "33%", row_step * 6.5)
-
-
-func _add_depth_tick(parent: Control, y: float) -> void:
-	var tick := ColorRect.new()
-	tick.color = _with_alpha(BORDER_HI, 0.58)
-	tick.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tick.position = Vector2(0, y - 1)
-	tick.size = Vector2(18, 2)
-	parent.add_child(tick)
-
-
-func _add_depth_label(parent: Control, text: String, y: float) -> void:
-	var label := _label(text, 15, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
-	label.rotation_degrees = 90
-	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	label.position = Vector2(4, y - 24)
-	label.size = Vector2(48, 20)
-	parent.add_child(label)
 
 
 func _add_cast_dot_layer(btn: Button) -> void:
@@ -3558,8 +3618,8 @@ func _generate_board() -> void:
 			board.append(_empty_tile(row))
 
 	_seed_treasures()
-	_seed_band_targets(5, 7, rng.randi_range(SHOAL_TARGET_RANGE.x, SHOAL_TARGET_RANGE.y))
-	_seed_band_targets(2, 4, rng.randi_range(MID_TARGET_RANGE.x, MID_TARGET_RANGE.y))
+	_seed_band_targets(4, 5, rng.randi_range(SHOAL_TARGET_RANGE.x, SHOAL_TARGET_RANGE.y))
+	_seed_band_targets(2, 3, rng.randi_range(MID_TARGET_RANGE.x, MID_TARGET_RANGE.y))
 	_seed_band_targets(0, 1, rng.randi_range(DEEP_TARGET_RANGE.x, DEEP_TARGET_RANGE.y))
 
 
@@ -3690,7 +3750,7 @@ func _roll_casts(rating: float) -> int:
 func _depth_info(row: int) -> Dictionary:
 	if row <= 1:
 		return {"zone": "Deep", "rating": 0.71}
-	if row <= 4:
+	if row <= 3:
 		return {"zone": "Mid", "rating": 0.62}
 	return {"zone": "Shoal", "rating": 0.33}
 
@@ -3699,7 +3759,7 @@ func _pick_species(row: int) -> String:
 	var choices: Array[String] = []
 	if row <= 1:
 		choices = ["Halibut", "Halibut", "Tuna", "Tuna", "Tuna"]
-	elif row <= 4:
+	elif row <= 3:
 		choices = ["Salmon", "Grouper", "Grouper", "Halibut", "Tuna"]
 	else:
 		choices = ["Swordfish", "Swordfish", "Salmon", "Grouper"]
@@ -4703,8 +4763,8 @@ func _bot_pick_target() -> Vector2i:
 		return Vector2i(clampi(boat_pos.x, 0, GRID_COLS - 1), clampi(boat_pos.y, 0, GRID_ROWS - 1))
 
 	var target_y: int = max(0, bot_pos.y - 1)
-	if bot_pos.y <= 2 and rng.randf() < 0.45:
-		target_y = rng.randi_range(0, 2)
+	if bot_pos.y <= 1 and rng.randf() < 0.45:
+		target_y = rng.randi_range(0, 1)
 	var target_x: int = clampi(bot_pos.x + rng.randi_range(-2, 2), 0, GRID_COLS - 1)
 	return Vector2i(target_x, target_y)
 
@@ -5242,7 +5302,7 @@ func _update_board() -> void:
 				btn.text = ""
 
 			var base_color := _board_zone_card_color(row)
-			var border := _with_alpha(Color("#fbfdff"), 0.96)
+			var border := Color.WHITE
 			var label_color := TEXT_PRIMARY
 
 			var known := bool(tile["found"]) or bool(tile["revealed"])
@@ -5291,7 +5351,7 @@ func _update_board() -> void:
 			var hover := base_color.lightened(0.1)
 			var press := base_color.darkened(0.12)
 
-			var border_w := 3 if (player_here or bot_here or known) else 2
+			var border_w := 4 if (player_here or bot_here or known) else 3
 
 			var pad := 0
 			btn.add_theme_stylebox_override("normal", _board_card_style(base_color, border, border_w, pad))
@@ -6074,7 +6134,7 @@ func _divider(color: Color, height: int = 1) -> ColorRect:
 func _row_water_color(row: int) -> Color:
 	if row <= 1:
 		return _with_alpha(Color("#062f44"), 0.72)
-	if row <= 4:
+	if row <= 3:
 		return _with_alpha(Color("#0a4a66"), 0.44)
 	return _with_alpha(Color("#000000"), 0.0)
 
@@ -6082,13 +6142,13 @@ func _row_water_color(row: int) -> Color:
 func _board_zone_card_color(row: int) -> Color:
 	if row <= 1:
 		return Color("#0d4fa8")
-	if row <= 4:
+	if row <= 3:
 		return Color("#2d78d2")
 	return Color("#6ea0dc")
 
 
 func _board_card_style(fill: Color, border: Color, border_w: int, padding: int = 0) -> StyleBoxFlat:
-	var s := _styled(fill, border, border_w, 5)
+	var s := _styled(fill, border, border_w, 7)
 	s.anti_aliasing = false
 	s.content_margin_left = padding
 	s.content_margin_right = padding
@@ -6167,29 +6227,178 @@ func _update_cell_cast_dots(btn: Button, tile: Dictionary, show: bool, has_boat:
 		dots.add_child(dot)
 
 
+# The lab now showcases the single settled Bloom motion across the different result /
+# label types: a normal catch, a special "effect" card (e.g. "+2 Luck"), a multiplier,
+# and treasure. Each merges its content over the shared Bloom options.
+# origin_viewport_* fakes a board cell so you can see cards launch from a specific point.
+func _catch_fan_preview_variant(key: String) -> Dictionary:
+	var content: Dictionary = {}
+	match key:
+		"b":
+			# Effect / scoring card — distinct indigo accent.
+			content = {
+				"texture_kind": "effect",
+				"label": "+2 LUCK",
+				"quantity": 2,
+				"total_accent": INDIGO,
+				"unit_accent": INDIGO,
+				"origin_viewport_x": 0.34,
+				"origin_viewport_y": 0.86,
+			}
+		"c":
+			# Multiplier catch — purple "special scoring" accent.
+			content = {
+				"species": "Grouper",
+				"quantity": 4,
+				"multiplier": 2,
+				"label": "+4 GROUPER",
+				"mult_label": "X2 MULT",
+				"mult_accent": GOLD,
+				"total_accent": _species_accent("Grouper"),
+				"unit_accent": GREEN,
+				"origin_viewport_x": 0.66,
+				"origin_viewport_y": 0.80,
+			}
+		"d":
+			# Treasure — gold accent, single card.
+			content = {
+				"texture_kind": "treasure",
+				"label": "+$200 TREASURE",
+				"quantity": 1,
+				"total_accent": GOLD,
+				"unit_accent": GOLD,
+				"origin_viewport_x": 0.5,
+				"origin_viewport_y": 0.9,
+			}
+		_:
+			# Normal fish catch.
+			content = {
+				"species": "Tuna",
+				"quantity": 5,
+				"label": "+5 TUNA",
+				"total_accent": _species_accent("Tuna"),
+				"unit_accent": GREEN,
+				"origin_viewport_x": 0.5,
+				"origin_viewport_y": 0.82,
+			}
+	var opts := _bloom_fan_options()
+	opts.merge(content, true)
+	return opts
+
+
+func _show_fan_preview_variant(config: Dictionary) -> void:
+	var species := str(config.get("species", "Salmon"))
+	var quantity: int = clampi(int(config.get("quantity", 4)), 1, CATCH_CARD_MAX_DRAW)
+	var total_accent: Color = config.get("total_accent", _species_accent(species))
+	var unit_accent: Color = config.get("unit_accent", GREEN)
+	var total_label := str(config.get("label", ""))
+	if total_label == "":
+		var multiplier: int = max(1, int(config.get("multiplier", 1)))
+		total_label = "+%d %s" % [quantity, species.to_upper()]
+		if multiplier > 1:
+			total_label += "  X%d MULT" % multiplier
+	var texture: Texture2D = _fish_card_texture(species)
+	match str(config.get("texture_kind", "fish")):
+		"treasure":
+			texture = CARD_TREASURE_200_TEXTURE
+		"effect":
+			texture = CARD_TREASURE_NIGHT_TEXTURE
+	var card_badge_text := str(config.get("card_badge_text", ""))
+	var card_badge_accent: Color = config.get("card_badge_accent", total_accent)
+	# The lab has no real cast cell, so fake a board origin from a viewport fraction
+	# to demonstrate cards launching from a specific point. Gameplay passes the real cell.
+	var vp := get_viewport().get_visible_rect().size
+	var origin := Vector2(vp.x * float(config.get("origin_viewport_x", 0.5)), vp.y * float(config.get("origin_viewport_y", 0.82)))
+	_show_card_result_fan(texture, quantity, total_label, total_accent, unit_accent, card_badge_text, card_badge_accent, origin, config)
+
+
+# Seconds from the start of the cascade until the big total label slams in.
+# Shared by the playback (to time the total/exit) and the lab (to pace variants).
+func _catch_total_appear_delay(quantity: int, options: Dictionary) -> float:
+	var card_count: int = mini(clampi(quantity, 1, CATCH_CARD_MAX_DRAW), CATCH_CARD_MAX_DRAW)
+	if card_count <= 1:
+		return float(options.get("single_total_delay", 0.12))
+	var draw_stagger := float(options.get("draw_stagger", CATCH_CARD_DRAW_STAGGER))
+	var draw_seconds := float(options.get("draw_seconds", CATCH_CARD_DRAW_SECONDS))
+	var total := float(card_count - 1) * draw_stagger + draw_seconds
+	if str(options.get("style", "")) == "stack_spread":
+		total += float(options.get("spread_delay", 0.2)) + float(options.get("spread_seconds", 0.46))
+	return total + float(options.get("total_pop_delay", CATCH_TOTAL_POP_DELAY))
+
+
+func _catch_fan_sequence_seconds(config: Dictionary) -> float:
+	var total_delay := _catch_total_appear_delay(int(config.get("quantity", 4)), config)
+	return total_delay + float(config.get("exit_hold", 2.0)) + float(config.get("overlay_hide_pad", 0.26)) + 0.32
+
+
+# The one canonical card-fan motion (Bloom) — used by every gameplay result and the
+# lab. Cards rise in an arc and unfurl into a deep, widening fan. Single source of
+# truth for the whole bloom aesthetic (timing, shape, card/label styling).
+func _bloom_fan_options() -> Dictionary:
+	return {
+		"style": "bloom",
+		"draw_stagger": CATCH_CARD_DRAW_STAGGER,
+		"draw_seconds": CATCH_CARD_DRAW_SECONDS,
+		"total_pop_delay": CATCH_TOTAL_POP_DELAY,
+		"unit_pop_pause": 0.14,
+		"widen_seconds": 0.34,
+		"arc_height": 72.0,
+		"spread_step": 80.0,
+		"spread_max": 86.0,
+		"spread_viewport": 0.64,
+		"fan_rotation": 9.4,
+		"fan_sag": 13.0,
+		"start_scale": 0.5,
+		"start_rotation": -22.0,
+		"label_hold": 1.6,
+		"exit_hold": 1.68,
+		"card_border": 1,
+		"card_radius": 18,
+		"card_inner_margin": 7,
+		"corner_style": "none",
+		"shadow_offset": Vector2(10, 16),
+		"shadow_alpha_min": 0.12,
+		"shadow_alpha_max": 0.38,
+		"shadow_spacing": 11,
+		"label_font_size": 36,
+		"label_border": 2,
+		"label_radius": 10,
+	}
+
+
 func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, origin_center: Vector2 = Vector2(-1, -1)) -> void:
 	var label := "+%d %s" % [quantity, species]
+	var opts := _bloom_fan_options()
 	if multiplier > 1:
-		label += "  X%d MULT" % multiplier
-	_show_card_result_fan(_fish_card_texture(species), quantity, "+1", label, _species_accent(species), GREEN, "", Color(0, 0, 0, 0), origin_center)
+		opts["mult_label"] = "X%d MULT" % multiplier
+		opts["mult_accent"] = GOLD
+	_show_card_result_fan(_fish_card_texture(species), quantity, label, _species_accent(species), GREEN, "", Color(0, 0, 0, 0), origin_center, opts)
+
+
+# Forward-looking: special / scoring cards (e.g. "+2 Luck") render like a catch but
+# in a distinct accent. Texture defaults to a placeholder until real effect art exists.
+func _show_effect_card_fan(label: String, amount: int = 1, accent: Color = INDIGO, origin_center: Vector2 = Vector2(-1, -1), texture: Texture2D = CARD_TREASURE_NIGHT_TEXTURE) -> void:
+	_show_card_result_fan(texture, max(1, amount), label, accent, accent, "", Color(0, 0, 0, 0), origin_center, _bloom_fan_options())
 
 
 func _show_finder_card_fan(species: String, casts: int, origin_center: Vector2 = Vector2(-1, -1)) -> void:
 	var cast_count: int = max(1, casts)
 	var noun := "CAST" if cast_count == 1 else "CASTS"
 	var label := "%s X%d %s" % [species.to_upper(), cast_count, noun]
-	_show_card_result_fan(_fish_card_texture(species), 1, "", label, _species_accent(species), PURPLE, "X%d" % cast_count, PURPLE, origin_center)
+	var opts := _bloom_fan_options()
+	opts["plonk"] = false
+	_show_card_result_fan(_fish_card_texture(species), 1, label, _species_accent(species), PURPLE, "X%d" % cast_count, PURPLE, origin_center, opts)
 
 
 func _show_treasure_card_fan(tile: Dictionary, origin_center: Vector2 = Vector2(-1, -1)) -> void:
 	if _is_paid_night_treasure(tile):
-		_show_card_result_fan(CARD_TREASURE_NIGHT_TEXTURE, 1, "+1", "+1 Paid Night", GOLD, CYAN, "", Color(0, 0, 0, 0), origin_center)
+		_show_card_result_fan(CARD_TREASURE_NIGHT_TEXTURE, 1, "+1 Paid Night", GOLD, CYAN, "", Color(0, 0, 0, 0), origin_center, _bloom_fan_options())
 		return
 	var value: int = int(tile.get("value", 0))
-	_show_card_result_fan(_treasure_card_texture(value), 1, "+$%d" % value, "+$%d Treasure" % value, GOLD, GOLD, "", Color(0, 0, 0, 0), origin_center)
+	_show_card_result_fan(_treasure_card_texture(value), 1, "+$%d Treasure" % value, GOLD, GOLD, "", Color(0, 0, 0, 0), origin_center, _bloom_fan_options())
 
 
-func _show_card_result_fan(card_texture: Texture2D, quantity: int, unit_label: String, total_label: String, total_accent: Color, unit_accent: Color, card_badge_text: String = "", card_badge_accent: Color = Color(0, 0, 0, 0), origin_center: Vector2 = Vector2(-1, -1)) -> void:
+func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: String, total_accent: Color, unit_accent: Color, card_badge_text: String = "", card_badge_accent: Color = Color(0, 0, 0, 0), origin_center: Vector2 = Vector2(-1, -1), options: Dictionary = {}) -> void:
 	if quantity <= 0 or not ui.has("catch_card_overlay") or not ui.has("catch_card_layer"):
 		return
 
@@ -6203,6 +6412,10 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, unit_label: S
 		var old_hide: Tween = ui["catch_card_hide_tween"]
 		if old_hide:
 			old_hide.kill()
+	if ui.has("catch_card_driver_tween"):
+		var old_driver: Tween = ui["catch_card_driver_tween"]
+		if old_driver:
+			old_driver.kill()
 
 	var overlay: Control = ui["catch_card_overlay"]
 	var layer: Control = ui["catch_card_layer"]
@@ -6213,62 +6426,259 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, unit_label: S
 
 	var overlay_tween := overlay.create_tween()
 	ui["catch_card_overlay_tween"] = overlay_tween
-	overlay_tween.tween_property(overlay, "modulate:a", 1.0, 0.10)
+	overlay_tween.tween_property(overlay, "modulate:a", 1.0, float(options.get("overlay_fade_seconds", 0.10)))
 
 	var viewport_size := get_viewport().get_visible_rect().size
-	var card_size := _catch_card_size(viewport_size)
+	var card_size := _catch_card_size(viewport_size) * float(options.get("card_size_scale", 1.0))
 	var card_count: int = mini(quantity, CATCH_CARD_MAX_DRAW)
-	var center := Vector2(viewport_size.x * 0.5, viewport_size.y * 0.56)
-	var has_origin := origin_center.x >= 0.0 and origin_center.y >= 0.0
-	if has_origin:
-		center = origin_center + Vector2(0, -card_size.y * 1.12)
-		center.x = clampf(center.x, viewport_size.x * 0.22, viewport_size.x * 0.78)
-		center.y = clampf(center.y, card_size.y * 1.18, viewport_size.y * 0.72)
-	var spread_width: float = minf(viewport_size.x * 0.60, card_size.x + float(maxi(0, card_count - 1)) * 74.0)
-	var spread := 0.0
-	if card_count > 1:
-		spread = minf(76.0, (spread_width - card_size.x) / float(card_count - 1))
-	var mid := float(card_count - 1) * 0.5
-	var cards: Array[Control] = []
+	var style := str(options.get("style", "bloom"))
+	var growth_mode := "stack" if style == "stack_spread" else "fan"
+	var center := Vector2(viewport_size.x * 0.5, viewport_size.y * float(options.get("center_y", 0.50)))
 
+	# Every card launches from a single spawn point. With a valid origin (the cast
+	# cell) the cards spit out of that board square and the fan blooms just above it.
+	var has_origin := origin_center.x >= 0.0 and origin_center.y >= 0.0
+	var spawn := Vector2(viewport_size.x + card_size.x * 0.75, viewport_size.y * float(options.get("start_y", 0.30)))
+	if str(options.get("start_side", "right")) == "left":
+		spawn.x = -card_size.x * 0.75
+	if has_origin:
+		# Cards launch from the cast cell, but the fan always assembles dead-center of the screen.
+		spawn = origin_center
+
+	var draw_stagger := float(options.get("draw_stagger", CATCH_CARD_DRAW_STAGGER))
+	var draw_seconds := float(options.get("draw_seconds", CATCH_CARD_DRAW_SECONDS))
+	var widen_seconds := float(options.get("widen_seconds", 0.24))
+	var start_scale := float(options.get("start_scale", 0.72))
+	var start_rotation := float(options.get("start_rotation", 12.0))
+	var stack_rise := float(options.get("stack_rise", 4.5))
+	var stack_jitter := float(options.get("stack_jitter", 7.0))
+	var stack_rot := float(options.get("stack_rot", 5.0))
+
+	# Build every card up front, stacked invisibly at the spawn point.
+	var cards: Array[Control] = []
+	var card_anims: Array = []  # Array[Array[Tween]] — live tweens per card, killed on retarget.
 	for i in range(card_count):
-		var offset := float(i) - mid
-		var final_center := center + Vector2(offset * spread, absf(offset) * 8.0)
-		var final_pos := final_center - card_size * 0.5
-		var start_center := Vector2(viewport_size.x + card_size.x * 0.75 + float(i) * 9.0, viewport_size.y * 0.30 + float(i % 3) * 22.0)
-		if has_origin:
-			start_center = origin_center + Vector2(float(i) * 4.0, -float(i % 3) * 3.0)
-		var card := _build_result_card(card_texture, card_size, card_badge_text, card_badge_accent)
-		card.position = start_center - card_size * 0.5
-		card.rotation = deg_to_rad(16.0 + float(i) * 2.0)
-		card.scale = Vector2(0.72, 0.72)
+		var card := _build_result_card(card_texture, card_size, card_badge_text, card_badge_accent, options)
+		var jitter := Vector2(_fan_jitter(i, 0) * 5.0, -float(i % 3) * 3.0)
+		card.position = (spawn + jitter) - card_size * 0.5
+		card.rotation = deg_to_rad(start_rotation + _fan_jitter(i, 1) * 4.0)
+		card.scale = Vector2(start_scale, start_scale)
 		card.modulate = Color(1, 1, 1, 0)
 		card.z_index = i
 		layer.add_child(card)
 		cards.append(card)
+		card_anims.append([])
 
-		var delay := float(i) * CATCH_CARD_DRAW_STAGGER
-		var final_rotation := deg_to_rad(clampf(offset * 7.6, -30.0, 30.0))
-		var draw := card.create_tween()
-		draw.tween_interval(delay)
-		draw.set_parallel(true)
-		draw.tween_property(card, "modulate:a", 1.0, CATCH_CARD_DRAW_SECONDS * 0.55)
-		draw.tween_property(card, "position", final_pos, CATCH_CARD_DRAW_SECONDS).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		draw.tween_property(card, "rotation", final_rotation, CATCH_CARD_DRAW_SECONDS).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		draw.tween_property(card, "scale", Vector2.ONE, CATCH_CARD_DRAW_SECONDS).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		draw.set_parallel(false)
+	var total_center := center + Vector2(0, card_size.y * float(options.get("total_label_card_y", -0.86)))
 
-		if unit_label != "":
-			_schedule_catch_unit_pop(layer, final_center + Vector2(0, -card_size.y * 0.58), delay + CATCH_CARD_DRAW_SECONDS * 0.62, token, unit_label, unit_accent)
+	# Deals card m: animate it in, widen the cards already down, pop its own "+1", plonk.
+	var deal_card := func(m: int) -> void:
+		if token != catch_card_token:
+			return
+		var n := m + 1
+		if growth_mode == "stack":
+			var spos := center + Vector2(_fan_jitter(m, 2) * stack_jitter, -float(m) * stack_rise)
+			var stack_target := {"pos": spos - card_size * 0.5, "rot": deg_to_rad(_fan_jitter(m, 3) * stack_rot), "scale": 1.0}
+			_animate_card_entry(cards, card_anims, m, stack_target, style, draw_seconds, options)
+		else:
+			var layout := _fan_layout(n, center, card_size, viewport_size, options)
+			_animate_card_entry(cards, card_anims, m, layout[m], style, draw_seconds, options)
+			for i in range(m):
+				_retarget_fan_card(cards, card_anims, i, layout[i], widen_seconds, Tween.TRANS_CUBIC, Tween.EASE_OUT)
+		# Count this card once it has settled: a "+1" attached to the card pops after a beat, with its plonk.
+		var count_at := draw_seconds + float(options.get("unit_pop_pause", 0.14))
+		if card_count > 1:
+			_attach_card_unit_pop(cards[m], unit_accent, count_at, options)
+		if bool(options.get("plonk", true)):
+			var pidx := m
+			var plonk_sched := layer.create_tween()
+			plonk_sched.tween_interval(count_at)
+			plonk_sched.tween_callback(func():
+				if token == catch_card_token:
+					_play_catch_plonk(pidx)
+			)
 
-	var total_delay := float(card_count - 1) * CATCH_CARD_DRAW_STAGGER + CATCH_CARD_DRAW_SECONDS + CATCH_TOTAL_POP_DELAY
-	if card_count == 1:
-		total_delay = 0.12
-	_schedule_catch_total_bug(layer, total_label, total_accent, center + Vector2(0, -card_size.y * 0.86), total_delay, token)
+	# Drive the cascade: one card per stagger beat.
+	var driver := layer.create_tween()
+	ui["catch_card_driver_tween"] = driver
+	driver.tween_callback(deal_card.bind(0))
+	for m in range(1, card_count):
+		driver.tween_interval(draw_stagger)
+		driver.tween_callback(deal_card.bind(m))
 
-	var exit_delay := total_delay + 2.00
-	_schedule_catch_cards_exit(layer, cards, exit_delay, token)
-	_schedule_catch_overlay_hide(overlay, exit_delay + 0.26, token)
+	# Stack concept: after the suspense beat, the whole pile fans open at once.
+	if growth_mode == "stack" and card_count > 1:
+		var spread_delay := float(options.get("spread_delay", 0.2))
+		var spread_seconds := float(options.get("spread_seconds", 0.46))
+		var spread_stagger := float(options.get("spread_stagger", 0.022))
+		var spread_at := float(card_count - 1) * draw_stagger + draw_seconds + spread_delay
+		var spread_sched := layer.create_tween()
+		spread_sched.tween_interval(spread_at)
+		spread_sched.tween_callback(func():
+			if token != catch_card_token:
+				return
+			var layout := _fan_layout(card_count, center, card_size, viewport_size, options)
+			for i in range(card_count):
+				_retarget_fan_card(cards, card_anims, i, layout[i], spread_seconds, Tween.TRANS_BACK, Tween.EASE_OUT, float(i) * spread_stagger)
+		)
+
+	# The big species total slams in; a multiplier (if any) is its own colored pill below it.
+	var total_delay := _catch_total_appear_delay(card_count, options)
+	_schedule_catch_total_bug(layer, total_label, total_accent, total_center, total_delay, token, options)
+	var mult_label := str(options.get("mult_label", ""))
+	if mult_label != "":
+		var mult_accent: Color = options.get("mult_accent", GOLD)
+		var mult_center := total_center + Vector2(0, float(options.get("label_height", 74.0)) * 0.5 + 34.0)
+		var mult_opts := options.duplicate()
+		mult_opts["label_font_size"] = int(options.get("mult_font_size", 30))
+		mult_opts["label_height"] = float(options.get("mult_height", 54.0))
+		mult_opts["label_width_base"] = 90.0
+		mult_opts["label_width_min"] = float(options.get("mult_width_min", 150.0))
+		mult_opts["label_scale_peak"] = 1.14
+		mult_opts["label_rotation_degrees"] = 2.4
+		_schedule_catch_total_bug(layer, mult_label, mult_accent, mult_center, total_delay + 0.1, token, mult_opts)
+
+	var exit_delay := total_delay + float(options.get("exit_hold", 2.00))
+	_schedule_catch_cards_exit(layer, cards, exit_delay, token, options)
+	_schedule_catch_overlay_hide(overlay, exit_delay + float(options.get("overlay_hide_pad", 0.26)), token)
+
+
+# Positions/rotations for an n-card fan centered on `center`. Recomputed each time
+# a card lands so the spread visibly widens as the catch grows.
+func _fan_layout(n: int, center: Vector2, card_size: Vector2, viewport_size: Vector2, options: Dictionary) -> Array:
+	var spread_step := float(options.get("spread_step", 74.0))
+	var spread_width: float = minf(viewport_size.x * float(options.get("spread_viewport", 0.60)), card_size.x + float(maxi(0, n - 1)) * spread_step)
+	var spread := 0.0
+	if n > 1:
+		spread = minf(float(options.get("spread_max", 76.0)), (spread_width - card_size.x) / float(n - 1))
+	var mid := float(n - 1) * 0.5
+	var fan_sag := float(options.get("fan_sag", 8.0))
+	var fan_rotation := float(options.get("fan_rotation", 7.6))
+	var max_rotation := float(options.get("max_rotation", 30.0))
+	var out: Array = []
+	for i in range(n):
+		var offset := float(i) - mid
+		var c := center + Vector2(offset * spread, absf(offset) * fan_sag)
+		out.append({
+			"pos": c - card_size * 0.5,
+			"rot": deg_to_rad(clampf(offset * fan_rotation, -max_rotation, max_rotation)),
+			"scale": 1.0,
+			"center": c,
+		})
+	return out
+
+
+# Deterministic pseudo-random in [-1, 1) so jitter is stable across runs (no RNG state).
+func _fan_jitter(i: int, salt: int) -> float:
+	var v := sin(float(i) * 12.9898 + float(salt) * 78.233) * 43758.5453
+	return (v - floor(v)) * 2.0 - 1.0
+
+
+func _kill_card_anim(card_anims: Array, i: int) -> void:
+	if i < 0 or i >= card_anims.size():
+		return
+	var arr: Array = card_anims[i]
+	for t in arr:
+		if t is Tween and t.is_valid():
+			t.kill()
+	arr.clear()
+
+
+# Animates card i from wherever it is into `target`, with motion specific to the concept.
+func _animate_card_entry(cards: Array, card_anims: Array, i: int, target: Dictionary, style: String, seconds: float, options: Dictionary) -> void:
+	if i < 0 or i >= cards.size():
+		return
+	var card: Control = cards[i]
+	if not is_instance_valid(card):
+		return
+	_kill_card_anim(card_anims, i)
+	var dest: Vector2 = target["pos"]
+	var rot: float = target["rot"]
+	var sc := float(target.get("scale", 1.0))
+	match style:
+		"bloom":
+			var apex := card.position.lerp(dest, 0.5) + Vector2(0, -float(options.get("arc_height", 66.0)))
+			var t := card.create_tween()
+			t.tween_property(card, "position", apex, seconds * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+			t.tween_property(card, "position", dest, seconds * 0.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+			var t2 := card.create_tween()
+			t2.tween_property(card, "scale", Vector2(sc, sc), seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			t2.parallel().tween_property(card, "rotation", rot, seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			t2.parallel().tween_property(card, "modulate:a", 1.0, seconds * 0.5)
+			card_anims[i].append(t)
+			card_anims[i].append(t2)
+		"toss":
+			var apex := dest + Vector2(_fan_jitter(i, 4) * 10.0, -float(options.get("toss_height", 52.0)))
+			var t := card.create_tween()
+			t.tween_property(card, "position", apex, seconds * 0.42).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			t.tween_property(card, "position", dest, seconds * 0.58).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			var t2 := card.create_tween()
+			t2.tween_property(card, "scale", Vector2(sc, sc), seconds).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			t2.parallel().tween_property(card, "rotation", rot, seconds).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			t2.parallel().tween_property(card, "modulate:a", 1.0, seconds * 0.4)
+			card_anims[i].append(t)
+			card_anims[i].append(t2)
+		_:
+			# "deal" and "stack_spread" both fly straight in with a crisp settle.
+			var t := card.create_tween()
+			t.tween_property(card, "position", dest, seconds).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+			t.parallel().tween_property(card, "rotation", rot, seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			t.parallel().tween_property(card, "scale", Vector2(sc, sc), seconds).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			t.parallel().tween_property(card, "modulate:a", 1.0, seconds * 0.45)
+			card_anims[i].append(t)
+
+
+# Smoothly slides an already-placed card to a new slot (the "widen" as the fan grows,
+# or the "spread" when the stack opens). pre_delay staggers the spread outward.
+func _retarget_fan_card(cards: Array, card_anims: Array, i: int, target: Dictionary, seconds: float, pos_trans: int, pos_ease: int, pre_delay: float = 0.0) -> void:
+	if i < 0 or i >= cards.size():
+		return
+	var card: Control = cards[i]
+	if not is_instance_valid(card):
+		return
+	_kill_card_anim(card_anims, i)
+	var sc := float(target.get("scale", 1.0))
+	var t := card.create_tween()
+	if pre_delay > 0.0:
+		t.tween_interval(pre_delay)
+	t.tween_property(card, "position", target["pos"], seconds).set_trans(pos_trans).set_ease(pos_ease)
+	t.parallel().tween_property(card, "rotation", target["rot"], seconds).set_trans(Tween.TRANS_CUBIC).set_ease(pos_ease)
+	t.parallel().tween_property(card, "scale", Vector2(sc, sc), seconds).set_trans(Tween.TRANS_CUBIC).set_ease(pos_ease)
+	t.parallel().tween_property(card, "modulate:a", 1.0, minf(seconds, 0.12))
+	card_anims[i].append(t)
+
+
+# The running "+N" counter that builds the catch above the fan.
+## A "+1" attached as a child of its card — pops once the card has settled (after `delay`), then
+## fades. Living on the card, it moves and tilts with it, so it reads as that card's count (not loose).
+func _attach_card_unit_pop(card: Control, accent: Color, delay: float, options: Dictionary = {}) -> void:
+	if not is_instance_valid(card):
+		return
+	var pop_opts := options.duplicate()
+	pop_opts["label_border"] = int(options.get("unit_label_border", 2))
+	pop_opts["label_radius"] = int(options.get("unit_label_radius", 8))
+	pop_opts["label_shadow_size"] = int(options.get("unit_label_shadow_size", 6))
+	pop_opts["label_outline_size"] = int(options.get("unit_label_outline_size", 3))
+	var size := Vector2(float(options.get("unit_width", 70.0)), float(options.get("unit_height", 46.0)))
+	var pop := _catch_label_bug("+1", int(options.get("unit_font_size", 30)), accent, size, pop_opts)
+	# Centered just above the card's top edge, in the card's local space (rides along with the card).
+	pop.position = Vector2(card.size.x * 0.5 - size.x * 0.5, -size.y * 0.78)
+	pop.pivot_offset = size * 0.5
+	pop.scale = Vector2(0.3, 0.3)
+	pop.modulate = Color(1, 1, 1, 0)
+	pop.z_index = 40
+	card.add_child(pop)
+	var t := pop.create_tween()
+	t.tween_interval(delay)
+	t.tween_property(pop, "scale", Vector2(1.14, 1.14), 0.11).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(pop, "modulate:a", 1.0, 0.08)
+	t.tween_property(pop, "scale", Vector2.ONE, 0.09).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_interval(0.16)
+	t.tween_property(pop, "modulate:a", 0.0, 0.16)
+	t.tween_callback(pop.queue_free)
+	var drift := pop.create_tween()
+	drift.tween_interval(delay)
+	drift.tween_property(pop, "position:y", pop.position.y - 12.0, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 func _clear_catch_card_layer() -> void:
@@ -6284,61 +6694,165 @@ func _catch_card_size(viewport_size: Vector2) -> Vector2:
 	return Vector2(width, width * CATCH_CARD_ASPECT)
 
 
-func _build_result_card(card_texture: Texture2D, card_size: Vector2, badge_text: String = "", badge_accent: Color = Color(0, 0, 0, 0)) -> Control:
+func _build_result_card(card_texture: Texture2D, card_size: Vector2, badge_text: String = "", badge_accent: Color = Color(0, 0, 0, 0), options: Dictionary = {}) -> Control:
 	var card := Control.new()
 	card.custom_minimum_size = card_size
 	card.size = card_size
 	card.pivot_offset = card_size * 0.5
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_add_halftone_card_shadow(card, card_size)
+	_add_halftone_card_shadow(card, card_size, options)
 
-	var body := PanelContainer.new()
-	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_anchor_fill(body)
-	var body_style := _styled(Color("#fbfdff"), Color("#071829"), 3, 9)
-	body_style.anti_aliasing = false
-	body_style.content_margin_left = 7
-	body_style.content_margin_right = 7
-	body_style.content_margin_top = 7
-	body_style.content_margin_bottom = 7
-	body.add_theme_stylebox_override("panel", body_style)
-	card.add_child(body)
+	# Pixel-stepped edge: near-black outline → solid white border → card-bg fill, every layer following
+	# the same chunky staircase so both edges of the white border step. fill defaults to the fish-card
+	# background (#011244); other card types can override via options.card_fill.
+	var w := card_size.x
+	var h := card_size.y
+	var steps := int(options.get("card_steps", 2))
+	var sp := int(options.get("card_step_px", 4))
+	var border := int(options.get("card_border_px", 8))
+	var fill: Color = options.get("card_fill", Color("#011244"))
+	_gallery_chunky_rrect(card, 0.0, 0.0, w, h, Color("#0a0e14"), steps, sp)
+	_gallery_chunky_rrect(card, 2.0, 2.0, w - 4.0, h - 4.0, Color("#ffffff"), steps, sp)
+	var ci := 2.0 + float(border)
+	_gallery_chunky_rrect(card, ci, ci, w - 2.0 * ci, h - 2.0 * ci, fill, steps, sp)
+	var m := ci + float(steps * sp)
+	var face := _gallery_face(card_texture)
+	face.position = Vector2(m, m)
+	face.size = Vector2(w - 2.0 * m, h - 2.0 * m)
+	card.add_child(face)
 
+	if badge_text != "":
+		_add_card_badge(card, card_size, badge_text, badge_accent, options)
+	return card
+
+
+# ── Card-edge gallery ──────────────────────────────────────────────────────
+# Four techniques for a lightly-rounded, pixel-square full card with an inner
+# white edge that follows the rounding. Preview via ?catch_preview=cardgallery.
+
+func _gallery_face(tex: Texture2D) -> TextureRect:
 	var face := TextureRect.new()
-	face.texture = card_texture
+	face.texture = tex
 	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	face.stretch_mode = TextureRect.STRETCH_SCALE
 	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	face.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	face.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(face)
+	return face
 
-	if badge_text != "":
-		_add_card_badge(card, card_size, badge_text, badge_accent)
 
-	_add_card_corner_cuts(card, card_size)
+func _gallery_card_base(card_size: Vector2) -> Control:
+	var card := Control.new()
+	card.custom_minimum_size = card_size
+	card.size = card_size
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return card
 
 
-func _schedule_catch_cards_exit(layer: Control, cards: Array[Control], delay: float, token: int) -> void:
+func _gallery_rect(parent: Control, x: float, y: float, w: float, h: float, color: Color) -> void:
+	var rect := ColorRect.new()
+	rect.color = color
+	rect.position = Vector2(x, y)
+	rect.size = Vector2(w, h)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(rect)
+
+
+# A — nested StyleBoxFlat panels: dark outline → white fill ring → art backing.
+func _gallery_chunky_rrect(parent: Control, ox: float, oy: float, w: float, h: float, color: Color, steps: int, sp: int) -> void:
+	var total := float(steps * sp)
+	_gallery_rect(parent, ox, oy + total, w, h - 2.0 * total, color)
+	for s in range(steps):
+		var inset := float((steps - s) * sp)
+		var yt := float(s * sp)
+		_gallery_rect(parent, ox + inset, oy + yt, w - 2.0 * inset, float(sp), color)
+		_gallery_rect(parent, ox + inset, oy + h - yt - float(sp), w - 2.0 * inset, float(sp), color)
+
+
+# A clearly-staggered pixel card: near-black 2px outline + thick cream border, both following a
+# chunky steps×sp-pixel staircase corner. The art sits inside, past the steps.
+func _gallery_card_stepped(tex: Texture2D, card_size: Vector2, steps: int, sp: int, border: int) -> Control:
+	var card := _gallery_card_base(card_size)
+	var w := card_size.x
+	var h := card_size.y
+	# Three concentric staircases: dark outline → solid-white border → card-bg fill. Because every
+	# layer follows the same step shape, BOTH edges of the white border step. (#011244 = the card
+	# art's background, so the inner fill is seamless. border is a multiple of sp to stay uniform.)
+	_gallery_chunky_rrect(card, 0.0, 0.0, w, h, Color("#0a0e14"), steps, sp)
+	_gallery_chunky_rrect(card, 2.0, 2.0, w - 4.0, h - 4.0, Color("#ffffff"), steps, sp)
+	var ci := 2.0 + float(border)
+	_gallery_chunky_rrect(card, ci, ci, w - 2.0 * ci, h - 2.0 * ci, Color("#011244"), steps, sp)
+	var m := ci + float(steps * sp)
+	var face := _gallery_face(tex)
+	face.position = Vector2(m, m)
+	face.size = Vector2(w - 2.0 * m, h - 2.0 * m)
+	card.add_child(face)
+	return card
+
+
+func _run_card_gallery() -> void:
+	if ui.has("start_overlay"):
+		(ui["start_overlay"] as Control).visible = false
+	await get_tree().create_timer(0.35).timeout
+	if not ui.has("catch_card_overlay") or not ui.has("catch_card_layer"):
+		return
+	catch_card_token += 1
+	var overlay: Control = ui["catch_card_overlay"]
+	var layer: Control = ui["catch_card_layer"]
+	_clear_catch_card_layer()
+	overlay.visible = true
+	overlay.modulate = Color(1, 1, 1, 1)
+	var vp := get_viewport().get_visible_rect().size
+	var tex := _fish_card_texture("Tuna")
+	var card_size := Vector2(210, 284)
+	var captions := ["A — 2x4 (your pick)", "B — bigger 2x5", "C — thicker border", "D — 3 steps"]
+	var gap := 50.0
+	var total_w := card_size.x * 4.0 + gap * 3.0
+	var start_x := (vp.x - total_w) * 0.5
+	var cy := vp.y * 0.5
+	for i in range(4):
+		var made: Control
+		match i:
+			0:
+				made = _gallery_card_stepped(tex, card_size, 2, 4, 8)
+			1:
+				made = _gallery_card_stepped(tex, card_size, 2, 5, 10)
+			2:
+				made = _gallery_card_stepped(tex, card_size, 2, 4, 12)
+			_:
+				made = _gallery_card_stepped(tex, card_size, 3, 4, 8)
+		var cx := start_x + float(i) * (card_size.x + gap)
+		made.position = Vector2(cx, cy - card_size.y * 0.5)
+		layer.add_child(made)
+		var lbl := _label(captions[i], 18, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+		lbl.position = Vector2(cx, cy - card_size.y * 0.5 - 38.0)
+		lbl.size = Vector2(card_size.x, 28)
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.add_child(lbl)
+
+
+func _schedule_catch_cards_exit(layer: Control, cards: Array[Control], delay: float, token: int, options: Dictionary = {}) -> void:
 	var scheduler := layer.create_tween()
 	scheduler.tween_interval(delay)
 	scheduler.tween_callback(func():
 		if token != catch_card_token or not is_instance_valid(layer):
 			return
+		var exit_stagger := float(options.get("exit_stagger", 0.018))
+		var exit_seconds := float(options.get("exit_seconds", 0.28))
+		var exit_fade_seconds := float(options.get("exit_fade_seconds", 0.22))
+		var exit_lift := float(options.get("exit_lift", 72.0))
+		var exit_scale := float(options.get("exit_scale", 0.86))
 		for i in range(cards.size()):
 			var card := cards[i]
 			if not is_instance_valid(card):
 				continue
 			var exit_tween := card.create_tween()
-			exit_tween.tween_interval(float(i) * 0.018)
-			exit_tween.set_parallel(true)
-			exit_tween.tween_property(card, "position:y", card.position.y - 72.0, 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-			exit_tween.tween_property(card, "scale", Vector2(0.86, 0.86), 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-			exit_tween.tween_property(card, "modulate:a", 0.0, 0.22)
-			exit_tween.set_parallel(false)
+			exit_tween.tween_interval(float(i) * exit_stagger)
+			exit_tween.tween_property(card, "position:y", card.position.y - exit_lift, exit_seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+			exit_tween.parallel().tween_property(card, "scale", Vector2(exit_scale, exit_scale), exit_seconds).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+			exit_tween.parallel().tween_property(card, "modulate:a", 0.0, exit_fade_seconds)
 	)
 
 
@@ -6360,15 +6874,17 @@ func _schedule_catch_overlay_hide(overlay: Control, delay: float, token: int) ->
 	)
 
 
-func _add_halftone_card_shadow(card: Control, card_size: Vector2) -> void:
+func _add_halftone_card_shadow(card: Control, card_size: Vector2, options: Dictionary = {}) -> void:
 	var shadow := Control.new()
-	shadow.position = Vector2(13, 15)
+	shadow.position = options.get("shadow_offset", Vector2(13, 15))
 	shadow.size = card_size
 	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(shadow)
 
-	var spacing := 12
-	var dot_size := 4
+	var spacing := int(options.get("shadow_spacing", 12))
+	var dot_size := int(options.get("shadow_dot_size", 4))
+	var alpha_min := float(options.get("shadow_alpha_min", 0.18))
+	var alpha_max := float(options.get("shadow_alpha_max", 0.52))
 	for y in range(10, int(card_size.y) + 28, spacing):
 		for x in range(10, int(card_size.x) + 26, spacing):
 			var grid_sum := int(x / spacing) + int(y / spacing)
@@ -6378,42 +6894,24 @@ func _add_halftone_card_shadow(card: Control, card_size: Vector2) -> void:
 			if diagonal < 0.25:
 				continue
 			var dot := ColorRect.new()
-			dot.color = _with_alpha(Color("#00152d"), lerpf(0.18, 0.52, clampf(diagonal, 0.0, 1.0)))
+			dot.color = _with_alpha(Color("#00152d"), lerpf(alpha_min, alpha_max, clampf(diagonal, 0.0, 1.0)))
 			dot.position = Vector2(x, y)
 			dot.size = Vector2(dot_size, dot_size)
 			dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			shadow.add_child(dot)
 
 
-func _add_card_corner_cuts(card: Control, card_size: Vector2) -> void:
-	var cut := clampf(card_size.x * 0.075, 7.0, 10.0)
-	var fill := Color("#071829")
-	var positions: Array[Vector2] = [
-		Vector2(0, 0),
-		Vector2(card_size.x - cut, 0),
-		Vector2(0, card_size.y - cut),
-		Vector2(card_size.x - cut, card_size.y - cut),
-	]
-	for pos in positions:
-		var notch := ColorRect.new()
-		notch.color = fill
-		notch.position = pos
-		notch.size = Vector2(cut, cut)
-		notch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		notch.z_index = 8
-		card.add_child(notch)
-
-
-func _add_card_badge(card: Control, card_size: Vector2, text: String, accent: Color) -> void:
-	var badge_size := Vector2(clampf(38.0 + float(text.length()) * 8.0, 48.0, 72.0), 30.0)
+func _add_card_badge(card: Control, card_size: Vector2, text: String, accent: Color, options: Dictionary = {}) -> void:
+	var badge_size := Vector2(clampf(38.0 + float(text.length()) * 8.0, 48.0, 76.0), 30.0)
 	var badge := PanelContainer.new()
 	badge.custom_minimum_size = badge_size
 	badge.size = badge_size
-	badge.position = Vector2(card_size.x - badge_size.x - 10.0, 10.0)
+	badge.position = Vector2(card_size.x - badge_size.x - float(options.get("badge_inset", 10.0)), float(options.get("badge_inset", 10.0)))
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	badge.z_index = 14
-	var style := _styled_shadow(accent.darkened(0.24), Color("#fbfdff"), 2, 5, 5)
-	style.anti_aliasing = false
+	var style := _styled_shadow(accent.darkened(0.24), Color("#fbfdff"), int(options.get("badge_border", 2)), int(options.get("badge_radius", 8)), 5)
+	style.anti_aliasing = bool(options.get("badge_antialias", true))
+	style.anti_aliasing_size = 0.6
 	style.content_margin_left = 7
 	style.content_margin_right = 7
 	style.content_margin_top = 1
@@ -6431,36 +6929,9 @@ func _add_card_badge(card: Control, card_size: Vector2, text: String, accent: Co
 	card.add_child(badge)
 
 
-func _schedule_catch_unit_pop(layer: Control, center: Vector2, delay: float, _token: int, label_text: String, accent: Color) -> void:
-	var pop_width := clampf(44.0 + float(label_text.length()) * 14.0, 64.0, 148.0)
-	var pop := _catch_label_bug(label_text, 25, accent, Vector2(pop_width, 40))
-	pop.position = center - pop.size * 0.5
-	pop.pivot_offset = pop.size * 0.5
-	pop.scale = Vector2(0.35, 0.35)
-	pop.modulate = Color(1, 1, 1, 0)
-	pop.z_index = 60
-	layer.add_child(pop)
-
-	var alpha_tween := pop.create_tween()
-	alpha_tween.tween_interval(delay)
-	alpha_tween.tween_property(pop, "modulate:a", 1.0, 0.05)
-	alpha_tween.tween_interval(0.15)
-	alpha_tween.tween_property(pop, "modulate:a", 0.0, 0.16)
-	alpha_tween.tween_callback(pop.queue_free)
-
-	var scale_tween := pop.create_tween()
-	scale_tween.tween_interval(delay)
-	scale_tween.tween_property(pop, "scale", Vector2(1.15, 1.15), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	scale_tween.tween_property(pop, "scale", Vector2.ONE, 0.08).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-
-	var drift_tween := pop.create_tween()
-	drift_tween.tween_interval(delay)
-	drift_tween.tween_property(pop, "position:y", pop.position.y - 22.0, 0.34).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-
-
-func _schedule_catch_total_bug(layer: Control, label: String, accent: Color, center: Vector2, delay: float, _token: int) -> void:
-	var width := clampf(180.0 + float(label.length()) * 18.0, 330.0, 560.0)
-	var bug := _catch_label_bug(label, 38, accent, Vector2(width, 74))
+func _schedule_catch_total_bug(layer: Control, label: String, accent: Color, center: Vector2, delay: float, _token: int, options: Dictionary = {}) -> void:
+	var width := clampf(float(options.get("label_width_base", 170.0)) + float(label.length()) * float(options.get("label_width_per_char", 17.0)), float(options.get("label_width_min", 320.0)), float(options.get("label_width_max", 590.0)))
+	var bug := _catch_label_bug(label, int(options.get("label_font_size", 38)), accent, Vector2(width, float(options.get("label_height", 74.0))), options)
 	bug.position = center - bug.size * 0.5
 	bug.pivot_offset = bug.size * 0.5
 	bug.scale = Vector2(0.48, 0.48)
@@ -6471,43 +6942,45 @@ func _schedule_catch_total_bug(layer: Control, label: String, accent: Color, cen
 	var alpha_tween := bug.create_tween()
 	alpha_tween.tween_interval(delay)
 	alpha_tween.tween_property(bug, "modulate:a", 1.0, 0.08)
-	alpha_tween.tween_interval(2.05)
+	alpha_tween.tween_interval(float(options.get("label_hold", 2.05)))
 	alpha_tween.tween_property(bug, "modulate:a", 0.0, 0.20)
 	alpha_tween.tween_callback(bug.queue_free)
 
 	var scale_tween := bug.create_tween()
 	scale_tween.tween_interval(delay)
-	scale_tween.tween_property(bug, "scale", Vector2(1.08, 1.08), 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	var scale_peak := float(options.get("label_scale_peak", 1.08))
+	scale_tween.tween_property(bug, "scale", Vector2(scale_peak, scale_peak), float(options.get("label_scale_seconds", 0.18))).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	scale_tween.tween_property(bug, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 	var rotation_tween := bug.create_tween()
 	rotation_tween.tween_interval(delay)
-	rotation_tween.tween_property(bug, "rotation", deg_to_rad(-1.8), 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	rotation_tween.tween_property(bug, "rotation", deg_to_rad(float(options.get("label_rotation_degrees", -1.8))), 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 	var drift_tween := bug.create_tween()
-	drift_tween.tween_interval(delay + 2.13)
-	drift_tween.tween_property(bug, "position:y", bug.position.y - 34.0, 0.20).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	drift_tween.tween_interval(delay + float(options.get("label_hold", 2.05)) + 0.08)
+	drift_tween.tween_property(bug, "position:y", bug.position.y - float(options.get("label_exit_lift", 34.0)), 0.20).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 
 
-func _catch_label_bug(text: String, font_size: int, accent: Color, bug_size: Vector2) -> PanelContainer:
+func _catch_label_bug(text: String, font_size: int, accent: Color, bug_size: Vector2, options: Dictionary = {}) -> PanelContainer:
 	var bug := PanelContainer.new()
 	bug.custom_minimum_size = bug_size
 	bug.size = bug_size
 	bug.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := _styled_shadow(accent.darkened(0.32), Color("#fbfdff"), 3, 5, 10)
-	style.anti_aliasing = false
+	var style := _styled_shadow(accent.darkened(float(options.get("label_darken", 0.32))), Color("#fbfdff"), int(options.get("label_border", 2)), int(options.get("label_radius", 8)), int(options.get("label_shadow_size", 10)))
+	style.anti_aliasing = bool(options.get("label_antialias", false))
+	style.anti_aliasing_size = 0.6
 	style.content_margin_left = 12
 	style.content_margin_right = 12
 	style.content_margin_top = 3
 	style.content_margin_bottom = 5
 	style.shadow_color = _with_alpha(Color("#00152d"), 0.72)
-	style.shadow_offset = Vector2(7, 9)
+	style.shadow_offset = options.get("label_shadow_offset", Vector2(7, 9))
 	bug.add_theme_stylebox_override("panel", style)
 
 	var label := _label(text, font_size, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	label.add_theme_constant_override("outline_size", 3)
+	label.add_theme_constant_override("outline_size", int(options.get("label_outline_size", 3)))
 	label.add_theme_color_override("font_outline_color", Color("#071829"))
 	bug.add_child(label)
 	return bug
