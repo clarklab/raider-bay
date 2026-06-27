@@ -25,7 +25,7 @@ const BASE_MOVES := 3
 const BASE_LIVE_WELL_DAYS := 2
 const START_CASTS := 1
 const CONDITION_MAX := 10
-const UPGRADE_MAX_LEVEL := 4
+const UPGRADE_MAX_LEVEL := 5
 const REPAIR_COST_PER_SEGMENT := 8
 const EXTRA_NIGHT_COST := 250
 const TROPHY_REQUIRED := 10
@@ -96,6 +96,21 @@ const CARD_TUNA_TEXTURE: Texture2D = preload("res://assets/cards/card-tuna.png")
 const CARD_TREASURE_100_TEXTURE: Texture2D = preload("res://assets/cards/card-treasure-100.png")
 const CARD_TREASURE_200_TEXTURE: Texture2D = preload("res://assets/cards/card-treasure-200.png")
 const CARD_TREASURE_NIGHT_TEXTURE: Texture2D = preload("res://assets/cards/card-night-1.png")
+const CARD_BACK_TEXTURE: Texture2D = preload("res://assets/cards/card-back.png")
+const CARD_MOTOR_TEXTURES: Array[Texture2D] = [
+	preload("res://assets/cards/card-motor-1.png"),
+	preload("res://assets/cards/card-motor-2.png"),
+	preload("res://assets/cards/card-motor-3.png"),
+	preload("res://assets/cards/card-motor-4.png"),
+	preload("res://assets/cards/card-motor-5.png"),
+]
+const CARD_FISH_FINDER_TEXTURES: Array[Texture2D] = [
+	preload("res://assets/cards/card-fish-finder-1.png"),
+	preload("res://assets/cards/card-fish-finder-2.png"),
+	preload("res://assets/cards/card-fish-finder-3.png"),
+	preload("res://assets/cards/card-fish-finder-4.png"),
+	preload("res://assets/cards/card-fish-finder-5.png"),
+]
 
 const BG_CALM_STREAM: AudioStream = preload("res://assets/bg-calm.mp3")
 const BG_BIRDS_STREAM: AudioStream = preload("res://assets/bg-birds.mp3")
@@ -263,6 +278,9 @@ var bot_cast_holes_today: Dictionary = {}
 
 var active_tab: String = "map"  # health | live_well | map | upgrades | radio
 var active_tray: String = ""     # "" | upgrade | repair
+var selected_upgrade_card_key := ""
+var selected_upgrade_card_level := 0
+var upgrade_card_purchase_locked := false
 var ship_view_state := ""
 var ship_static_time := 0.0
 var ship_roll_time := 0.0
@@ -281,6 +299,7 @@ var action_buttons: Dictionary = {}
 var tab_buttons: Dictionary = {}
 var boat_segment_panels: Dictionary = {}
 var upgrade_tray_rows: Dictionary = {}
+var upgrade_store_lanes: Dictionary = {}
 var repair_tray_rows: Dictionary = {}
 
 var audio_calm: AudioStreamPlayer
@@ -2706,11 +2725,11 @@ func _build_tray_overlay() -> void:
 	backdrop.gui_input.connect(_on_backdrop_input)
 	overlay.add_child(backdrop)
 
-	var tray := _panel_lifted(BG_PANEL, BORDER_HI, 2, 14, 10)
-	tray.anchor_left = 0.17
-	tray.anchor_right = 0.83
-	tray.anchor_top = 0.11
-	tray.anchor_bottom = 0.93
+	var tray := _panel_lifted(BG_PANEL, BORDER_HI, 2, 10, 10)
+	tray.anchor_left = 0.08
+	tray.anchor_right = 0.92
+	tray.anchor_top = 0.07
+	tray.anchor_bottom = 0.95
 	tray.offset_left = 0
 	tray.offset_right = 0
 	tray.offset_top = 0
@@ -2738,9 +2757,11 @@ func _build_tray_overlay() -> void:
 	head.add_child(ui["tray_title"])
 
 	ui["tray_money"] = _pill("$0", GOLD)
+	ui["tray_money"].size_flags_horizontal = Control.SIZE_SHRINK_END
+	ui["tray_money"].custom_minimum_size = Vector2(118, 0)
 	head.add_child(ui["tray_money"])
 
-	ui["tray_hint"] = _label("Tap an empty segment to buy it.", 11, TEXT_DIM)
+	ui["tray_hint"] = _label("Tap an upgrade row to inspect the next card.", 11, TEXT_DIM)
 	col.add_child(ui["tray_hint"])
 
 	ui["upgrade_plan"] = _label("Plan: $0", FONT_SMALL, TEXT_MUTED)
@@ -2783,16 +2804,17 @@ func _build_tray_overlay() -> void:
 	_build_tray_body_repair()
 	_show_tray_body("upgrade", false)
 	_show_tray_body("repair", false)
+	_build_upgrade_card_preview_overlay(overlay)
 
 
 func _build_tray_body_upgrade() -> void:
 	var body := VBoxContainer.new()
 	body.name = "UpgradeBody"
-	body.add_theme_constant_override("separation", 6)
+	body.add_theme_constant_override("separation", 10)
 	ui["tray_body"].add_child(body)
 	ui["tray_body_upgrade"] = body
 
-	var night_panel := _panel(BG_PANEL_DARK, GOLD_DEEP, 1, 5)
+	var night_panel := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 1, 5, 3)
 	night_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(night_panel)
 
@@ -2828,9 +2850,9 @@ func _build_tray_body_upgrade() -> void:
 	night_row.add_child(ui["extra_night_add"])
 
 	for key in UPGRADE_KEYS:
-		var row := _segment_row(_upgrade_name(key), UPGRADE_MAX_LEVEL, true, key, true)
-		body.add_child(row)
-		upgrade_tray_rows[key] = row
+		var lane := _upgrade_store_lane(key)
+		body.add_child(lane)
+		upgrade_store_lanes[key] = lane
 
 
 func _build_tray_body_repair() -> void:
@@ -2844,6 +2866,660 @@ func _build_tray_body_repair() -> void:
 		var row := _segment_row(_condition_name(key), CONDITION_MAX, false, key, true)
 		body.add_child(row)
 		repair_tray_rows[key] = row
+
+
+func _build_upgrade_card_preview_overlay(parent: Control) -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 60
+	parent.add_child(overlay)
+	ui["upgrade_card_preview_overlay"] = overlay
+
+	var shade := ColorRect.new()
+	shade.color = _with_alpha(Color("#020814"), 0.74)
+	shade.anchor_right = 1.0
+	shade.anchor_bottom = 1.0
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.gui_input.connect(_on_upgrade_preview_backdrop_input)
+	overlay.add_child(shade)
+
+	var stage := HBoxContainer.new()
+	stage.anchor_left = 0.5
+	stage.anchor_right = 0.5
+	stage.anchor_top = 0.5
+	stage.anchor_bottom = 0.5
+	stage.offset_left = -390
+	stage.offset_right = 390
+	stage.offset_top = -245
+	stage.offset_bottom = 245
+	stage.alignment = BoxContainer.ALIGNMENT_CENTER
+	stage.add_theme_constant_override("separation", 26)
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(stage)
+	ui["upgrade_card_preview_stage"] = stage
+
+	var card_slot := Control.new()
+	card_slot.custom_minimum_size = Vector2(316, 412)
+	card_slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	card_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(card_slot)
+	ui["upgrade_card_preview_slot"] = card_slot
+
+	var info := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 7, 8)
+	info.custom_minimum_size = Vector2(310, 0)
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	stage.add_child(info)
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 18)
+	pad.add_theme_constant_override("margin_right", 18)
+	pad.add_theme_constant_override("margin_top", 16)
+	pad.add_theme_constant_override("margin_bottom", 16)
+	info.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	pad.add_child(col)
+
+	ui["upgrade_card_preview_title"] = _label("UPGRADE", 28, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["upgrade_card_preview_title"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(ui["upgrade_card_preview_title"])
+
+	ui["upgrade_card_preview_level"] = _label("CARD 1/5", FONT_BODY, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["upgrade_card_preview_level"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(ui["upgrade_card_preview_level"])
+
+	ui["upgrade_card_preview_desc"] = _label("", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["upgrade_card_preview_desc"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["upgrade_card_preview_desc"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(ui["upgrade_card_preview_desc"])
+
+	ui["upgrade_card_preview_effect"] = _label("", FONT_BODY, CYAN, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["upgrade_card_preview_effect"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["upgrade_card_preview_effect"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(ui["upgrade_card_preview_effect"])
+
+	ui["upgrade_card_preview_price"] = _label("$0", 34, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["upgrade_card_preview_price"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(ui["upgrade_card_preview_price"])
+
+	ui["upgrade_card_preview_buy"] = _tactile_button("UPGRADE", 0, 58, PURPLE_DEEP, PURPLE, TEXT_PRIMARY)
+	ui["upgrade_card_preview_buy"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["upgrade_card_preview_buy"].pressed.connect(_purchase_selected_upgrade)
+	col.add_child(ui["upgrade_card_preview_buy"])
+
+	ui["upgrade_card_preview_close"] = _tactile_button("CLOSE", 0, 48, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
+	ui["upgrade_card_preview_close"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["upgrade_card_preview_close"].pressed.connect(_close_upgrade_card_preview)
+	col.add_child(ui["upgrade_card_preview_close"])
+
+
+func _upgrade_store_lane(key: String) -> Button:
+	var lane := Button.new()
+	lane.text = ""
+	lane.focus_mode = Control.FOCUS_NONE
+	lane.custom_minimum_size = Vector2(0, 124)
+	lane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lane.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	lane.pressed.connect(_open_upgrade_card_preview.bind(key))
+
+	var pad := MarginContainer.new()
+	_anchor_fill(pad)
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 10)
+	pad.add_theme_constant_override("margin_bottom", 10)
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lane.add_child(pad)
+
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 12)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pad.add_child(row)
+
+	var copy := VBoxContainer.new()
+	copy.custom_minimum_size = Vector2(180, 0)
+	copy.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	copy.alignment = BoxContainer.ALIGNMENT_CENTER
+	copy.add_theme_constant_override("separation", 3)
+	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(copy)
+
+	var title := _label(_upgrade_name(key).to_upper(), 23, TEXT_PRIMARY)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	copy.add_child(title)
+
+	var desc := _label(_row_description(key, true), FONT_SMALL, TEXT_MUTED)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.custom_minimum_size = Vector2(172, 0)
+	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	copy.add_child(desc)
+
+	var cost := _label("", FONT_SMALL, GOLD)
+	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	copy.add_child(cost)
+
+	var slots := HBoxContainer.new()
+	slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slots.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	slots.alignment = BoxContainer.ALIGNMENT_CENTER
+	slots.add_theme_constant_override("separation", 8)
+	slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(slots)
+
+	var slot_nodes: Array[Control] = []
+	for i in range(UPGRADE_MAX_LEVEL):
+		var slot := Control.new()
+		slot.custom_minimum_size = _store_mini_card_size() + Vector2(8, 8)
+		slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slots.add_child(slot)
+		slot_nodes.append(slot)
+
+	var count := _label("0/%d" % UPGRADE_MAX_LEVEL, 27, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_RIGHT)
+	count.custom_minimum_size = Vector2(76, 0)
+	count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(count)
+
+	lane.set_meta("key", key)
+	lane.set_meta("title_label", title)
+	lane.set_meta("desc_label", desc)
+	lane.set_meta("cost_label", cost)
+	lane.set_meta("count_label", count)
+	lane.set_meta("slots", slot_nodes)
+	_refresh_upgrade_store_lane(lane)
+	return lane
+
+
+func _refresh_upgrade_store_lanes() -> void:
+	for key in UPGRADE_KEYS:
+		if upgrade_store_lanes.has(key):
+			_refresh_upgrade_store_lane(upgrade_store_lanes[key])
+
+
+func _refresh_upgrade_store_lane(lane: Control) -> void:
+	if lane == null or not lane.has_meta("key"):
+		return
+	var key := str(lane.get_meta("key"))
+	var current := int(upgrades.get(key, 0))
+	var maxed := current >= UPGRADE_MAX_LEVEL
+	var next_level := clampi(current + 1, 1, UPGRADE_MAX_LEVEL)
+	var next_cost := _upgrade_cost(key, current) if not maxed else 0
+	var accent := _upgrade_accent(key)
+
+	if lane is Button:
+		var button := lane as Button
+		button.disabled = game_over or not _is_docked()
+		_apply_upgrade_lane_style(button, accent, current, maxed)
+		button.modulate = Color(1, 1, 1, 0.58) if button.disabled else Color(1, 1, 1, 1)
+
+	var title: Label = lane.get_meta("title_label")
+	var desc: Label = lane.get_meta("desc_label")
+	var cost: Label = lane.get_meta("cost_label")
+	var count: Label = lane.get_meta("count_label")
+	title.add_theme_color_override("font_color", TEXT_PRIMARY if current > 0 else TEXT_MUTED)
+	desc.add_theme_color_override("font_color", TEXT_MUTED)
+	count.text = "%d/%d" % [current, UPGRADE_MAX_LEVEL]
+	count.add_theme_color_override("font_color", GOLD if maxed else (accent if current > 0 else TEXT_DIM))
+	if maxed:
+		cost.text = "DECK COMPLETE"
+		cost.add_theme_color_override("font_color", GOLD)
+	else:
+		cost.text = "NEXT CARD $%d" % next_cost
+		cost.add_theme_color_override("font_color", GOLD if money >= next_cost and _is_docked() else TEXT_DIM)
+
+	var slots: Array = lane.get_meta("slots")
+	var mini_size := _store_mini_card_size()
+	for i in range(slots.size()):
+		var slot: Control = slots[i]
+		for child in slot.get_children():
+			slot.remove_child(child)
+			child.queue_free()
+		var level := i + 1
+		var owned := level <= current
+		var is_next := level == next_level and not maxed
+		var card := _build_store_card_visual(key, level, owned, mini_size, {
+			"mini": true,
+			"show_shadow": false,
+			"card_border_px": 4,
+			"card_step_px": 2,
+		})
+		card.position = Vector2(4, 4)
+		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if owned:
+			card.modulate = Color(1, 1, 1, 1)
+		elif is_next:
+			card.modulate = Color(1, 1, 1, 0.98)
+			card.scale = Vector2(1.04, 1.04)
+		else:
+			card.modulate = Color(1, 1, 1, 0.34)
+		slot.add_child(card)
+		if is_next:
+			_add_store_slot_badge(card, mini_size, "$%d" % next_cost, GOLD)
+
+
+func _apply_upgrade_lane_style(button: Button, accent: Color, current: int, maxed: bool) -> void:
+	var fill := BG_PANEL_DARK.lerp(accent, 0.10 if current > 0 else 0.035)
+	var border := GOLD if maxed else (accent.darkened(0.14) if current > 0 else BORDER_DARK)
+	var normal := _styled_shadow(fill, border, 2 if current > 0 else 1, 6, 3)
+	normal.content_margin_left = 0
+	normal.content_margin_right = 0
+	normal.content_margin_top = 0
+	normal.content_margin_bottom = 0
+	var hover := _styled_shadow(fill.lightened(0.06), border.lightened(0.18), 2, 6, 3)
+	hover.content_margin_left = 0
+	hover.content_margin_right = 0
+	hover.content_margin_top = 0
+	hover.content_margin_bottom = 0
+	var press := _styled(fill.darkened(0.10), border.darkened(0.08), 2, 6)
+	press.content_margin_left = 0
+	press.content_margin_right = 0
+	press.content_margin_top = 2
+	press.content_margin_bottom = 0
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", press)
+	button.add_theme_stylebox_override("focus", hover)
+	button.add_theme_stylebox_override("disabled", normal)
+
+
+func _open_upgrade_card_preview(key: String) -> void:
+	if not UPGRADE_KEYS.has(key) or game_over:
+		return
+	selected_upgrade_card_key = key
+	var current := int(upgrades.get(key, 0))
+	selected_upgrade_card_level = clampi(current + 1, 1, UPGRADE_MAX_LEVEL)
+	upgrade_card_purchase_locked = false
+	if ui.has("upgrade_card_preview_overlay"):
+		(ui["upgrade_card_preview_overlay"] as Control).visible = true
+	_refresh_upgrade_card_preview()
+	_rebuild_upgrade_preview_cards()
+	_play_catch_plonk(0)
+
+
+func _close_upgrade_card_preview() -> void:
+	selected_upgrade_card_key = ""
+	selected_upgrade_card_level = 0
+	upgrade_card_purchase_locked = false
+	if ui.has("upgrade_card_preview_overlay"):
+		(ui["upgrade_card_preview_overlay"] as Control).visible = false
+
+
+func _on_upgrade_preview_backdrop_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		_close_upgrade_card_preview()
+
+
+func _refresh_upgrade_card_preview() -> void:
+	if selected_upgrade_card_key == "" or not ui.has("upgrade_card_preview_overlay"):
+		return
+	var overlay: Control = ui["upgrade_card_preview_overlay"]
+	if not overlay.visible:
+		return
+	var key := selected_upgrade_card_key
+	var current := int(upgrades.get(key, 0))
+	var maxed := current >= UPGRADE_MAX_LEVEL
+	var level := clampi(current + 1, 1, UPGRADE_MAX_LEVEL)
+	if maxed:
+		level = UPGRADE_MAX_LEVEL
+	selected_upgrade_card_level = level
+	var cost := _upgrade_cost(key, current) if not maxed else 0
+	var can_buy := not maxed and _is_docked() and money >= cost and not upgrade_card_purchase_locked
+
+	(ui["upgrade_card_preview_title"] as Label).text = _upgrade_name(key).to_upper()
+	(ui["upgrade_card_preview_level"] as Label).text = "CARD %d/%d" % [level, UPGRADE_MAX_LEVEL]
+	(ui["upgrade_card_preview_desc"] as Label).text = _row_description(key, true)
+	(ui["upgrade_card_preview_effect"] as Label).text = _upgrade_effect_text(key, level)
+	var price: Label = ui["upgrade_card_preview_price"]
+	price.text = "MAXED" if maxed else "$%d" % cost
+	price.add_theme_color_override("font_color", GOLD if can_buy or maxed else RED)
+	var buy: Button = ui["upgrade_card_preview_buy"]
+	buy.text = "MAXED" if maxed else "UPGRADE"
+	buy.disabled = not can_buy
+	var buy_text := TEXT_PRIMARY if can_buy else TEXT_DIM
+	buy.add_theme_color_override("font_color", buy_text)
+	buy.add_theme_color_override("font_hover_color", buy_text)
+	buy.add_theme_color_override("font_pressed_color", buy_text)
+	buy.add_theme_color_override("font_disabled_color", buy_text)
+	_apply_tactile_style(buy, PURPLE_DEEP if can_buy else BG_PANEL, PURPLE if can_buy else BORDER_DARK)
+
+
+func _set_upgrade_preview_purchased_state(level: int, cost: int) -> void:
+	if not ui.has("upgrade_card_preview_price") or selected_upgrade_card_key == "":
+		return
+	(ui["upgrade_card_preview_level"] as Label).text = "UNLOCKED CARD %d/%d" % [level, UPGRADE_MAX_LEVEL]
+	(ui["upgrade_card_preview_price"] as Label).text = "-$%d" % cost
+	(ui["upgrade_card_preview_price"] as Label).add_theme_color_override("font_color", GOLD)
+	var buy: Button = ui["upgrade_card_preview_buy"]
+	buy.text = "UPGRADED"
+	buy.disabled = true
+	buy.add_theme_color_override("font_color", TEXT_DIM)
+	buy.add_theme_color_override("font_disabled_color", TEXT_DIM)
+	_apply_tactile_style(buy, BG_PANEL, BORDER_DARK)
+
+
+func _rebuild_upgrade_preview_cards() -> void:
+	if selected_upgrade_card_key == "" or not ui.has("upgrade_card_preview_slot"):
+		return
+	var slot: Control = ui["upgrade_card_preview_slot"]
+	for child in slot.get_children():
+		slot.remove_child(child)
+		child.queue_free()
+
+	var card_size := _store_preview_card_size()
+	var slot_size := card_size + Vector2(48, 42)
+	slot.custom_minimum_size = slot_size
+	var level := clampi(selected_upgrade_card_level, 1, UPGRADE_MAX_LEVEL)
+	var key := selected_upgrade_card_key
+	var pos := (slot_size - card_size) * 0.5
+	var options := {
+		"show_shadow": true,
+		"shadow_offset": Vector2(12, 16),
+		"card_border_px": 8,
+		"card_step_px": 4,
+	}
+
+	var back := _build_store_card_visual(key, level, false, card_size, options)
+	back.position = pos
+	back.pivot_offset = card_size * 0.5
+	back.scale = Vector2(0.58, 0.58)
+	back.rotation = deg_to_rad(-8.0)
+	back.modulate = Color(1, 1, 1, 0)
+	slot.add_child(back)
+
+	var front := _build_store_card_visual(key, level, true, card_size, options)
+	front.position = pos
+	front.pivot_offset = card_size * 0.5
+	front.scale = Vector2(0.04, 1.0)
+	front.rotation = 0.0
+	front.visible = false
+	slot.add_child(front)
+
+	ui["upgrade_card_preview_back"] = back
+	ui["upgrade_card_preview_front"] = front
+
+	var t := back.create_tween()
+	t.set_parallel(true)
+	t.tween_property(back, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(back, "rotation", 0.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(back, "modulate:a", 1.0, 0.12)
+
+
+func _purchase_selected_upgrade() -> void:
+	if upgrade_card_purchase_locked or selected_upgrade_card_key == "":
+		return
+	var key := selected_upgrade_card_key
+	var result := _try_buy_upgrade(key, false)
+	if not bool(result.get("ok", false)):
+		_refresh_upgrade_card_preview()
+		_refresh_upgrade_store_lanes()
+		return
+
+	upgrade_card_purchase_locked = true
+	var level := int(result.get("level", selected_upgrade_card_level))
+	var cost := int(result.get("cost", 0))
+	selected_upgrade_card_level = level
+	var buy: Button = ui["upgrade_card_preview_buy"]
+	buy.disabled = true
+	buy.add_theme_color_override("font_color", TEXT_DIM)
+	buy.add_theme_color_override("font_disabled_color", TEXT_DIM)
+	_apply_tactile_style(buy, BG_PANEL, BORDER_DARK)
+
+	var back: Control = ui.get("upgrade_card_preview_back", null)
+	var front: Control = ui.get("upgrade_card_preview_front", null)
+	if back == null or front == null or not is_instance_valid(back) or not is_instance_valid(front):
+		_finish_upgrade_card_purchase(level, cost)
+		return
+
+	_play_catch_plonk(1)
+	var flip := back.create_tween()
+	flip.tween_property(back, "scale:x", 0.035, 0.13).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	flip.tween_callback(func():
+		if is_instance_valid(back):
+			back.visible = false
+		if is_instance_valid(front):
+			front.visible = true
+			front.scale = Vector2(0.035, 1.0)
+		_play_catch_plonk(3)
+	)
+	flip.tween_property(front, "scale:x", 1.0, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	flip.parallel().tween_property(front, "rotation", deg_to_rad(1.8), 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	flip.tween_property(front, "rotation", 0.0, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	flip.tween_callback(_finish_upgrade_card_purchase.bind(level, cost))
+
+
+func _finish_upgrade_card_purchase(level: int, cost: int) -> void:
+	upgrade_card_purchase_locked = false
+	_set_upgrade_preview_purchased_state(level, cost)
+	_refresh_upgrade_store_lanes()
+	_show_upgrade_purchase_fanfare(_upgrade_accent(selected_upgrade_card_key))
+	if audio_catch:
+		audio_catch.stop()
+		audio_catch.play()
+	_update_ui()
+
+
+func _show_upgrade_purchase_fanfare(accent: Color) -> void:
+	if not ui.has("upgrade_card_preview_slot"):
+		return
+	var slot: Control = ui["upgrade_card_preview_slot"]
+	var center := slot.custom_minimum_size * 0.5
+	for i in range(18):
+		var spark := ColorRect.new()
+		spark.color = accent if i % 3 != 0 else GOLD
+		spark.size = Vector2(7, 7) if i % 2 == 0 else Vector2(10, 4)
+		spark.position = center - spark.size * 0.5
+		spark.rotation = deg_to_rad(float(i) * 17.0)
+		spark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		spark.z_index = 40
+		slot.add_child(spark)
+		var angle := TAU * float(i) / 18.0
+		var dist := 96.0 + float(i % 5) * 16.0
+		var dest := center + Vector2(cos(angle), sin(angle)) * dist - spark.size * 0.5
+		var t := spark.create_tween()
+		t.set_parallel(true)
+		t.tween_property(spark, "position", dest, 0.46).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.tween_property(spark, "modulate:a", 0.0, 0.42).set_delay(0.06)
+		t.tween_property(spark, "rotation", spark.rotation + deg_to_rad(80.0), 0.46)
+		t.set_parallel(false)
+		t.tween_callback(spark.queue_free)
+	for p in range(3):
+		var sched := slot.create_tween()
+		sched.tween_interval(float(p) * 0.08)
+		sched.tween_callback(_play_catch_plonk.bind(4 + p))
+
+
+func _store_mini_card_size() -> Vector2:
+	return Vector2(58, 78)
+
+
+func _store_preview_card_size() -> Vector2:
+	var viewport_size := get_viewport().get_visible_rect().size
+	var width := clampf(viewport_size.x * 0.155, 216.0, 278.0)
+	return Vector2(width, width * CATCH_CARD_ASPECT)
+
+
+func _build_store_card_visual(key: String, level: int, face_up: bool, card_size: Vector2, options: Dictionary = {}) -> Control:
+	var card := Control.new()
+	card.custom_minimum_size = card_size
+	card.size = card_size
+	card.pivot_offset = card_size * 0.5
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var fill := Color("#011244")
+	if face_up and _upgrade_art_texture(key, level) == null:
+		fill = _upgrade_accent(key).darkened(0.64)
+	var inner := _add_squarestep_card_shell(card, card_size, fill, options)
+	var inner_size := Vector2(card_size.x - inner * 2.0, card_size.y - inner * 2.0)
+	if face_up:
+		var tex := _upgrade_art_texture(key, level)
+		if tex:
+			var face := _gallery_face(tex)
+			face.position = Vector2(inner, inner)
+			face.size = inner_size
+			card.add_child(face)
+		else:
+			_add_generated_upgrade_card_face(card, key, level, Rect2(Vector2(inner, inner), inner_size), options)
+	else:
+		var back := _gallery_face(CARD_BACK_TEXTURE)
+		back.position = Vector2(inner, inner)
+		back.size = inner_size
+		card.add_child(back)
+	return card
+
+
+func _add_squarestep_card_shell(card: Control, card_size: Vector2, fill: Color, options: Dictionary = {}) -> float:
+	if bool(options.get("show_shadow", true)):
+		_add_halftone_card_shadow(card, card_size, options)
+	var w := card_size.x
+	var h := card_size.y
+	var steps := int(options.get("card_steps", 2))
+	var sp := int(options.get("card_step_px", 4))
+	var border := int(options.get("card_border_px", 8))
+	_gallery_chunky_rrect(card, 0.0, 0.0, w, h, Color("#0a0e14"), steps, sp)
+	_gallery_chunky_rrect(card, 2.0, 2.0, w - 4.0, h - 4.0, Color("#ffffff"), steps, sp)
+	var ci := 2.0 + float(border)
+	_gallery_chunky_rrect(card, ci, ci, w - 2.0 * ci, h - 2.0 * ci, fill, steps, sp)
+	return ci + float(steps * sp)
+
+
+func _add_generated_upgrade_card_face(card: Control, key: String, level: int, rect: Rect2, options: Dictionary = {}) -> void:
+	var accent := _upgrade_accent(key)
+	var mini := bool(options.get("mini", false))
+
+	var header := ColorRect.new()
+	header.color = accent.darkened(0.36)
+	header.position = rect.position
+	header.size = Vector2(rect.size.x, rect.size.y * (0.24 if mini else 0.22))
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(header)
+
+	for i in range(5):
+		var stripe := ColorRect.new()
+		stripe.color = _with_alpha(accent.lightened(0.16), 0.11)
+		stripe.position = rect.position + Vector2(rect.size.x * (0.15 + float(i) * 0.18), rect.size.y * 0.18)
+		stripe.size = Vector2(3 if mini else 5, rect.size.y * 0.66)
+		stripe.rotation = deg_to_rad(-18.0)
+		stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(stripe)
+
+	var title_text := _upgrade_short_label(key) if mini else _upgrade_name(key).to_upper()
+	var title_size := int(clampf(rect.size.x * (0.16 if mini else 0.105), 11.0, 25.0))
+	var title := _label(title_text, title_size, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	title.position = rect.position + Vector2(2, rect.size.y * (0.02 if mini else 0.035))
+	title.size = Vector2(rect.size.x - 4, rect.size.y * 0.16)
+	title.clip_text = true
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(title)
+
+	var icon_size := rect.size.x * (0.54 if mini else 0.48)
+	var icon := _icon_texture_rect(_upgrade_icon_texture(key), Vector2(icon_size, icon_size), accent.lightened(0.36))
+	icon.position = rect.position + Vector2((rect.size.x - icon_size) * 0.5, rect.size.y * (0.34 if mini else 0.32))
+	icon.size = Vector2(icon_size, icon_size)
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	card.add_child(icon)
+
+	var level_size := int(clampf(rect.size.x * (0.18 if mini else 0.13), 12.0, 30.0))
+	var level_label := _label("LVL %d" % level, level_size, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	level_label.position = rect.position + Vector2(2, rect.size.y * (0.78 if mini else 0.76))
+	level_label.size = Vector2(rect.size.x - 4, rect.size.y * 0.16)
+	level_label.clip_text = true
+	level_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(level_label)
+
+	if not mini:
+		var effect := _label(_upgrade_effect_text(key, level), 16, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		effect.position = rect.position + Vector2(rect.size.x * 0.08, rect.size.y * 0.88)
+		effect.size = Vector2(rect.size.x * 0.84, rect.size.y * 0.10)
+		effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		effect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(effect)
+
+
+func _add_store_slot_badge(card: Control, card_size: Vector2, text: String, accent: Color) -> void:
+	var badge := PanelContainer.new()
+	badge.custom_minimum_size = Vector2(46, 22)
+	badge.size = Vector2(46, 22)
+	badge.position = Vector2(card_size.x - 43, -4)
+	badge.z_index = 24
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := _styled(accent.darkened(0.24), Color("#fbfdff"), 1, 5)
+	style.content_margin_left = 4
+	style.content_margin_right = 4
+	style.content_margin_top = 0
+	style.content_margin_bottom = 1
+	badge.add_theme_stylebox_override("panel", style)
+	var label := _label(text, 13, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	badge.add_child(label)
+	card.add_child(badge)
+
+
+func _upgrade_art_texture(key: String, level: int) -> Texture2D:
+	var idx := clampi(level, 1, UPGRADE_MAX_LEVEL) - 1
+	match key:
+		"motor":
+			return CARD_MOTOR_TEXTURES[idx]
+		"fish_finder":
+			return CARD_FISH_FINDER_TEXTURES[idx]
+	return null
+
+
+func _upgrade_accent(key: String) -> Color:
+	match key:
+		"motor":
+			return CYAN
+		"fish_finder":
+			return PURPLE
+		"nets":
+			return GREEN
+		"live_well":
+			return GOLD
+		"cannons":
+			return RED
+		"defense":
+			return INDIGO
+	return TEXT_PRIMARY
+
+
+func _upgrade_icon_texture(key: String) -> Texture2D:
+	match key:
+		"motor":
+			return ICON_CARD_SHIP_TEXTURE
+		"fish_finder":
+			return ICON_RADIO_TEXTURE
+		"nets":
+			return ICON_LIVE_WELL_TEXTURE
+		"live_well":
+			return ICON_HEALTH_TEXTURE
+		"cannons":
+			return ICON_STORM_TEXTURE
+		"defense":
+			return ICON_HURRICANE_TEXTURE
+	return ICON_UPGRADES_TEXTURE
+
+
+func _upgrade_effect_text(key: String, level: int) -> String:
+	match key:
+		"motor":
+			return "%d moves per day" % (BASE_MOVES + level)
+		"fish_finder":
+			return "%d finder pings per day" % level
+		"nets":
+			return "+%d to every catch roll" % level
+		"live_well":
+			return "%d fresh days" % (BASE_LIVE_WELL_DAYS + level)
+		"cannons":
+			return "Attack roll max %d" % (5 + level)
+		"defense":
+			return "Defense roll max %d" % (6 + level)
+	return "Level %d" % level
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -3049,9 +3725,9 @@ func _open_upgrade_tray() -> void:
 		return
 	active_tray = "upgrade"
 	if ui.has("tray_title"):
-		(ui["tray_title"] as Label).text = "SHIP UPGRADES"
+		(ui["tray_title"] as Label).text = "SHIP CARD STORE"
 	if ui.has("tray_hint"):
-		(ui["tray_hint"] as Label).text = "Build a checkout plan, then lock it in."
+		(ui["tray_hint"] as Label).text = "Tap a category row to reveal its next upgrade card."
 	if ui.has("tray_overlay"):
 		(ui["tray_overlay"] as Control).visible = true
 	_show_tray_body("upgrade", true)
@@ -3075,6 +3751,7 @@ func _open_repair_tray() -> void:
 
 
 func _close_tray() -> void:
+	_close_upgrade_card_preview()
 	active_tray = ""
 	if ui.has("tray_overlay"):
 		(ui["tray_overlay"] as Control).visible = false
@@ -4420,29 +5097,37 @@ func _repair_segment(key: String) -> void:
 
 
 func _buy_upgrade(key: String) -> void:
+	_try_buy_upgrade(key, true)
+
+
+func _try_buy_upgrade(key: String, refresh_after: bool = true) -> Dictionary:
 	if game_over:
-		return
+		return {"ok": false}
 	if not _is_docked():
 		_log("Buy upgrades at the docks.")
-		return
+		return {"ok": false}
+	if not UPGRADE_KEYS.has(key):
+		return {"ok": false}
 
 	var current: int = int(upgrades[key])
 	if current >= UPGRADE_MAX_LEVEL:
 		_log("%s is already maxed." % _upgrade_name(key))
-		return
+		return {"ok": false}
 
 	var moves_before := _daily_moves()
 	var cost := _upgrade_cost(key, current)
 	if money < cost:
 		_log("%s upgrade costs $%d." % [_upgrade_name(key), cost])
-		return
+		return {"ok": false, "cost": cost}
 
 	money -= cost
 	upgrades[key] = current + 1
 	_stat_add("upgrades_bought", 1)
 	_apply_upgrade_to_current_turn(key, moves_before)
 	_log("Upgraded %s to %d ($%d)." % [_upgrade_name(key), int(upgrades[key]), cost])
-	_update_ui()
+	if refresh_after:
+		_update_ui()
+	return {"ok": true, "key": key, "level": int(upgrades[key]), "cost": cost}
 
 
 func _apply_upgrade_to_current_turn(key: String, moves_before: int) -> void:
@@ -5523,6 +6208,7 @@ func _update_upgrade_cart_ui() -> void:
 	var cost := _upgrade_cart_cost()
 	var remaining := money - cost
 	var showing_upgrade_controls := active_tray == "" or active_tray == "upgrade"
+	_refresh_upgrade_store_lanes()
 	if ui.has("upgrade_funds"):
 		var funds: Label = ui["upgrade_funds"]
 		funds.text = "Funds: $%d" % money
@@ -5533,7 +6219,10 @@ func _update_upgrade_cart_ui() -> void:
 		var extra_text := ""
 		if extra_night_cart > 0:
 			extra_text = " · +%d night%s" % [extra_night_cart, "" if extra_night_cart == 1 else "s"]
-		plan.text = "Plan: $%d · Remaining: $%d%s" % [cost, remaining, extra_text]
+		if cost > 0:
+			plan.text = "Plan: $%d · Remaining: $%d%s" % [cost, remaining, extra_text]
+		else:
+			plan.text = "Pick a card lane to inspect the next upgrade."
 		plan.add_theme_color_override("font_color", RED if remaining < 0 else (GOLD if cost > 0 else TEXT_MUTED))
 	if ui.has("extra_night_count"):
 		var nights: Label = ui["extra_night_count"]
@@ -5550,11 +6239,11 @@ func _update_upgrade_cart_ui() -> void:
 		remove_btn.disabled = game_over or not _is_docked() or extra_night_cart <= 0
 	if ui.has("upgrade_checkout"):
 		var checkout: Button = ui["upgrade_checkout"]
-		checkout.visible = showing_upgrade_controls
+		checkout.visible = showing_upgrade_controls and cost > 0
 		checkout.disabled = game_over or not _is_docked() or cost <= 0 or remaining < 0
 	if ui.has("upgrade_reset"):
 		var reset: Button = ui["upgrade_reset"]
-		reset.visible = showing_upgrade_controls
+		reset.visible = showing_upgrade_controls and cost > 0
 		reset.disabled = game_over or not _is_docked() or cost <= 0
 
 
@@ -5696,10 +6385,7 @@ func _update_tray() -> void:
 		return
 	_pill_set_text(ui["tray_money"], "$%d" % money)
 	if active_tray == "upgrade":
-		for key in UPGRADE_KEYS:
-			if upgrade_tray_rows.has(key):
-				var actual := int(upgrades[key])
-				_refresh_segment_row(upgrade_tray_rows[key], _upgrade_cart_target(key), true, key, actual)
+		_refresh_upgrade_store_lanes()
 	elif active_tray == "repair":
 		for key in CONDITION_KEYS:
 			if repair_tray_rows.has(key):
@@ -6064,8 +6750,8 @@ func _styled(fill: Color, border: Color, border_w: int, radius: int) -> StyleBox
 	s.content_margin_right = 8
 	s.content_margin_top = 6
 	s.content_margin_bottom = 6
-	s.anti_aliasing = true
-	s.anti_aliasing_size = 0.6
+	s.anti_aliasing = false
+	s.anti_aliasing_size = 0.0
 	return s
 
 
@@ -6701,25 +7387,11 @@ func _build_result_card(card_texture: Texture2D, card_size: Vector2, badge_text:
 	card.pivot_offset = card_size * 0.5
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_add_halftone_card_shadow(card, card_size, options)
-
-	# Pixel-stepped edge: near-black outline → solid white border → card-bg fill, every layer following
-	# the same chunky staircase so both edges of the white border step. fill defaults to the fish-card
-	# background (#011244); other card types can override via options.card_fill.
-	var w := card_size.x
-	var h := card_size.y
-	var steps := int(options.get("card_steps", 2))
-	var sp := int(options.get("card_step_px", 4))
-	var border := int(options.get("card_border_px", 8))
 	var fill: Color = options.get("card_fill", Color("#011244"))
-	_gallery_chunky_rrect(card, 0.0, 0.0, w, h, Color("#0a0e14"), steps, sp)
-	_gallery_chunky_rrect(card, 2.0, 2.0, w - 4.0, h - 4.0, Color("#ffffff"), steps, sp)
-	var ci := 2.0 + float(border)
-	_gallery_chunky_rrect(card, ci, ci, w - 2.0 * ci, h - 2.0 * ci, fill, steps, sp)
-	var m := ci + float(steps * sp)
+	var m := _add_squarestep_card_shell(card, card_size, fill, options)
 	var face := _gallery_face(card_texture)
 	face.position = Vector2(m, m)
-	face.size = Vector2(w - 2.0 * m, h - 2.0 * m)
+	face.size = Vector2(card_size.x - 2.0 * m, card_size.y - 2.0 * m)
 	card.add_child(face)
 
 	if badge_text != "":
