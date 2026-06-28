@@ -6,7 +6,7 @@ extends Control
 
 const GRID_COLS := 8
 const GRID_ROWS := 6
-const DOCK_COL := 4
+const DOCK_COL := 3
 const DOCK_WIDTH_CELLS := 2
 # THE DOCKS is a two-cell labelled gateway at cols DOCK_START_COL..DOCK_END_COL.
 const DOCK_START_COL := DOCK_COL
@@ -546,6 +546,13 @@ var title_ebb_active: bool = false
 var title_ebb_time: float = 0.0
 
 
+const BOARD_LONG_PRESS_SECONDS := 0.4
+var board_press_cell := Vector2i(-1, -1)
+var board_press_time := 0.0
+var board_long_fired := false
+var board_long_pressed := false
+
+
 func _process(delta: float) -> void:
 	if game_started and not game_over:
 		_stat_add("elapsed_seconds", delta)
@@ -555,6 +562,11 @@ func _process(delta: float) -> void:
 	if action_buttons.has("end_day"):
 		_update_end_day_prompt(delta)
 	_update_audio(delta)
+	if board_press_cell.x >= 0 and not board_long_fired and not game_over and active_tray == "":
+		board_press_time += delta
+		if board_press_time >= BOARD_LONG_PRESS_SECONDS:
+			board_long_fired = true
+			board_long_pressed = _show_board_card_tooltip(board_press_cell)
 	if title_ebb_active and ui.has("start_overlay") and (ui["start_overlay"] as Control).visible:
 		_update_title_ebb(delta)
 
@@ -875,7 +887,7 @@ func _build_left_table_rail(parent: Container) -> void:
 	pad.add_child(col)
 
 	col.add_child(_counter_button("stat_day", ICON_DAY_TEXTURE, "DAY", Color("#8ad5f3"), Callable()))
-	col.add_child(_counter_button("stat_funds", ICON_FUNDS_TEXTURE, "FUNDS", Color("#ffba00"), Callable()))
+	col.add_child(_counter_button("stat_funds", ICON_FUNDS_TEXTURE, "FUNDS", Color("#ffba00"), _on_funds_pressed))
 	col.add_child(_counter_button("stat_moves", ICON_MOVES_TEXTURE, "MOVES", Color("#ff6161"), _request_end_day))
 	col.add_child(_counter_button("stat_finds", ICON_FIND_FISH_TEXTURE, "FIND FISH", Color("#c889ff"), _find_fish))
 	col.add_child(_counter_button("stat_casts", ICON_CAST_TEXTURE, "CAST", Color("#84ed72"), _cast))
@@ -2242,6 +2254,8 @@ func _build_board(parent: Container) -> void:
 			var btn := Button.new()
 			_setup_board_card_button(btn, cell)
 			btn.pressed.connect(_on_cell_pressed.bind(cell))
+			btn.button_down.connect(_on_cell_button_down.bind(cell))
+			btn.button_up.connect(_on_cell_button_up)
 			slot.add_child(btn)
 			btn.set_meta("board_slot", slot)
 			_add_board_card_shell_layer(btn)
@@ -4086,6 +4100,15 @@ func _refresh_segment_row(row: Control, value: int, is_upgrade: bool, key: Strin
 # Tray open/close
 # ────────────────────────────────────────────────────────────────────────
 
+func _on_funds_pressed() -> void:
+	if game_over or active_tray != "":
+		return
+	if _is_docked():
+		_open_upgrade_tray()
+	else:
+		_log("Return to the docks to visit the ship card store.")
+
+
 func _open_upgrade_tray() -> void:
 	if game_over or not _is_docked():
 		return
@@ -4692,6 +4715,7 @@ func _empty_tile(row: int) -> Dictionary:
 			"found": false,
 		"revealed": false,
 		"depleted": false,
+		"visited": false,
 		"zone": depth["zone"],
 		"rating": depth["rating"],
 	}
@@ -4746,11 +4770,15 @@ func _balanced_species_deck(count: int) -> Array[String]:
 	if count <= 0:
 		return deck
 
-	var cycles := int(count / SPECIES.size())
-	if count % SPECIES.size() != 0:
-		cycles += 1
+	# Guarantee every species lands on the board at least twice when there's room.
+	var min_per := 2
+	if count >= SPECIES.size() * min_per:
+		for species in SPECIES:
+			for j in range(min_per):
+				deck.append(species)
 
-	for i in range(cycles):
+	# Fill the rest with balanced, shuffled cycles of all species.
+	while deck.size() < count:
 		var species_cycle: Array[String] = SPECIES.duplicate()
 		_shuffle_species(species_cycle)
 		for species in species_cycle:
@@ -4911,6 +4939,10 @@ func _move_cost(_delta: Vector2i) -> int:
 func _on_cell_pressed(cell: Vector2i) -> void:
 	if game_over or active_tray != "":
 		return
+	# A long-press already showed this square's tooltip; don't also move/exit.
+	if board_long_pressed:
+		board_long_pressed = false
+		return
 	if _is_docked():
 		if _is_dock_access_cell(cell):
 			_exit_dock_to(cell)
@@ -4918,18 +4950,25 @@ func _on_cell_pressed(cell: Vector2i) -> void:
 			_log("Leave through the dock mouth.")
 		return
 
-	var delta := cell - boat_pos
-	if cell == boat_pos and _show_board_card_tooltip(cell):
+	if cell == boat_pos:
 		return
+	var delta := cell - boat_pos
 	if _is_adjacent_delta(delta):
-		var before := boat_pos
 		_move(delta)
-		if boat_pos != before and boat_pos == cell:
-			_show_board_card_tooltip(cell)
 	else:
-		if _show_board_card_tooltip(cell):
-			return
 		_log("Tap an adjacent square to move there.")
+
+
+# Board-card tooltips only appear on a long press (and never for already-visited squares).
+func _on_cell_button_down(cell: Vector2i) -> void:
+	board_press_cell = cell
+	board_press_time = 0.0
+	board_long_fired = false
+	board_long_pressed = false
+
+
+func _on_cell_button_up() -> void:
+	board_press_cell = Vector2i(-1, -1)
 
 
 func _on_dock_strip_pressed() -> void:
@@ -5010,6 +5049,7 @@ func _move(delta: Vector2i) -> void:
 		_log("Docked safely. Sell, repair, or upgrade before heading out.")
 	else:
 		var tile: Dictionary = board[_cell_index(boat_pos)]
+		tile["visited"] = true
 		_log("Moved into %s water." % str(tile["zone"]))
 	_update_ui()
 
@@ -8152,6 +8192,9 @@ func _board_card_tooltip_payload(pos: Vector2i) -> Dictionary:
 	var known := bool(tile.get("found", false)) or bool(tile.get("revealed", false)) or bool(tile.get("depleted", false))
 	if not known:
 		return {}
+	# Squares the boat has already visited don't need a tooltip — they get in the way.
+	if bool(tile.get("visited", false)):
+		return {}
 
 	var content := str(tile.get("content", "empty"))
 	if content == "fish":
@@ -9614,26 +9657,28 @@ func _normalize_score_array(scores: Array) -> Array:
 # ── Deck Training (animated single-player tutorial) ─────────────────────────
 
 var deck_training_index := 0
+var deck_training_slide_node: Control = null
+var deck_training_animating := false
 
 
 func _deck_training_slides() -> Array:
 	return [
 		{"title": "WELCOME ABOARD", "accent": GOLD, "icon": ICON_ROCKET_FISH_TEXTURE,
-			"body": "Raider Bay is a solo fishing run. Work the bay each day, reel in fish, sell your haul at the docks, and upgrade your boat — all before the season runs out."},
+			"body": "You captain a fishing boat for one season. Catch fish, sell your haul at the docks, and upgrade your gear — and bank as much money as you can before time runs out."},
 		{"title": "THE BAY", "accent": CYAN, "icon": ICON_FIND_FISH_TEXTURE,
-			"body": "The board is a grid of face-down cards: the bay. Shallow rows up top hide small fish; the deep rows below hold the big money. Your boat starts docked in the middle."},
-		{"title": "YOUR DAILY BUDGET", "accent": Color("#ff6161"), "icon": ICON_MOVES_TEXTURE,
-			"body": "The left rail is your budget for the day: MOVES to sail, FIND FISH scans to reveal fish, and CASTS to reel them in. When MOVES hit zero the button becomes END DAY."},
-		{"title": "SCAN FOR FISH", "accent": Color("#c889ff"), "icon": ICON_FIND_FISH_TEXTURE,
-			"body": "Sail beside open water and tap FIND FISH to scan the nearby cards. Fish you uncover become catchable holes. Upgrade your fish finder to scan more times each day."},
-		{"title": "CAST & REEL", "accent": Color("#84ed72"), "icon": ICON_CAST_TEXTURE,
-			"body": "Sitting on a fish hole, tap CAST to reel one in — a dice roll plus your nets. Your catch fans out as cards. Each hole only holds so many casts before it is fished out."},
-		{"title": "DOCKS & LIVE WELL", "accent": GOLD, "icon": ICON_CARD_SHIP_TEXTURE,
-			"body": "Your catch rides in the live well, but it spoils after a few days. Slip back in through the narrow dock mouth — straight up or diagonally — and sell before it goes bad."},
+			"body": "The board is the bay. Every card is a spot to fish. The deeper water near the bottom holds the biggest, most valuable fish."},
+		{"title": "YOUR DAILY BUDGET", "accent": Color("#8ad5f3"), "icon": ICON_DAY_TEXTURE,
+			"body": "Each day you get a small budget on the left: MOVES to sail, FIND FISH to spot fish, and CASTS to reel them in. Spend them, then end your day."},
+		{"title": "SAIL THE BAY", "accent": Color("#ff6161"), "icon": ICON_MOVES_TEXTURE,
+			"body": "Tap a card next to your boat to sail there — that costs one move. You can go straight or diagonal. Long-press any card to peek at what's on it."},
+		{"title": "FIND & CAST", "accent": Color("#84ed72"), "icon": ICON_CAST_TEXTURE,
+			"body": "Tap FIND FISH to scan the water nearby and reveal fish. Then sit on a fish and tap CAST to reel it in. Each spot only holds a few catches."},
+		{"title": "SELL AT THE DOCKS", "accent": GOLD, "icon": ICON_CARD_SHIP_TEXTURE,
+			"body": "Your catch waits in the live well, but it spoils after a few days. Sail back to THE DOCKS and sell it before it goes bad."},
 		{"title": "UPGRADE YOUR BOAT", "accent": PURPLE, "icon": ICON_FUNDS_TEXTURE,
-			"body": "Spend your earnings on a stronger motor for more moves, a fish finder for more scans, and bigger nets for bigger hauls. Repair the hull so storms do not sink you."},
-		{"title": "WEATHER & TROPHIES", "accent": CYAN, "icon": ICON_DAY_TEXTURE,
-			"body": "Watch the weather deck: rain boosts your catch, hurricanes cut it and batter your hull. Land enough of each species to win its trophy — then survive the whole season."},
+			"body": "At the docks, tap FUNDS to open the shop. Buy a faster motor, a sharper fish finder, and bigger nets — and repair your hull so storms can't sink you."},
+		{"title": "WEATHER & TROPHIES", "accent": CYAN, "icon": ICON_TROPHY_SOLID,
+			"body": "Watch the weather: a storm boosts your catch, but a hurricane cuts it and can batter your boat. Catch enough of one fish to earn its trophy, then survive the whole season to win!"},
 	]
 
 
@@ -9648,7 +9693,7 @@ func _build_deck_training_screen() -> void:
 	ui["deck_training_overlay"] = overlay
 
 	var shade := ColorRect.new()
-	shade.color = Color(0, 0, 0, 0.62)
+	shade.color = Color(0, 0, 0, 0.66)
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	_anchor_fill(shade)
 	overlay.add_child(shade)
@@ -9659,53 +9704,57 @@ func _build_deck_training_screen() -> void:
 	overlay.add_child(cc)
 
 	var panel := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 6, 12)
-	panel.custom_minimum_size = Vector2(760, 580)
+	panel.custom_minimum_size = Vector2(820, 624)
 	cc.add_child(panel)
 
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 28)
-	pad.add_theme_constant_override("margin_right", 28)
-	pad.add_theme_constant_override("margin_top", 24)
-	pad.add_theme_constant_override("margin_bottom", 24)
+	pad.add_theme_constant_override("margin_left", 34)
+	pad.add_theme_constant_override("margin_right", 34)
+	pad.add_theme_constant_override("margin_top", 26)
+	pad.add_theme_constant_override("margin_bottom", 28)
 	panel.add_child(pad)
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 16)
+	col.add_theme_constant_override("separation", 18)
 	pad.add_child(col)
 
+	# Slim header: a quiet eyebrow on the left, close on the right. The slide title is the hero.
 	var header := HBoxContainer.new()
 	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(header)
-	var head_label := _label("DECK TRAINING", 26, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
-	head_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	header.add_child(head_label)
+	var eyebrow := _label("DECK TRAINING", 15, _with_alpha(GOLD, 0.85), HORIZONTAL_ALIGNMENT_LEFT)
+	eyebrow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	eyebrow.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	eyebrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	header.add_child(eyebrow)
 	var close := _tactile_button("X", 48, 44, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_MUTED)
 	close.add_theme_font_size_override("font_size", 20)
 	close.pressed.connect(_hide_deck_training)
 	header.add_child(close)
 
 	var content := Control.new()
-	content.custom_minimum_size = Vector2(700, 384)
+	content.custom_minimum_size = Vector2(752, 414)
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	content.clip_contents = false
+	content.clip_contents = true
 	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(content)
 	ui["deck_training_content"] = content
 
 	var dots := HBoxContainer.new()
 	dots.alignment = BoxContainer.ALIGNMENT_CENTER
-	dots.add_theme_constant_override("separation", 9)
+	dots.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dots.add_theme_constant_override("separation", 10)
 	col.add_child(dots)
 	ui["deck_training_dots"] = dots
 
 	var nav := HBoxContainer.new()
+	nav.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	nav.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	nav.add_theme_constant_override("separation", 12)
 	col.add_child(nav)
-	var back := _tactile_button("BACK", 165, 58, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_PRIMARY)
-	back.add_theme_font_size_override("font_size", 19)
+	var back := _tactile_button("BACK", 175, 60, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_PRIMARY)
+	back.add_theme_font_size_override("font_size", 20)
 	back.pressed.connect(_deck_training_prev)
 	nav.add_child(back)
 	ui["deck_training_back"] = back
@@ -9713,61 +9762,129 @@ func _build_deck_training_screen() -> void:
 	nav_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	nav_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	nav.add_child(nav_spacer)
-	var next := _tactile_button("NEXT", 165, 58, GREEN_DEEP, GOLD_DEEP, TEXT_PRIMARY)
-	next.add_theme_font_size_override("font_size", 19)
+	var next := _tactile_button("NEXT", 175, 60, GREEN_DEEP, GOLD_DEEP, TEXT_PRIMARY)
+	next.add_theme_font_size_override("font_size", 20)
 	next.pressed.connect(_deck_training_next)
 	nav.add_child(next)
 	ui["deck_training_next"] = next
 
 
-func _render_deck_training_slide() -> void:
+func _build_deck_slide(slide: Dictionary, slide_size: Vector2) -> Control:
+	var accent: Color = slide["accent"]
+	var root := Control.new()
+	root.custom_minimum_size = slide_size
+	root.size = slide_size
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var box := VBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 24)
+	_anchor_fill(box)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(box)
+
+	# Icon in a soft accent disc.
+	var disc := PanelContainer.new()
+	disc.custom_minimum_size = Vector2(140, 140)
+	disc.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var disc_style := _styled(accent.darkened(0.6), accent, 3, 30)
+	disc_style.content_margin_left = 26
+	disc_style.content_margin_right = 26
+	disc_style.content_margin_top = 26
+	disc_style.content_margin_bottom = 26
+	disc.add_theme_stylebox_override("panel", disc_style)
+	box.add_child(disc)
+	var icon := _icon_texture_rect(slide["icon"], Vector2(86, 86), accent)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	disc.add_child(icon)
+
+	var title := _label(slide["title"], 40, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title.add_theme_constant_override("outline_size", 3)
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+	box.add_child(title)
+
+	var body := _label(slide["body"], 24, _with_alpha(TEXT_PRIMARY, 0.96), HORIZONTAL_ALIGNMENT_CENTER)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.custom_minimum_size = Vector2(600, 0)
+	body.add_theme_constant_override("line_spacing", 6)
+	box.add_child(body)
+
+	root.set_meta("disc", disc)
+	root.set_meta("title", title)
+	root.set_meta("body", body)
+	return root
+
+
+func _render_deck_training_slide(direction: int = 0) -> void:
 	if not ui.has("deck_training_content"):
 		return
 	var slides := _deck_training_slides()
 	deck_training_index = clampi(deck_training_index, 0, slides.size() - 1)
 	var content: Control = ui["deck_training_content"]
+	var old_slide: Control = null
+	if deck_training_slide_node != null and is_instance_valid(deck_training_slide_node):
+		old_slide = deck_training_slide_node
+	# Drop any stray slides from an interrupted transition.
 	for ch in content.get_children():
-		ch.queue_free()
-	var slide: Dictionary = slides[deck_training_index]
-	var accent: Color = slide["accent"]
+		if ch != old_slide:
+			ch.queue_free()
 
-	var box := VBoxContainer.new()
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", 18)
-	_anchor_fill(box)
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	content.add_child(box)
+	var w := content.size.x if content.size.x > 1.0 else 752.0
+	var h := content.size.y if content.size.y > 1.0 else 414.0
+	var new_slide := _build_deck_slide(slides[deck_training_index], Vector2(w, h))
+	content.add_child(new_slide)
+	deck_training_slide_node = new_slide
 
-	var icon := _icon_texture_rect(slide["icon"], Vector2(104, 104), accent)
-	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	icon.pivot_offset = Vector2(52, 52)
-	box.add_child(icon)
+	if direction == 0 or old_slide == null:
+		new_slide.position = Vector2.ZERO
+		if old_slide:
+			old_slide.queue_free()
+	else:
+		deck_training_animating = true
+		new_slide.position = Vector2(float(direction) * w, 0.0)
+		var nt := new_slide.create_tween()
+		nt.tween_property(new_slide, "position:x", 0.0, 0.36).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		nt.tween_callback(func() -> void: deck_training_animating = false)
+		var os := old_slide
+		var ot := os.create_tween()
+		ot.set_parallel(true)
+		ot.tween_property(os, "position:x", -float(direction) * w, 0.32).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		ot.tween_property(os, "modulate:a", 0.0, 0.26)
+		ot.chain().tween_callback(os.queue_free)
 
-	var title := _label(slide["title"], 36, accent, HORIZONTAL_ALIGNMENT_CENTER)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title.add_theme_constant_override("outline_size", 2)
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
-	box.add_child(title)
-
-	var body := _label(slide["body"], 22, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
-	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.custom_minimum_size = Vector2(624, 0)
-	box.add_child(body)
-
-	# Entrance: the whole slide fades in while the icon pops.
-	box.modulate = Color(1, 1, 1, 0)
-	var t := box.create_tween()
-	t.tween_property(box, "modulate:a", 1.0, 0.2)
-	icon.scale = Vector2(0.3, 0.3)
-	var it := icon.create_tween()
-	it.tween_property(icon, "scale", Vector2(1.14, 1.14), 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	it.tween_property(icon, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-
+	_animate_deck_slide_in(new_slide)
 	_update_deck_training_dots()
 	_update_deck_training_nav()
+
+
+# Staggered, GPU-friendly entrance: the disc pops, then the title and body fade in.
+func _animate_deck_slide_in(slide: Control) -> void:
+	var disc: Control = slide.get_meta("disc")
+	var title: Control = slide.get_meta("title")
+	var body: Control = slide.get_meta("body")
+
+	disc.pivot_offset = Vector2(70, 70)
+	disc.scale = Vector2(0.5, 0.5)
+	disc.modulate = Color(1, 1, 1, 0)
+	var dt := disc.create_tween()
+	dt.set_parallel(true)
+	dt.tween_property(disc, "modulate:a", 1.0, 0.16)
+	dt.tween_property(disc, "scale", Vector2(1.1, 1.1), 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	dt.chain().tween_property(disc, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+	title.modulate = Color(1, 1, 1, 0)
+	var tt := title.create_tween()
+	tt.tween_interval(0.1)
+	tt.tween_property(title, "modulate:a", 1.0, 0.22)
+
+	body.modulate = Color(1, 1, 1, 0)
+	var bt := body.create_tween()
+	bt.tween_interval(0.17)
+	bt.tween_property(body, "modulate:a", 1.0, 0.24)
 
 
 func _update_deck_training_dots() -> void:
@@ -9780,11 +9897,11 @@ func _update_deck_training_dots() -> void:
 	for i in range(n):
 		var on := i == deck_training_index
 		var dot := PanelContainer.new()
-		dot.custom_minimum_size = Vector2(14 if on else 10, 14 if on else 10)
+		dot.custom_minimum_size = Vector2(24 if on else 11, 11)
 		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var st := StyleBoxFlat.new()
-		st.bg_color = GOLD if on else _with_alpha(TEXT_DIM, 0.55)
+		st.bg_color = GOLD if on else _with_alpha(TEXT_DIM, 0.5)
 		st.set_corner_radius_all(6)
 		st.anti_aliasing = false
 		dot.add_theme_stylebox_override("panel", st)
@@ -9796,29 +9913,37 @@ func _update_deck_training_nav() -> void:
 	if ui.has("deck_training_back"):
 		var back: Button = ui["deck_training_back"]
 		back.disabled = deck_training_index <= 0
-		back.modulate = Color(1, 1, 1, 1) if deck_training_index > 0 else Color(1, 1, 1, 0.4)
+		back.modulate = Color(1, 1, 1, 1) if deck_training_index > 0 else Color(1, 1, 1, 0.35)
 	if ui.has("deck_training_next"):
 		var next: Button = ui["deck_training_next"]
 		next.text = "LET'S FISH" if deck_training_index >= n - 1 else "NEXT"
 
 
 func _deck_training_prev() -> void:
+	if deck_training_animating:
+		return
 	if deck_training_index > 0:
 		deck_training_index -= 1
-		_render_deck_training_slide()
+		_render_deck_training_slide(-1)
 
 
 func _deck_training_next() -> void:
+	if deck_training_animating:
+		return
 	if deck_training_index >= _deck_training_slides().size() - 1:
 		_hide_deck_training()
 	else:
 		deck_training_index += 1
-		_render_deck_training_slide()
+		_render_deck_training_slide(1)
 
 
 func _show_deck_training() -> void:
 	deck_training_index = 0
-	_render_deck_training_slide()
+	deck_training_animating = false
+	if deck_training_slide_node != null and is_instance_valid(deck_training_slide_node):
+		deck_training_slide_node.queue_free()
+	deck_training_slide_node = null
+	_render_deck_training_slide(0)
 	if ui.has("deck_training_overlay"):
 		(ui["deck_training_overlay"] as Control).visible = true
 
