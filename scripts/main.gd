@@ -8399,28 +8399,27 @@ func _action_button(text: String, kind: String, callback: Callable, has_count: b
 
 
 func _apply_block_action_style(b: Button, fill: Color, border: Color) -> void:
-	# Hard offset shadow: small shadow_size keeps the rect tight to the button so
-	# the only visible portion is the down-right offset duplicate.
-	var normal := _styled_shadow(fill, border, 2, 0, 2)
-	normal.shadow_color = Color(0, 0, 0, 0.78)
-	normal.shadow_offset = Vector2(6, 8)
-	normal.content_margin_top = 9
-	normal.content_margin_bottom = 9
+	# Chunky rounded style with a thick border, matching the left-rail counter buttons.
+	var normal := _styled_shadow(fill, border, 4, 9, 5)
+	normal.shadow_color = Color(0, 0, 0, 0.5)
+	normal.shadow_offset = Vector2(0, 4)
+	normal.content_margin_top = 11
+	normal.content_margin_bottom = 12
 
-	var hover := _styled_shadow(fill.lightened(0.06), border.lightened(0.16), 2, 0, 2)
-	hover.shadow_color = Color(0, 0, 0, 0.78)
-	hover.shadow_offset = Vector2(6, 8)
-	hover.content_margin_top = 9
-	hover.content_margin_bottom = 9
+	var hover := _styled_shadow(fill.lightened(0.06), border.lightened(0.16), 4, 9, 5)
+	hover.shadow_color = Color(0, 0, 0, 0.5)
+	hover.shadow_offset = Vector2(0, 4)
+	hover.content_margin_top = 11
+	hover.content_margin_bottom = 12
 
 	# Pressed state: drop the shadow + nudge content so the button "settles down".
-	var press := _styled(fill.darkened(0.12), border.darkened(0.08), 2, 0)
-	press.content_margin_top = 12
-	press.content_margin_bottom = 6
+	var press := _styled(fill.darkened(0.12), border.darkened(0.08), 4, 9)
+	press.content_margin_top = 14
+	press.content_margin_bottom = 9
 
-	var disabled := _styled(fill.darkened(0.32), Color(BORDER_DARK.r, BORDER_DARK.g, BORDER_DARK.b, 0.90), 2, 0)
-	disabled.content_margin_top = 9
-	disabled.content_margin_bottom = 9
+	var disabled := _styled(fill.darkened(0.32), Color(BORDER_DARK.r, BORDER_DARK.g, BORDER_DARK.b, 0.90), 4, 9)
+	disabled.content_margin_top = 11
+	disabled.content_margin_bottom = 12
 
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
@@ -8663,7 +8662,7 @@ func _counter_button(key: String, icon: Texture2D, title: String, accent: Color,
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	card.custom_minimum_size = Vector2(0, 96)
 	card.clip_contents = false
-	var style := _styled_shadow(accent.darkened(0.66), accent.darkened(0.04), 2, 9, 5)
+	var style := _styled_shadow(accent.darkened(0.66), accent.darkened(0.04), 4, 9, 5)
 	style.content_margin_left = 14
 	style.content_margin_right = 14
 	style.content_margin_top = 13
