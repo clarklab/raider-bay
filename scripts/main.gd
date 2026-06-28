@@ -15,8 +15,8 @@ const DOCK_END_COL := DOCK_COL
 const DOCK_ACCESS_START_COL := DOCK_COL - 1
 const DOCK_ACCESS_END_COL := DOCK_COL + 1
 const BOARD_CARD_GAP := 4
-const BOARD_CELL_WIDTH := 50
-const BOARD_CELL_HEIGHT := 65
+const BOARD_CELL_WIDTH := 78
+const BOARD_CELL_HEIGHT := 101
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
 const BOARD_WRAP_WIDTH := BOARD_GRID_WIDTH + 54
@@ -773,7 +773,7 @@ func _build_table_layout(parent: Container) -> void:
 	var main := HBoxContainer.new()
 	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	main.add_theme_constant_override("separation", 10)
+	main.add_theme_constant_override("separation", 24)
 	parent.add_child(main)
 
 	_build_left_table_rail(main)
@@ -854,7 +854,7 @@ func _build_table_header(parent: Container) -> void:
 
 
 func _build_left_table_rail(parent: Container) -> void:
-	var rail := _panel_lifted(Color("#071829"), BORDER_DARK, 1, 6, 5)
+	var rail := _bare_panel()
 	rail.custom_minimum_size = Vector2(TABLE_SIDE_WIDTH, 0)
 	rail.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	rail.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -871,7 +871,7 @@ func _build_left_table_rail(parent: Container) -> void:
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 10)
+	col.add_theme_constant_override("separation", 16)
 	pad.add_child(col)
 
 	col.add_child(_counter_button("stat_day", ICON_DAY_TEXTURE, "DAY", Color("#8ad5f3"), Callable()))
@@ -882,7 +882,7 @@ func _build_left_table_rail(parent: Container) -> void:
 
 
 func _build_center_table(parent: Container) -> void:
-	var table := _panel_lifted(_with_alpha(BG_DEEP, 0.92), BORDER_FRAME, 1, 6, 6)
+	var table := _bare_panel()
 	table.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	table.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(table)
@@ -902,7 +902,7 @@ func _build_center_table(parent: Container) -> void:
 
 
 func _build_command_rail(parent: Container) -> void:
-	var rail := _panel_lifted(Color("#071829"), BORDER_DARK, 1, 6, 5)
+	var rail := _bare_panel()
 	rail.custom_minimum_size = Vector2(TABLE_COMMAND_WIDTH, 0)
 	rail.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	rail.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -923,7 +923,7 @@ func _build_command_rail(parent: Container) -> void:
 
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 10)
+	col.add_theme_constant_override("separation", 24)
 	scroll.add_child(col)
 
 	_build_forecast_card(col)
@@ -936,7 +936,7 @@ func _build_command_rail(parent: Container) -> void:
 
 
 func _build_forecast_card(parent: Container) -> void:
-	var forecast_panel := _panel(Color("#0a2132"), BORDER_DARK, 1, 5)
+	var forecast_panel := _bare_panel()
 	forecast_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(forecast_panel)
 
@@ -959,7 +959,7 @@ func _build_forecast_card(parent: Container) -> void:
 
 
 func _build_market_card(parent: Container) -> void:
-	var card := _panel(Color("#0a2132"), GOLD_DEEP, 1, 5)
+	var card := _bare_panel()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(card)
 
@@ -980,7 +980,7 @@ func _build_market_card(parent: Container) -> void:
 
 
 func _build_compact_ship_card(parent: Container) -> void:
-	var card := _panel(Color("#0a2132"), BORDER_DARK, 1, 5)
+	var card := _bare_panel()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(card)
@@ -1007,7 +1007,7 @@ func _build_compact_ship_card(parent: Container) -> void:
 
 
 func _build_live_well_card(parent: Container) -> void:
-	var card := _panel(Color("#0a2132"), GREEN_DEEP, 1, 5)
+	var card := _bare_panel()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(card)
 
@@ -1037,7 +1037,7 @@ func _build_live_well_card(parent: Container) -> void:
 
 
 func _build_radio_card(parent: Container) -> void:
-	var card := _panel(Color("#0a2132"), BORDER_DARK, 1, 5)
+	var card := _bare_panel()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	parent.add_child(card)
@@ -2476,7 +2476,7 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_override("font", FONT_BALATRO)
-	label.add_theme_font_size_override("font_size", 12)
+	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", _with_alpha(TEXT_DIM, 0.48))
 	label.add_theme_constant_override("outline_size", 2)
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.46))
@@ -2497,10 +2497,10 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	boat.anchor_right = 0.5
 	boat.anchor_top = 0.5
 	boat.anchor_bottom = 0.5
-	boat.offset_left = -20
-	boat.offset_right = 20
-	boat.offset_top = -26
-	boat.offset_bottom = 12
+	boat.offset_left = -28
+	boat.offset_right = 28
+	boat.offset_top = -34
+	boat.offset_bottom = 18
 	dock_btn.add_child(boat)
 	dock_btn.set_meta("dock_boat", boat)
 
@@ -2792,7 +2792,7 @@ func _build_catch_card_overlay() -> void:
 
 
 func _build_action_bar(parent: Container) -> void:
-	var act := _panel_lifted(BG_PANEL, BORDER_FRAME, 1, 7, 4)
+	var act := _bare_panel()
 	act.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(act)
 
@@ -7091,6 +7091,13 @@ func _transparent_style() -> StyleBoxFlat:
 	return s
 
 
+# A layout container with no visible chrome — its content sits flat on the app background.
+func _bare_panel() -> PanelContainer:
+	var p := PanelContainer.new()
+	p.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	return p
+
+
 func _with_alpha(color: Color, alpha: float) -> Color:
 	var c := color
 	c.a = alpha
@@ -8654,30 +8661,30 @@ func _counter_button(key: String, icon: Texture2D, title: String, accent: Color,
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(0, 84)
+	card.custom_minimum_size = Vector2(0, 96)
 	card.clip_contents = false
 	var style := _styled_shadow(accent.darkened(0.66), accent.darkened(0.04), 2, 9, 5)
-	style.content_margin_left = 12
-	style.content_margin_right = 12
-	style.content_margin_top = 10
-	style.content_margin_bottom = 11
+	style.content_margin_left = 14
+	style.content_margin_right = 14
+	style.content_margin_top = 13
+	style.content_margin_bottom = 14
 	card.add_theme_stylebox_override("panel", style)
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 7)
+	col.add_theme_constant_override("separation", 9)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(col)
 
 	var head := HBoxContainer.new()
 	head.alignment = BoxContainer.ALIGNMENT_CENTER
-	head.add_theme_constant_override("separation", 7)
+	head.add_theme_constant_override("separation", 9)
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(head)
-	var ic := _icon_texture_rect(icon, Vector2(22, 22), accent)
+	var ic := _icon_texture_rect(icon, Vector2(30, 30), accent)
 	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(ic)
-	var title_label := _label(title, 15, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	var title_label := _label(title, 21, accent, HORIZONTAL_ALIGNMENT_CENTER)
 	title_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(title_label)
 
@@ -8688,15 +8695,15 @@ func _counter_button(key: String, icon: Texture2D, title: String, accent: Color,
 	var well_style := _styled(accent.darkened(0.44).lerp(accent, 0.12), Color(0, 0, 0, 0.5), 1, 6)
 	well_style.border_width_top = 2
 	well_style.border_width_bottom = 0
-	well_style.content_margin_top = 3
-	well_style.content_margin_bottom = 4
-	well_style.content_margin_left = 8
-	well_style.content_margin_right = 8
+	well_style.content_margin_top = 5
+	well_style.content_margin_bottom = 6
+	well_style.content_margin_left = 10
+	well_style.content_margin_right = 10
 	well.add_theme_stylebox_override("panel", well_style)
 	col.add_child(well)
-	var value_label := _label("0", 26, accent.lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER)
+	var value_label := _label("0", 40, accent.lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER)
 	value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	value_label.add_theme_constant_override("outline_size", 2)
+	value_label.add_theme_constant_override("outline_size", 3)
 	value_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
 	well.add_child(value_label)
 
