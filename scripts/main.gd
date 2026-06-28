@@ -7,13 +7,13 @@ extends Control
 const GRID_COLS := 8
 const GRID_ROWS := 6
 const DOCK_COL := 4
-const DOCK_WIDTH_CELLS := 1
-# The dock is a single narrow cell at DOCK_COL...
+const DOCK_WIDTH_CELLS := 2
+# THE DOCKS is a two-cell labelled gateway at cols DOCK_START_COL..DOCK_END_COL.
 const DOCK_START_COL := DOCK_COL
-const DOCK_END_COL := DOCK_COL
-# ...but you may enter/leave it via the three water cells above it (straight up or diagonal).
-const DOCK_ACCESS_START_COL := DOCK_COL - 1
-const DOCK_ACCESS_END_COL := DOCK_COL + 1
+const DOCK_END_COL := DOCK_COL + 1
+# Entered/left via the water cells above it (straight up or diagonal); boats park in the dotted side zones.
+const DOCK_ACCESS_START_COL := DOCK_START_COL - 1
+const DOCK_ACCESS_END_COL := DOCK_END_COL + 1
 const BOARD_CARD_GAP := 4
 const BOARD_CELL_WIDTH := 78
 const BOARD_CELL_HEIGHT := 101
@@ -2272,9 +2272,9 @@ func _build_board(parent: Container) -> void:
 	_decorate_dock_button(dock_btn)
 	dock_row.add_child(dock_btn)
 	ui["dock_strip"] = dock_btn
-	var right_cells := GRID_COLS - DOCK_COL - 1
+	var right_cells := GRID_COLS - DOCK_COL - DOCK_WIDTH_CELLS
 	if right_cells > 0:
-		dock_row.add_child(_dock_parking_zone(right_cells))
+		dock_row.add_child(_dock_parking_zone(right_cells, true))
 
 	# Depth reads from card color alone — no rail/markings.
 	_build_board_toast(board_wrap)
@@ -2438,12 +2438,30 @@ func _draw_squarestep_card(parent: Control, card_size: Vector2, fill: Color, bor
 
 
 # A dashed-outline parking placeholder spanning `width_cells` cells of the dock row.
-func _dock_parking_zone(width_cells: int) -> Control:
+func _dock_parking_zone(width_cells: int, with_boat: bool = false) -> Control:
 	var zone := Control.new()
 	var w := BOARD_CELL_WIDTH * width_cells + BOARD_CARD_GAP * (width_cells - 1)
 	zone.custom_minimum_size = Vector2(w, BOARD_CELL_HEIGHT)
 	zone.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	zone.draw.connect(_draw_parking_zone.bind(zone))
+	if with_boat:
+		# The player's ship parks in the first dotted slot, right beside THE DOCKS.
+		var boat := TextureRect.new()
+		boat.texture = ICON_CARD_SHIP_TEXTURE
+		boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		boat.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		boat.visible = false
+		boat.modulate = _with_alpha(TEXT_PRIMARY, 0.96)
+		boat.anchor_top = 0.5
+		boat.anchor_bottom = 0.5
+		boat.offset_left = 12.0
+		boat.offset_right = 66.0
+		boat.offset_top = -34.0
+		boat.offset_bottom = 28.0
+		zone.add_child(boat)
+		ui["dock_boat"] = boat
 	return zone
 
 
@@ -2476,33 +2494,13 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_override("font", FONT_BALATRO)
-	label.add_theme_font_size_override("font_size", 18)
-	label.add_theme_color_override("font_color", _with_alpha(TEXT_DIM, 0.48))
+	label.add_theme_font_size_override("font_size", 20)
+	label.add_theme_color_override("font_color", _with_alpha(TEXT_MUTED, 0.92))
 	label.add_theme_constant_override("outline_size", 2)
 	label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.46))
 	_anchor_fill(label)
 	dock_btn.add_child(label)
 	dock_btn.set_meta("dock_label", label)
-
-	var boat := TextureRect.new()
-	boat.texture = ICON_CARD_SHIP_TEXTURE
-	boat.z_index = 12
-	boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	boat.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	boat.visible = false
-	boat.modulate = _with_alpha(TEXT_PRIMARY, 0.96)
-	boat.anchor_left = 0.5
-	boat.anchor_right = 0.5
-	boat.anchor_top = 0.5
-	boat.anchor_bottom = 0.5
-	boat.offset_left = -28
-	boat.offset_right = 28
-	boat.offset_top = -34
-	boat.offset_bottom = 18
-	dock_btn.add_child(boat)
-	dock_btn.set_meta("dock_boat", boat)
 
 
 func _add_dock_card_shell_layer(dock_btn: Button) -> void:
@@ -6353,7 +6351,7 @@ func _update_dock_strip() -> void:
 	var docked := _is_docked()
 	var can_dock := _is_dock_access_cell(boat_pos)
 	var dock_label: Label = btn.get_meta("dock_label") as Label
-	var dock_boat: TextureRect = btn.get_meta("dock_boat") as TextureRect
+	var dock_boat: TextureRect = ui.get("dock_boat", null) as TextureRect
 
 	btn.icon = null
 	btn.text = ""
@@ -9661,7 +9659,7 @@ func _build_deck_training_screen() -> void:
 	overlay.add_child(cc)
 
 	var panel := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 6, 12)
-	panel.custom_minimum_size = Vector2(740, 540)
+	panel.custom_minimum_size = Vector2(760, 580)
 	cc.add_child(panel)
 
 	var pad := MarginContainer.new()
@@ -9678,18 +9676,21 @@ func _build_deck_training_screen() -> void:
 	var header := HBoxContainer.new()
 	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(header)
-	var head_label := _label("DECK TRAINING", 22, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+	var head_label := _label("DECK TRAINING", 26, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
 	head_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(head_label)
-	var close := _tactile_button("X", 44, 40, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_MUTED)
+	var close := _tactile_button("X", 48, 44, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_MUTED)
+	close.add_theme_font_size_override("font_size", 20)
 	close.pressed.connect(_hide_deck_training)
 	header.add_child(close)
 
 	var content := Control.new()
-	content.custom_minimum_size = Vector2(684, 358)
+	content.custom_minimum_size = Vector2(700, 384)
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content.clip_contents = false
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(content)
 	ui["deck_training_content"] = content
 
@@ -9703,14 +9704,17 @@ func _build_deck_training_screen() -> void:
 	nav.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	nav.add_theme_constant_override("separation", 12)
 	col.add_child(nav)
-	var back := _tactile_button("BACK", 150, 50, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_PRIMARY)
+	var back := _tactile_button("BACK", 165, 58, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_PRIMARY)
+	back.add_theme_font_size_override("font_size", 19)
 	back.pressed.connect(_deck_training_prev)
 	nav.add_child(back)
 	ui["deck_training_back"] = back
 	var nav_spacer := Control.new()
+	nav_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	nav_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	nav.add_child(nav_spacer)
-	var next := _tactile_button("NEXT", 150, 50, GREEN_DEEP, GOLD_DEEP, TEXT_PRIMARY)
+	var next := _tactile_button("NEXT", 165, 58, GREEN_DEEP, GOLD_DEEP, TEXT_PRIMARY)
+	next.add_theme_font_size_override("font_size", 19)
 	next.pressed.connect(_deck_training_next)
 	nav.add_child(next)
 	ui["deck_training_next"] = next
@@ -9734,20 +9738,23 @@ func _render_deck_training_slide() -> void:
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	content.add_child(box)
 
-	var icon := _icon_texture_rect(slide["icon"], Vector2(96, 96), accent)
+	var icon := _icon_texture_rect(slide["icon"], Vector2(104, 104), accent)
 	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	icon.pivot_offset = Vector2(48, 48)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.pivot_offset = Vector2(52, 52)
 	box.add_child(icon)
 
-	var title := _label(slide["title"], 30, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	var title := _label(slide["title"], 36, accent, HORIZONTAL_ALIGNMENT_CENTER)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	title.add_theme_constant_override("outline_size", 2)
 	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
 	box.add_child(title)
 
-	var body := _label(slide["body"], 18, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	var body := _label(slide["body"], 22, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.custom_minimum_size = Vector2(600, 0)
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.custom_minimum_size = Vector2(624, 0)
 	box.add_child(body)
 
 	# Entrance: the whole slide fades in while the icon pops.
@@ -9773,7 +9780,8 @@ func _update_deck_training_dots() -> void:
 	for i in range(n):
 		var on := i == deck_training_index
 		var dot := PanelContainer.new()
-		dot.custom_minimum_size = Vector2(12 if on else 9, 12 if on else 9)
+		dot.custom_minimum_size = Vector2(14 if on else 10, 14 if on else 10)
+		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		var st := StyleBoxFlat.new()
 		st.bg_color = GOLD if on else _with_alpha(TEXT_DIM, 0.55)
