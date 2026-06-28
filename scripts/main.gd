@@ -559,8 +559,6 @@ func _process(delta: float) -> void:
 	board_fx_time += delta
 	if ui.has("board_wrap"):
 		_update_board_presence_fx()
-	if action_buttons.has("end_day"):
-		_update_end_day_prompt(delta)
 	_update_audio(delta)
 	if board_press_cell.x >= 0 and not board_long_fired and not game_over and active_tray == "":
 		board_press_time += delta
@@ -889,7 +887,7 @@ func _build_left_table_rail(parent: Container) -> void:
 	col.add_child(_counter_button("stat_day", ICON_DAY_TEXTURE, "DAY", Color("#8ad5f3"), Callable()))
 	col.add_child(_counter_button("stat_funds", ICON_FUNDS_TEXTURE, "FUNDS", Color("#ffba00"), _on_funds_pressed))
 	col.add_child(_counter_button("stat_moves", ICON_MOVES_TEXTURE, "MOVES", Color("#ff6161"), _request_end_day))
-	col.add_child(_counter_button("stat_finds", ICON_FIND_FISH_TEXTURE, "FIND FISH", Color("#c889ff"), _find_fish))
+	col.add_child(_counter_button("stat_finds", ICON_FIND_FISH_TEXTURE, "FIND FISH", Color("#c889ff"), _on_finds_counter_pressed))
 	col.add_child(_counter_button("stat_casts", ICON_CAST_TEXTURE, "CAST", Color("#84ed72"), _cast))
 
 
@@ -929,6 +927,7 @@ func _build_command_rail(parent: Container) -> void:
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.scroll_deadzone = 8
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pad.add_child(scroll)
@@ -937,14 +936,29 @@ func _build_command_rail(parent: Container) -> void:
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 24)
 	scroll.add_child(col)
+	ui["command_rail_col"] = col
 
-	_build_forecast_card(col)
-	_build_action_bar(col)
+	# Fish market (names / prices / trophies) first, then the live well, then the rest.
 	_build_market_card(col)
-	_build_compact_ship_card(col)
 	_build_live_well_card(col)
+	_build_forecast_card(col)
+	_build_compact_ship_card(col)
+	_build_action_bar(col)
 	_build_radio_card(col)
 	_build_log_strip(col)
+
+	_make_rail_scrollable(col)
+
+
+# Make interactive children transparent to drags so a finger-drag that STARTS on a button
+# or card still scrolls the rail (taps still fire, gated by the ScrollContainer's deadzone).
+func _make_rail_scrollable(node: Node) -> void:
+	for child in node.get_children():
+		if child is Control:
+			var c := child as Control
+			if c.mouse_filter == Control.MOUSE_FILTER_STOP:
+				c.mouse_filter = Control.MOUSE_FILTER_PASS
+			_make_rail_scrollable(c)
 
 
 func _build_forecast_card(parent: Container) -> void:
@@ -2833,21 +2847,14 @@ func _build_action_bar(parent: Container) -> void:
 	row.add_theme_constant_override("v_separation", 9)
 	col.add_child(row)
 
-	action_buttons["cast"]    = _action_button("CAST",        "cast",    _cast, true)
-	action_buttons["find"]    = _action_button("FIND FISH",   "find",    _find_fish, true)
+	# CAST / FIND FISH / SELL FISH / END DAY now live as the left-rail counter buttons.
 	action_buttons["attack"]  = _action_button("ATTACK",      "attack",  _attack)
-	action_buttons["sell"]    = _action_button("SELL FISH",   "sell",    _sell_catch)
 	action_buttons["upgrade"] = _action_button("UPGRADE",     "upgrade", _open_upgrade_tray)
 	action_buttons["repair"]  = _action_button("REPAIR",      "repair",  _open_repair_tray)
-	action_buttons["end_day"] = _action_button("END DAY",     "end",     _end_day)
 
-	row.add_child(action_buttons["cast"])
-	row.add_child(action_buttons["find"])
 	row.add_child(action_buttons["attack"])
-	row.add_child(action_buttons["sell"])
 	row.add_child(action_buttons["upgrade"])
 	row.add_child(action_buttons["repair"])
-	row.add_child(action_buttons["end_day"])
 
 
 func _build_bottom_panel(parent: Container) -> void:
@@ -4100,6 +4107,14 @@ func _refresh_segment_row(row: Control, value: int, is_upgrade: bool, key: Strin
 # Tray open/close
 # ────────────────────────────────────────────────────────────────────────
 
+func _on_finds_counter_pressed() -> void:
+	# Same counter: SELL FISH at the dock, FIND FISH at sea. Both self-guard.
+	if _is_docked():
+		_sell_catch()
+	else:
+		_find_fish()
+
+
 func _on_funds_pressed() -> void:
 	if game_over or active_tray != "":
 		return
@@ -5171,7 +5186,10 @@ func _cast() -> void:
 		var nets_bonus: int = int(upgrades["nets"]) if int(conditions["nets"]) > 0 else 0
 		var roll := rng.randi_range(1, CAST_DIE_SIDES)
 		var weather_mult: float = float(current_weather.get("mult", 1.0))
-		var amount: int = int(ceil(float(roll) * weather_mult)) + nets_bonus
+		var weathered := int(ceil(float(roll) * weather_mult))
+		var amount: int = weathered + nets_bonus
+		var catch_base := roll + nets_bonus
+		var catch_extra := weathered - roll
 		_stat_add("fish_caught", amount)
 		live_well.append({"species": tile["species"], "quantity": amount, "age": 0})
 		tile["casts_remaining"] = max(0, int(tile["casts_remaining"]) - 1)
@@ -5181,7 +5199,7 @@ func _cast() -> void:
 		if abs(weather_mult - 1.0) > 0.001:
 			bonus_text += " · %s x%.1f" % [str(current_weather.get("name", "weather")), weather_mult]
 		_log("Caught %d %s%s." % [amount, str(tile["species"]), bonus_text])
-		_show_catch_card_fan(str(tile["species"]), amount, 1, catch_origin)
+		_show_catch_card_fan(str(tile["species"]), amount, 1, catch_origin, weather_mult, catch_base, catch_extra)
 		cast_outcome = "catch"
 	_update_ui()
 	_animate_board_card_reveal(boat_pos)
@@ -6194,6 +6212,9 @@ func _update_ui() -> void:
 	_update_live_well_tab()
 	_update_radio_tab()
 	_update_tray()
+	# Re-apply after content rebuilds so freshly-created rail cards/rows stay drag-scrollable.
+	if ui.has("command_rail_col"):
+		_make_rail_scrollable(ui["command_rail_col"])
 	_save_game()
 
 
@@ -6204,7 +6225,10 @@ func _update_hud() -> void:
 		_counter_set("stat_moves", "%d" % moves_remaining, true, "MOVES")
 	else:
 		_counter_set("stat_moves", "GO", true, "END DAY")
-	_counter_set("stat_finds", "%d" % finds_remaining, finds_remaining > 0)
+	if _is_docked():
+		_counter_set("stat_finds", "$$$$", not live_well.is_empty(), "SELL FISH")
+	else:
+		_counter_set("stat_finds", "%d" % finds_remaining, finds_remaining > 0, "FIND FISH")
 	_counter_set("stat_casts", "%d" % casts_remaining, casts_remaining > 0)
 	if ui.has("top_where"):
 		if _is_docked():
@@ -6412,10 +6436,10 @@ func _update_dock_strip() -> void:
 
 func _update_action_buttons() -> void:
 	var docked := _is_docked()
-	var at_sea_keys: Array[String] = ["find", "cast", "end_day"]
+	var at_sea_keys: Array[String] = []
 	if versus_mode and not docked and not _bot_is_docked() and _distance_to_bot() <= 2:
-		at_sea_keys = ["find", "cast", "attack", "end_day"]
-	var at_dock_keys: Array[String] = ["sell", "upgrade", "repair", "end_day"]
+		at_sea_keys = ["attack"]
+	var at_dock_keys: Array[String] = ["upgrade", "repair"]
 	var visible_keys: Array[String] = at_dock_keys if docked else at_sea_keys
 
 	for k in action_buttons.keys():
@@ -6425,25 +6449,9 @@ func _update_action_buttons() -> void:
 		b.set_meta("action_prompt", false)
 		b.set_meta("action_subdued", false)
 
-	if action_buttons["sell"].visible:
-		action_buttons["sell"].disabled = action_buttons["sell"].disabled or live_well.is_empty()
-
-	if action_buttons["find"].visible:
-		action_buttons["find"].disabled = action_buttons["find"].disabled or finds_remaining <= 0
-
-	if action_buttons["cast"].visible:
-		action_buttons["cast"].disabled = action_buttons["cast"].disabled or not _can_attempt_cast_here()
-
-	if action_buttons["attack"].visible:
+	if action_buttons.has("attack") and action_buttons["attack"].visible:
 		action_buttons["attack"].disabled = action_buttons["attack"].disabled or not _can_player_attack_bot()
 
-	if action_buttons["end_day"].visible:
-		var prompt_end_day := _should_prompt_end_day()
-		action_buttons["end_day"].set_meta("action_prompt", prompt_end_day)
-		action_buttons["end_day"].set_meta("action_subdued", not prompt_end_day)
-
-	_set_action_count(action_buttons["cast"], casts_remaining)
-	_set_action_count(action_buttons["find"], finds_remaining)
 	for k in action_buttons.keys():
 		_apply_action_visual_state(action_buttons[k])
 
@@ -7411,12 +7419,22 @@ func _bloom_fan_options() -> Dictionary:
 	}
 
 
-func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, origin_center: Vector2 = Vector2(-1, -1)) -> void:
+func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, origin_center: Vector2 = Vector2(-1, -1), weather_mult: float = 1.0, catch_base: int = 0, catch_extra: int = 0) -> void:
 	var label := "+%d %s" % [quantity, species]
 	var opts := _bloom_fan_options()
 	if multiplier > 1:
 		opts["mult_label"] = "X%d MULT" % multiplier
 		opts["mult_accent"] = GOLD
+	elif abs(weather_mult - 1.0) > 0.001:
+		# Weather mult: a "1.2X" pill plus the "base + extra" math breakdown.
+		opts["mult_label"] = "%.1fX" % weather_mult
+		opts["mult_accent"] = GREEN if weather_mult > 1.0 else RED
+		if catch_extra > 0:
+			opts["extra_label"] = "%d + %d EXTRA" % [catch_base, catch_extra]
+			opts["extra_accent"] = GREEN
+		elif catch_extra < 0:
+			opts["extra_label"] = "%d - %d" % [catch_base, -catch_extra]
+			opts["extra_accent"] = RED
 	_show_card_result_fan(_fish_card_texture(species), quantity, label, _species_accent(species), GREEN, "", Color(0, 0, 0, 0), origin_center, opts)
 
 
@@ -7582,6 +7600,21 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 		mult_opts["label_scale_peak"] = 1.14
 		mult_opts["label_rotation_degrees"] = 2.4
 		_schedule_catch_total_bug(layer, mult_label, mult_accent, mult_center, total_delay + 0.1, token, mult_opts)
+
+	# Optional "base + extra" breakdown pill, stacked below the mult pill.
+	var extra_label := str(options.get("extra_label", ""))
+	if extra_label != "":
+		var extra_accent: Color = options.get("extra_accent", GREEN)
+		var stacked := 1.0 if mult_label != "" else 0.0
+		var extra_center := total_center + Vector2(0, float(options.get("label_height", 74.0)) * 0.5 + 34.0 + stacked * 56.0)
+		var extra_opts := options.duplicate()
+		extra_opts["label_font_size"] = 26
+		extra_opts["label_height"] = 48.0
+		extra_opts["label_width_base"] = 90.0
+		extra_opts["label_width_min"] = 160.0
+		extra_opts["label_scale_peak"] = 1.1
+		extra_opts["label_rotation_degrees"] = -2.0
+		_schedule_catch_total_bug(layer, extra_label, extra_accent, extra_center, total_delay + 0.18, token, extra_opts)
 
 	var exit_delay := total_delay + float(options.get("exit_hold", 2.00))
 	_schedule_catch_cards_exit(layer, cards, exit_delay, token, options)
@@ -8827,71 +8860,66 @@ func _pill_set_text(pill: PanelContainer, text: String) -> void:
 
 
 # Small green/red rocket badge showing a weather's catch multiplier (nothing at 1.0).
-func _weather_mult_badge(mult: float) -> Control:
-	if abs(mult - 1.0) <= 0.001:
-		return null
-	var accent := GREEN if mult > 1.0 else RED
-	var badge := _panel(BG_PANEL_DARK.lerp(accent, 0.22), accent.darkened(0.1), 1, 4)
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 4)
-	pad.add_theme_constant_override("margin_right", 5)
-	pad.add_theme_constant_override("margin_top", 1)
-	pad.add_theme_constant_override("margin_bottom", 1)
-	badge.add_child(pad)
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 2)
-	pad.add_child(row)
-	var icon := _icon_texture_rect(ICON_ROCKET_FISH_TEXTURE, Vector2(11, 11), accent)
-	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(icon)
-	row.add_child(_label("%.1fX" % mult, 11, accent.lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER))
-	return badge
-
-
 func _forecast_chip(weather: Dictionary, is_current: bool) -> Control:
 	var weather_name := str(weather["name"])
-	var strength := int(weather["strength"])
 	var accent := TEXT_DIM
-	var name := "Clear"
+	var name := "CLEAR"
 	match weather_name:
 		"Storm":
-			accent = CYAN_DEEP.lightened(0.2)
-			name = "Storm"
+			accent = CYAN_DEEP.lightened(0.28)
+			name = "STORM"
 		"Hurricane":
-			accent = TEXT_MUTED
-			name = "Hurr"
+			accent = RED
+			name = "HURR"
 		_:
 			accent = TEXT_DIM
-			name = "Clear"
+			name = "CLEAR"
 
-	var card := _panel(BG_PANEL_DARK.lerp(accent, 0.06), accent.darkened(0.18), 1, 4)
+	# Match the left-rail counter look: accent border + dark accent fill + an inset "well".
+	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.custom_minimum_size = Vector2(0, 62)
+	card.custom_minimum_size = Vector2(0, 78)
+	var style := _styled_shadow(accent.darkened(0.62), accent, 3, 7, 3)
+	style.content_margin_left = 6
+	style.content_margin_right = 6
+	style.content_margin_top = 7
+	style.content_margin_bottom = 8
+	card.add_theme_stylebox_override("panel", style)
 
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 5)
-	pad.add_theme_constant_override("margin_right", 5)
-	pad.add_theme_constant_override("margin_top", 4)
-	pad.add_theme_constant_override("margin_bottom", 4)
-	card.add_child(pad)
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 5)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(col)
 
-	var row := VBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 0)
-	pad.add_child(row)
+	var ic := _icon_texture_rect(_weather_icon_texture(weather_name), Vector2(20, 20), accent)
+	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(ic)
 
-	var icon := _icon_texture_rect(_weather_icon_texture(weather_name), Vector2(18, 18), accent)
-	row.add_child(icon)
+	var name_label := _label(name, 13, accent.lightened(0.15) if is_current else accent, HORIZONTAL_ALIGNMENT_CENTER)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(name_label)
 
-	var label_text := "%s %d" % [name, strength] if strength > 0 else name
-	var label := _label(label_text, 12, TEXT_PRIMARY if is_current else TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(label)
-	var badge := _weather_mult_badge(float(weather.get("mult", 1.0)))
-	if badge != null:
-		badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		row.add_child(badge)
+	# Mult call-out: green boost (>1), red cut (<1), neutral at 1.0.
+	var mult := float(weather.get("mult", 1.0))
+	var mult_accent := GREEN if mult > 1.001 else (RED if mult < 0.999 else TEXT_MUTED)
+	var well := PanelContainer.new()
+	well.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var well_style := _styled(mult_accent.darkened(0.5).lerp(mult_accent, 0.12), Color(0, 0, 0, 0.4), 1, 5)
+	well_style.border_width_top = 2
+	well_style.border_width_bottom = 0
+	well_style.content_margin_left = 8
+	well_style.content_margin_right = 8
+	well_style.content_margin_top = 1
+	well_style.content_margin_bottom = 2
+	well.add_theme_stylebox_override("panel", well_style)
+	col.add_child(well)
+	var mult_label := _label("%.1fX" % mult, 14, mult_accent.lightened(0.3), HORIZONTAL_ALIGNMENT_CENTER)
+	mult_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	well.add_child(mult_label)
 	return card
 
 
@@ -9687,7 +9715,7 @@ func _build_deck_training_screen() -> void:
 	overlay.anchor_right = 1.0
 	overlay.anchor_bottom = 1.0
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	overlay.z_index = 220
+	overlay.z_index = 500
 	overlay.visible = false
 	add_child(overlay)
 	ui["deck_training_overlay"] = overlay
@@ -9945,7 +9973,9 @@ func _show_deck_training() -> void:
 	deck_training_slide_node = null
 	_render_deck_training_slide(0)
 	if ui.has("deck_training_overlay"):
-		(ui["deck_training_overlay"] as Control).visible = true
+		var ov := ui["deck_training_overlay"] as Control
+		ov.move_to_front()  # top-most sibling so input can't fall through to the title behind it
+		ov.visible = true
 
 
 func _hide_deck_training() -> void:
