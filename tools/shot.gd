@@ -26,16 +26,14 @@ func _ready() -> void:
 	if scenario == "sea":
 		# Boat out at sea + a loaded live well + chatty log: stress the rail width.
 		main.boat_pos = Vector2i(4, 2)
-		main.live_well = [
-			{"species": "Swordfish", "quantity": 8, "age": 0},
-			{"species": "Salmon", "quantity": 5, "age": 1},
-			{"species": "Tuna", "quantity": 3, "age": 2},
-		]
-		main.log_lines = [
-			"You hauled in 8 Swordfish on a single monster cast off the deep ledge!",
-			"Storm rolling in tonight — multiplier jumps to 1.4x for the brave.",
-			"Sold 10 Salmon at once and bagged the SALMON trophy.",
-		]
+		main.live_well.clear()
+		main.live_well.append({"species": "Swordfish", "quantity": 8, "age": 0})
+		main.live_well.append({"species": "Salmon", "quantity": 5, "age": 1})
+		main.live_well.append({"species": "Tuna", "quantity": 3, "age": 2})
+		main.log_lines.clear()
+		main.log_lines.append("You hauled in 8 Swordfish on a single monster cast off the deep ledge!")
+		main.log_lines.append("Storm rolling in tonight — multiplier jumps to 1.4x for the brave.")
+		main.log_lines.append("Sold 10 Salmon at once and bagged the SALMON trophy.")
 		main.trophies["Salmon"] = true
 		main._update_ui()
 		for i in range(4):
