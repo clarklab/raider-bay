@@ -21,7 +21,7 @@ func _ready() -> void:
 	if args.size() > 1:
 		scenario = args[1]
 	# Let board deal / tweens settle.
-	for i in range(40):
+	for i in range(8):
 		await get_tree().process_frame
 	if scenario == "sea":
 		# Boat out at sea + a loaded live well + chatty log: stress the rail width.
@@ -38,7 +38,7 @@ func _ready() -> void:
 		]
 		main.trophies["Salmon"] = true
 		main._update_ui()
-		for i in range(12):
+		for i in range(4):
 			await get_tree().process_frame
 	elif scenario == "select" and main.has_method("_on_cell_pressed"):
 		main._on_cell_pressed(Vector2i(3, 2))
