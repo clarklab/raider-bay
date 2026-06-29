@@ -934,36 +934,54 @@ func _build_center_table(parent: Container) -> void:
 
 
 func _build_command_rail(parent: Container) -> void:
+	# Fixed-width rail. clip_contents + clipped/auto-wrapped labels keep its width pinned
+	# to TABLE_COMMAND_WIDTH so dynamic text (log lines, fish counts) can never widen it
+	# and shove the board sideways — the old source of board/rail layout shift.
 	var rail := _bare_panel()
 	rail.custom_minimum_size = Vector2(TABLE_COMMAND_WIDTH, 0)
 	rail.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	rail.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	rail.clip_contents = true
 	parent.add_child(rail)
 
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 12)
-	pad.add_theme_constant_override("margin_right", 12)
-	pad.add_theme_constant_override("margin_top", 12)
-	pad.add_theme_constant_override("margin_bottom", 12)
+	pad.add_theme_constant_override("margin_left", 10)
+	pad.add_theme_constant_override("margin_right", 10)
+	pad.add_theme_constant_override("margin_top", 10)
+	pad.add_theme_constant_override("margin_bottom", 10)
 	rail.add_child(pad)
 
+	# Outer column: a fixed (never-scrolling) priority stack on top, scrollable extras below.
+	var outer := VBoxContainer.new()
+	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_theme_constant_override("separation", 12)
+	pad.add_child(outer)
+
+	# Priority stack — always pinned to the top, never reflows: weather, live well, market.
+	var top := VBoxContainer.new()
+	top.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_theme_constant_override("separation", 12)
+	outer.add_child(top)
+	_build_weather_calendar(top)
+	_build_live_well_card(top)
+	_build_market_card(top)
+
+	# Everything you scroll to lives below the fold.
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.scroll_deadzone = 8
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	pad.add_child(scroll)
+	scroll.clip_contents = true
+	outer.add_child(scroll)
 
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 24)
+	col.add_theme_constant_override("separation", 12)
 	scroll.add_child(col)
 	ui["command_rail_col"] = col
 
-	# Fish market (names / prices / trophies) first, then the live well, then the rest.
-	_build_market_card(col)
-	_build_live_well_card(col)
-	_build_forecast_card(col)
 	_build_compact_ship_card(col)
 	_build_action_bar(col)
 	_build_radio_card(col)
@@ -983,47 +1001,79 @@ func _make_rail_scrollable(node: Node) -> void:
 			_make_rail_scrollable(c)
 
 
-func _build_forecast_card(parent: Container) -> void:
-	var forecast_panel := _bare_panel()
-	forecast_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(forecast_panel)
+const WEATHER_DAY_CARD_WIDTH := 80
+const WEATHER_DAY_CARD_GAP := 7
 
-	var forecast_pad := MarginContainer.new()
-	forecast_pad.add_theme_constant_override("margin_left", 9)
-	forecast_pad.add_theme_constant_override("margin_right", 9)
-	forecast_pad.add_theme_constant_override("margin_top", 7)
-	forecast_pad.add_theme_constant_override("margin_bottom", 7)
-	forecast_panel.add_child(forecast_pad)
-
-	var forecast_col := VBoxContainer.new()
-	forecast_col.add_theme_constant_override("separation", 6)
-	forecast_pad.add_child(forecast_col)
-	forecast_col.add_child(_label("WEATHER DECK", 14, TEXT_MUTED))
-
-	ui["forecast_chips"] = HBoxContainer.new()
-	ui["forecast_chips"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["forecast_chips"].add_theme_constant_override("separation", 6)
-	forecast_col.add_child(ui["forecast_chips"])
-
-
-func _build_market_card(parent: Container) -> void:
-	var card := _bare_panel()
+# Calendar-style forecast: three day-cards visible with a fourth overhanging the right
+# edge (clipped) as a "more weather ahead" affordance. Only the per-day multiplier pill
+# carries colour — the cards themselves stay a neutral slate.
+func _build_weather_calendar(parent: Container) -> void:
+	var card := _panel(BG_PANEL_DARK, BORDER_DARK, 1, 8)
+	var style := _styled(BG_PANEL_DARK, BORDER_FRAME.darkened(0.35), 1, 8)
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	style.content_margin_top = 8
+	style.content_margin_bottom = 9
+	card.add_theme_stylebox_override("panel", style)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.clip_contents = true
 	parent.add_child(card)
-
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 9)
-	pad.add_theme_constant_override("margin_right", 9)
-	pad.add_theme_constant_override("margin_top", 9)
-	pad.add_theme_constant_override("margin_bottom", 9)
-	card.add_child(pad)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 7)
-	pad.add_child(col)
-	col.add_child(_label("FISH MARKET", 14, GOLD))
+	card.add_child(col)
+
+	var head := HBoxContainer.new()
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(head)
+	var title := _label("WEATHER", 15, CYAN)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	ui["weather_hint"] = _label("4-DAY", 12, TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+	head.add_child(ui["weather_hint"])
+
+	# A clipped window: the strip is wider than the card, so the 4th day peeks off the edge.
+	var window := Control.new()
+	window.clip_contents = true
+	window.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	window.custom_minimum_size = Vector2(0, 104)
+	col.add_child(window)
+
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", WEATHER_DAY_CARD_GAP)
+	strip.anchor_top = 0.0
+	strip.anchor_bottom = 1.0
+	strip.offset_left = 0
+	window.add_child(strip)
+	ui["weather_strip"] = strip
+
+
+func _build_market_card(parent: Container) -> void:
+	var card := _panel(BG_PANEL_DARK, BORDER_DARK, 1, 8)
+	var style := _styled(BG_PANEL_DARK, GOLD_DEEP.darkened(0.25), 1, 8)
+	style.content_margin_left = 9
+	style.content_margin_right = 9
+	style.content_margin_top = 8
+	style.content_margin_bottom = 9
+	card.add_theme_stylebox_override("panel", style)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.clip_contents = true
+	parent.add_child(card)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	card.add_child(col)
+
+	var head := HBoxContainer.new()
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(head)
+	var title := _label("FISH MARKET", 15, GOLD)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	head.add_child(_label("TROPHY · PRICE", 12, TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT))
+
 	ui["top_market_rows"] = VBoxContainer.new()
-	ui["top_market_rows"].add_theme_constant_override("separation", 5)
+	ui["top_market_rows"].add_theme_constant_override("separation", 4)
 	col.add_child(ui["top_market_rows"])
 
 
@@ -1055,29 +1105,34 @@ func _build_compact_ship_card(parent: Container) -> void:
 
 
 func _build_live_well_card(parent: Container) -> void:
-	var card := _bare_panel()
+	var card := _panel(BG_PANEL_DARK, BORDER_DARK, 1, 8)
+	var style := _styled(BG_PANEL_DARK, GREEN_DEEP.darkened(0.25), 1, 8)
+	style.content_margin_left = 9
+	style.content_margin_right = 9
+	style.content_margin_top = 8
+	style.content_margin_bottom = 9
+	card.add_theme_stylebox_override("panel", style)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.clip_contents = true
 	parent.add_child(card)
 
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 9)
-	pad.add_theme_constant_override("margin_right", 9)
-	pad.add_theme_constant_override("margin_top", 9)
-	pad.add_theme_constant_override("margin_bottom", 9)
-	card.add_child(pad)
-
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 7)
-	pad.add_child(col)
-	col.add_child(_label("CATCH HAND", 14, GREEN))
+	col.add_theme_constant_override("separation", 6)
+	card.add_child(col)
+
+	var head := HBoxContainer.new()
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(head)
+	var title := _label("LIVE WELL", 15, GREEN)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	ui["live_well_status"] = _label("Empty", 12, TEXT_MUTED, HORIZONTAL_ALIGNMENT_RIGHT)
+	ui["live_well_status"].clip_text = true
+	head.add_child(ui["live_well_status"])
 
 	ui["live_well_lines"] = VBoxContainer.new()
 	ui["live_well_lines"].add_theme_constant_override("separation", 4)
 	col.add_child(ui["live_well_lines"])
-
-	ui["live_well_status"] = _label("Empty", FONT_SMALL, TEXT_MUTED)
-	ui["live_well_status"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(ui["live_well_status"])
 
 	ui["live_well_sell"] = _action_button("SELL FISH", "sell", _sell_catch)
 	ui["live_well_sell"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -6265,6 +6320,15 @@ func _update_hud() -> void:
 
 
 func _update_forecast() -> void:
+	if ui.has("weather_strip"):
+		var strip: HBoxContainer = ui["weather_strip"]
+		for child in strip.get_children():
+			child.queue_free()
+		strip.add_child(_weather_day_card(current_weather, 0, true))
+		for i in range(min(3, forecast.size())):
+			strip.add_child(_weather_day_card(forecast[i], i + 1, false))
+		return
+
 	if ui.has("forecast_slots"):
 		var slots: Array = ui["forecast_slots"]
 		for i in range(slots.size()):
@@ -6328,9 +6392,13 @@ func _update_top_market() -> void:
 		var name := _label(species.to_upper(), 14, TEXT_PRIMARY if earned else TEXT_MUTED)
 		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		name.clip_text = true
 		row.add_child(name)
 
-		row.add_child(_label("$%d" % int(market_prices[species]), 16, GOLD, HORIZONTAL_ALIGNMENT_RIGHT))
+		var price := _label("$%d" % int(market_prices[species]), 16, GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+		price.custom_minimum_size = Vector2(50, 0)
+		price.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(price)
 
 
 func _update_board() -> void:
@@ -6579,27 +6647,30 @@ func _update_live_well_tab() -> void:
 
 	for age in range(cap + 1):
 		var wrap := PanelContainer.new()
-		var row_style := _styled(BG_PANEL_DARK if age % 2 == 0 else BG_PANEL, BORDER_DARK, 0, 4)
-		row_style.content_margin_left = 12
-		row_style.content_margin_right = 12
-		row_style.content_margin_top = 8
-		row_style.content_margin_bottom = 8
+		var row_style := _styled(BG_PANEL_DARK if age % 2 == 0 else BG_PANEL, BORDER_DARK, 0, 5)
+		row_style.content_margin_left = 9
+		row_style.content_margin_right = 9
+		row_style.content_margin_top = 5
+		row_style.content_margin_bottom = 5
 		wrap.add_theme_stylebox_override("panel", row_style)
 		wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		col.add_child(wrap)
 
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_theme_constant_override("separation", 14)
+		row.add_theme_constant_override("separation", 10)
 		wrap.add_child(row)
 
 		var age_color := TEXT_PRIMARY
+		var age_tag := _age_name(age).to_upper()
 		if age == cap:
 			age_color = GOLD
+			age_tag = "SPOILS"
 		elif age >= cap - 1 and cap > 1:
 			age_color = CYAN
-		var age_lbl := _label(_age_name(age).to_upper(), FONT_BODY, age_color)
-		age_lbl.custom_minimum_size = Vector2(86, 0)
+		var age_lbl := _label(age_tag, 13, age_color)
+		age_lbl.custom_minimum_size = Vector2(66, 0)
+		age_lbl.clip_text = true
 		row.add_child(age_lbl)
 
 		var batch_parts: Array[String] = []
@@ -6609,18 +6680,18 @@ func _update_live_well_tab() -> void:
 				batch_parts.append("%d %s" % [int(batch["quantity"]), str(batch["species"])])
 				count_today += int(batch["quantity"])
 
-		var count_lbl := _label("%d" % count_today, FONT_BODY, age_color if count_today > 0 else TEXT_DIM)
-		count_lbl.custom_minimum_size = Vector2(36, 0)
-		count_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		row.add_child(count_lbl)
-
 		var fish_text := ", ".join(batch_parts) if not batch_parts.is_empty() else "—"
 		var fish_color := TEXT_PRIMARY if not batch_parts.is_empty() else TEXT_DIM
-		var fish_lbl := _label(fish_text, FONT_BODY, fish_color)
+		var fish_lbl := _label(fish_text, 13, fish_color)
 		fish_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fish_lbl.clip_text = true
 		row.add_child(fish_lbl)
 
-	(ui["live_well_status"] as Label).text = "%d aboard · spoils after %d days" % [total_fish, cap]
+		var count_lbl := _label("%d" % count_today, 14, age_color if count_today > 0 else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+		count_lbl.custom_minimum_size = Vector2(28, 0)
+		row.add_child(count_lbl)
+
+	(ui["live_well_status"] as Label).text = "%d ABOARD" % total_fish if total_fish > 0 else "EMPTY"
 
 
 func _update_radio_tab() -> void:
@@ -6649,10 +6720,16 @@ func _update_radio_tab() -> void:
 		var log_limit := 6
 		if versus_mode:
 			var bot_place := "docks" if _bot_is_docked() else "%s water" % str(board[_cell_index(bot_pos)]["zone"])
-			lines.add_child(_label("%s: $%d · %d fish · %d trophies · %s" % [BOT_NAME, bot_money, _bot_total_fish(), _bot_trophy_count(), bot_place], FONT_BODY, RED))
+			var bot_lbl := _label("%s: $%d · %d fish · %d trophies · %s" % [BOT_NAME, bot_money, _bot_total_fish(), _bot_trophy_count(), bot_place], FONT_SMALL, RED)
+			bot_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			bot_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			lines.add_child(bot_lbl)
 			log_limit = 5
 		for i in range(min(log_limit, log_lines.size())):
-			lines.add_child(_label(log_lines[i], FONT_BODY, TEXT_PRIMARY if i == 0 else TEXT_MUTED))
+			var line_lbl := _label(log_lines[i], FONT_SMALL, TEXT_PRIMARY if i == 0 else TEXT_MUTED)
+			line_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			line_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			lines.add_child(line_lbl)
 
 
 func _update_compact_ship_cards() -> void:
@@ -8882,6 +8959,93 @@ func _pill_set_text(pill: PanelContainer, text: String) -> void:
 
 
 # Small green/red rocket badge showing a weather's catch multiplier (nothing at 1.0).
+# One calendar day-card. Neutral slate body; the only coloured element is the multiplier
+# pill at the bottom (green boost / red cut / grey neutral).
+func _weather_day_card(weather: Dictionary, day_offset: int, is_tonight: bool) -> Control:
+	var weather_name := str(weather["name"])
+	var icon_tint := TEXT_MUTED
+	var label := "CLEAR"
+	match weather_name:
+		"Storm":
+			icon_tint = CYAN
+			label = "STORM"
+		"Hurricane":
+			icon_tint = RED.lightened(0.1)
+			label = "HURR"
+		_:
+			icon_tint = Color("#cfe0ec")
+			label = "CLEAR"
+
+	var body_fill := BG_PANEL.lightened(0.02) if is_tonight else BG_PANEL_DARK
+	var body_border := CYAN_DEEP if is_tonight else BORDER_FRAME.darkened(0.45)
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(WEATHER_DAY_CARD_WIDTH, 0)
+	card.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	var style := _styled_shadow(body_fill, body_border, 2 if is_tonight else 1, 7, 2)
+	style.content_margin_left = 0
+	style.content_margin_right = 0
+	style.content_margin_top = 0
+	style.content_margin_bottom = 0
+	card.add_theme_stylebox_override("panel", style)
+	card.clip_contents = true
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(col)
+
+	# Date header band.
+	var band := PanelContainer.new()
+	var band_style := _styled(body_border.darkened(0.2) if is_tonight else Color("#0e1f2c"), Color(0, 0, 0, 0), 0, 0)
+	band_style.corner_radius_top_left = 6
+	band_style.corner_radius_top_right = 6
+	band_style.content_margin_top = 3
+	band_style.content_margin_bottom = 3
+	band_style.content_margin_left = 2
+	band_style.content_margin_right = 2
+	band.add_theme_stylebox_override("panel", band_style)
+	col.add_child(band)
+	var day_text := "TONIGHT" if is_tonight else "DAY %d" % (day + day_offset)
+	var day_label := _label(day_text, 12, TEXT_PRIMARY if is_tonight else TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	day_label.clip_text = true
+	band.add_child(day_label)
+
+	var inner := VBoxContainer.new()
+	inner.alignment = BoxContainer.ALIGNMENT_CENTER
+	inner.add_theme_constant_override("separation", 3)
+	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var inner_pad := MarginContainer.new()
+	inner_pad.add_theme_constant_override("margin_top", 6)
+	inner_pad.add_theme_constant_override("margin_bottom", 6)
+	inner_pad.add_child(inner)
+	col.add_child(inner_pad)
+
+	var ic := _icon_texture_rect(_weather_icon_texture(weather_name), Vector2(28, 28), icon_tint)
+	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	inner.add_child(ic)
+
+	var name_label := _label(label, 12, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.clip_text = true
+	inner.add_child(name_label)
+
+	# Mult pill — the lone splash of colour.
+	var mult := float(weather.get("mult", 1.0))
+	var mult_accent := GREEN if mult > 1.001 else (RED if mult < 0.999 else TEXT_DIM)
+	var pill := PanelContainer.new()
+	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var pill_style := _styled(mult_accent.darkened(0.55), mult_accent, 1, 6)
+	pill_style.content_margin_left = 7
+	pill_style.content_margin_right = 7
+	pill_style.content_margin_top = 1
+	pill_style.content_margin_bottom = 2
+	pill.add_theme_stylebox_override("panel", pill_style)
+	inner.add_child(pill)
+	var pill_label := _label("%.1f×" % mult, 13, mult_accent.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
+	pill.add_child(pill_label)
+	return card
+
+
 func _forecast_chip(weather: Dictionary, is_current: bool) -> Control:
 	var weather_name := str(weather["name"])
 	var accent := TEXT_DIM
