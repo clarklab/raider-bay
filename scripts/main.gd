@@ -350,6 +350,28 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_apply_safe_area_inset)
 	set_process(true)
 	_schedule_catch_preview_from_query()
+	_schedule_deck_preview_from_query()
+
+
+func _schedule_deck_preview_from_query() -> void:
+	if not OS.has_feature("web") and not ClassDB.class_exists("JavaScriptBridge"):
+		return
+	var search := str(JavaScriptBridge.eval("window.location.search + window.location.hash", true))
+	if search.find("deck_preview=") == -1:
+		return
+	var raw := ""
+	for part in search.trim_prefix("?").split("&", false):
+		if part.find("deck_preview=") != -1:
+			raw = part.get_slice("deck_preview=", 1)
+			break
+	var idx := int(raw)
+	call_deferred("_run_deck_preview", idx)
+
+
+func _run_deck_preview(idx: int) -> void:
+	_show_deck_training()
+	deck_training_index = clampi(idx, 0, _deck_training_slides().size() - 1)
+	_render_deck_training_slide(0)
 
 
 func _apply_global_font_theme() -> void:
@@ -9691,21 +9713,21 @@ var deck_training_animating := false
 
 func _deck_training_slides() -> Array:
 	return [
-		{"title": "WELCOME ABOARD", "accent": GOLD, "icon": ICON_ROCKET_FISH_TEXTURE,
+		{"title": "WELCOME ABOARD", "accent": GOLD, "icon": ICON_ROCKET_FISH_TEXTURE, "visual": "board_boat",
 			"body": "You captain a fishing boat for one season. Catch fish, sell your haul at the docks, and upgrade your gear — and bank as much money as you can before time runs out."},
-		{"title": "THE BAY", "accent": CYAN, "icon": ICON_FIND_FISH_TEXTURE,
-			"body": "The board is the bay. Every card is a spot to fish. The deeper water near the bottom holds the biggest, most valuable fish."},
-		{"title": "YOUR DAILY BUDGET", "accent": Color("#8ad5f3"), "icon": ICON_DAY_TEXTURE,
+		{"title": "THE BAY", "accent": CYAN, "icon": ICON_FIND_FISH_TEXTURE, "visual": "board",
+			"body": "The board is the bay, and every card is a fishing spot. The deep water up top holds the biggest, most valuable fish — your dock sits at the bottom."},
+		{"title": "YOUR DAILY BUDGET", "accent": Color("#8ad5f3"), "icon": ICON_DAY_TEXTURE, "visual": "counters",
 			"body": "Each day you get a small budget on the left: MOVES to sail, FIND FISH to spot fish, and CASTS to reel them in. Spend them, then end your day."},
-		{"title": "SAIL THE BAY", "accent": Color("#ff6161"), "icon": ICON_MOVES_TEXTURE,
+		{"title": "SAIL THE BAY", "accent": Color("#ff6161"), "icon": ICON_MOVES_TEXTURE, "visual": "board_boat",
 			"body": "Tap a card next to your boat to sail there — that costs one move. You can go straight or diagonal. Long-press any card to peek at what's on it."},
-		{"title": "FIND & CAST", "accent": Color("#84ed72"), "icon": ICON_CAST_TEXTURE,
+		{"title": "FIND & CAST", "accent": Color("#84ed72"), "icon": ICON_CAST_TEXTURE, "visual": "cards",
 			"body": "Tap FIND FISH to scan the water nearby and reveal fish. Then sit on a fish and tap CAST to reel it in. Each spot only holds a few catches."},
-		{"title": "SELL AT THE DOCKS", "accent": GOLD, "icon": ICON_CARD_SHIP_TEXTURE,
+		{"title": "SELL AT THE DOCKS", "accent": GOLD, "icon": ICON_CARD_SHIP_TEXTURE, "visual": "sell",
 			"body": "Your catch waits in the live well, but it spoils after a few days. Sail back to THE DOCKS and sell it before it goes bad."},
-		{"title": "UPGRADE YOUR BOAT", "accent": PURPLE, "icon": ICON_FUNDS_TEXTURE,
+		{"title": "UPGRADE YOUR BOAT", "accent": PURPLE, "icon": ICON_FUNDS_TEXTURE, "visual": "ship",
 			"body": "At the docks, tap FUNDS to open the shop. Buy a faster motor, a sharper fish finder, and bigger nets — and repair your hull so storms can't sink you."},
-		{"title": "WEATHER & TROPHIES", "accent": CYAN, "icon": ICON_TROPHY_SOLID,
+		{"title": "WEATHER & TROPHIES", "accent": CYAN, "icon": ICON_TROPHY_SOLID, "visual": "weather",
 			"body": "Watch the weather: a storm boosts your catch, but a hurricane cuts it and can batter your boat. Catch enough of one fish to earn its trophy, then survive the whole season to win!"},
 	]
 
@@ -9806,26 +9828,21 @@ func _build_deck_slide(slide: Dictionary, slide_size: Vector2) -> Control:
 
 	var box := VBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.add_theme_constant_override("separation", 24)
+	box.add_theme_constant_override("separation", 20)
 	_anchor_fill(box)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(box)
 
-	# Icon in a soft accent disc.
-	var disc := PanelContainer.new()
-	disc.custom_minimum_size = Vector2(140, 140)
-	disc.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	disc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var disc_style := _styled(accent.darkened(0.6), accent, 3, 30)
-	disc_style.content_margin_left = 26
-	disc_style.content_margin_right = 26
-	disc_style.content_margin_top = 26
-	disc_style.content_margin_bottom = 26
-	disc.add_theme_stylebox_override("panel", disc_style)
-	box.add_child(disc)
-	var icon := _icon_texture_rect(slide["icon"], Vector2(86, 86), accent)
-	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	disc.add_child(icon)
+	# A real slice of the game instead of a flat icon, held in a fixed-height stage
+	# so the title and body stay anchored as you page between slides.
+	var stage := CenterContainer.new()
+	stage.custom_minimum_size = Vector2(0, 184)
+	stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(stage)
+	var visual := _deck_slide_visual(str(slide.get("visual", "")), accent)
+	visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(visual)
 
 	var title := _label(slide["title"], 40, accent, HORIZONTAL_ALIGNMENT_CENTER)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -9834,17 +9851,252 @@ func _build_deck_slide(slide: Dictionary, slide_size: Vector2) -> Control:
 	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
 	box.add_child(title)
 
-	var body := _label(slide["body"], 24, _with_alpha(TEXT_PRIMARY, 0.96), HORIZONTAL_ALIGNMENT_CENTER)
+	var body := _label(slide["body"], 22, _with_alpha(TEXT_PRIMARY, 0.96), HORIZONTAL_ALIGNMENT_CENTER)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	body.custom_minimum_size = Vector2(600, 0)
+	body.custom_minimum_size = Vector2(640, 0)
 	body.add_theme_constant_override("line_spacing", 6)
 	box.add_child(body)
 
-	root.set_meta("disc", disc)
+	root.set_meta("visual", visual)
 	root.set_meta("title", title)
 	root.set_meta("body", body)
 	return root
+
+
+# Each slide shows a real slice of the game the player is about to touch.
+func _deck_slide_visual(kind: String, accent: Color) -> Control:
+	match kind:
+		"board":
+			return _deck_visual_board(accent, false)
+		"board_boat":
+			return _deck_visual_board(accent, true)
+		"counters":
+			return _deck_visual_counters()
+		"cards":
+			return _deck_visual_cards(["Tuna", "Salmon", "Grouper"], [], GOLD)
+		"sell":
+			return _deck_visual_cards(["Tuna", "Halibut"], ["$74", "$112"], GOLD)
+		"ship":
+			return _deck_visual_ship()
+		"weather":
+			return _deck_visual_weather()
+	return _deck_visual_board(accent, false)
+
+
+# A single mini board cell, styled like the real card-table cells (white rim, depth fill).
+func _deck_board_card(w: float, h: float, fill: Color, border: Color) -> Control:
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(w, h)
+	card.size = Vector2(w, h)
+	card.pivot_offset = Vector2(w, h) * 0.5
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var st := StyleBoxFlat.new()
+	st.bg_color = fill
+	st.border_color = border
+	st.set_border_width_all(3)
+	st.set_corner_radius_all(6)
+	st.anti_aliasing = false
+	card.add_theme_stylebox_override("panel", st)
+	return card
+
+
+# The bay: a mini grid of depth-tinted cards (deeper rows = darker), optionally with the
+# boat parked at the dock and its reachable neighbours lit up.
+func _deck_visual_board(accent: Color, with_boat: bool) -> Control:
+	var cols := 6
+	var rows := 4
+	var cw := 46.0
+	var ch := 34.0
+	var gap := 6.0
+	var gw := float(cols) * cw + float(cols - 1) * gap
+	var gh := float(rows) * ch + float(rows - 1) * gap
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(gw, gh)
+	wrap.size = Vector2(gw, gh)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var items: Array = []
+	var depth_rows := [0, 2, 4, 5]
+	var boat_col := 2
+	var boat_row := rows - 1
+	for r in range(rows):
+		var fill := _board_zone_card_color(int(depth_rows[r]))
+		for c in range(cols):
+			var adjacent := with_boat and (absi(c - boat_col) + absi(r - boat_row) == 1)
+			var border: Color = accent.lightened(0.25) if adjacent else Color("#e7f0f5")
+			var card := _deck_board_card(cw, ch, fill, border)
+			card.position = Vector2(float(c) * (cw + gap), float(r) * (ch + gap))
+			wrap.add_child(card)
+			items.append(card)
+	if with_boat:
+		var boat := _icon_texture_rect(ICON_CARD_SHIP_TEXTURE, Vector2(28, 28), Color("#ffffff"))
+		boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		boat.position = Vector2(float(boat_col) * (cw + gap) + (cw - 28.0) * 0.5, float(boat_row) * (ch + gap) + (ch - 28.0) * 0.5)
+		wrap.add_child(boat)
+		items.append(boat)
+	wrap.set_meta("anim_items", items)
+	wrap.set_meta("anim_pop", true)
+	return wrap
+
+
+# One static counter chip, mirroring the chunky left-rail counters.
+func _deck_mini_counter(icon_tex: Texture2D, title: String, value: String, accent: Color) -> Control:
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(100, 108)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := _styled_shadow(accent.darkened(0.66), accent.darkened(0.04), 4, 9, 5)
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	style.content_margin_top = 9
+	style.content_margin_bottom = 10
+	card.add_theme_stylebox_override("panel", style)
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 5)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(col)
+	var ic := _icon_texture_rect(icon_tex, Vector2(26, 26), accent.lightened(0.35))
+	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(ic)
+	var ttl := _label(title, 12, accent.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
+	ttl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ttl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(ttl)
+	var well := PanelContainer.new()
+	well.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ws := _styled(Color(0, 0, 0, 0.34), accent.darkened(0.24), 1, 6)
+	ws.content_margin_left = 14
+	ws.content_margin_right = 14
+	ws.content_margin_top = 1
+	ws.content_margin_bottom = 2
+	well.add_theme_stylebox_override("panel", ws)
+	col.add_child(well)
+	var val := _label(value, 22, Color("#ffffff"), HORIZONTAL_ALIGNMENT_CENTER)
+	val.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	well.add_child(val)
+	return card
+
+
+# The daily budget: MOVES / FIND FISH / CAST, exactly the chips on the left rail.
+func _deck_visual_counters() -> Control:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 14)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var items: Array = []
+	var specs := [
+		[ICON_MOVES_TEXTURE, "MOVES", "3", Color("#ff6161")],
+		[ICON_FIND_FISH_TEXTURE, "FIND FISH", "2", Color("#c889ff")],
+		[ICON_CAST_TEXTURE, "CAST", "4", Color("#84ed72")],
+	]
+	for s in specs:
+		var c := _deck_mini_counter(s[0], s[1], s[2], s[3])
+		row.add_child(c)
+		items.append(c)
+	row.set_meta("anim_items", items)
+	row.set_meta("anim_pop", false)
+	return row
+
+
+# Casting: a fanned hand of real fish cards (with price tags for the sell slide).
+func _deck_visual_cards(species_list: Array, badge_list: Array, badge_accent: Color) -> Control:
+	var cw := 84.0
+	var ch := 116.0
+	var n := species_list.size()
+	var spread := 68.0
+	var ww := cw + float(max(0, n - 1)) * spread + 36.0
+	var wh := ch + 34.0
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(ww, wh)
+	wrap.size = Vector2(ww, wh)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var items: Array = []
+	for i in range(n):
+		var t := float(i) - float(n - 1) / 2.0
+		var badge: String = str(badge_list[i]) if i < badge_list.size() else ""
+		var acc: Color = badge_accent if badge != "" else Color(0, 0, 0, 0)
+		var card := _build_result_card(_fish_card_texture(str(species_list[i])), Vector2(cw, ch), badge, acc)
+		card.position = Vector2(ww * 0.5 - cw * 0.5 + t * spread, wh * 0.5 - ch * 0.5 + absf(t) * 9.0)
+		card.rotation_degrees = t * 8.5
+		wrap.add_child(card)
+		items.append(card)
+	wrap.set_meta("anim_items", items)
+	wrap.set_meta("anim_pop", true)
+	return wrap
+
+
+# Upgrades: the gear pip meters from the dock shop.
+func _deck_visual_ship() -> Control:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	col.custom_minimum_size = Vector2(316, 0)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var items: Array = []
+	var specs := [
+		["MOTOR", 3.0, "3 / 5", Color("#ff6161")],
+		["FISH FINDER", 2.0, "2 / 5", Color("#c889ff")],
+		["NETS", 4.0, "4 / 5", Color("#84ed72")],
+	]
+	for s in specs:
+		var c := _compact_system_card(s[0], s[1], 5.0, 5, s[2], s[3])
+		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(c)
+		items.append(c)
+	col.set_meta("anim_items", items)
+	col.set_meta("anim_pop", false)
+	return col
+
+
+# Weather + trophies: the redesigned forecast chips plus the reward they pay toward.
+func _deck_visual_weather() -> Control:
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 16)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var items: Array = []
+	var chips := HBoxContainer.new()
+	chips.alignment = BoxContainer.ALIGNMENT_CENTER
+	chips.add_theme_constant_override("separation", 10)
+	chips.custom_minimum_size = Vector2(300, 0)
+	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var weathers := [
+		{"name": "Storm", "strength": 3, "mult": 1.3},
+		{"name": "Clear", "strength": 0, "mult": 1.0},
+		{"name": "Hurricane", "strength": 4, "mult": 0.8},
+	]
+	for i in range(weathers.size()):
+		var chip := _forecast_chip(weathers[i], i == 0)
+		chips.add_child(chip)
+		items.append(chip)
+	col.add_child(chips)
+	var trophy := PanelContainer.new()
+	trophy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	trophy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tstyle := _styled_shadow(GOLD.darkened(0.62), GOLD, 3, 16, 4)
+	tstyle.content_margin_left = 16
+	tstyle.content_margin_right = 16
+	tstyle.content_margin_top = 9
+	tstyle.content_margin_bottom = 9
+	trophy.add_theme_stylebox_override("panel", tstyle)
+	var trow := HBoxContainer.new()
+	trow.alignment = BoxContainer.ALIGNMENT_CENTER
+	trow.add_theme_constant_override("separation", 10)
+	trow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	trophy.add_child(trow)
+	var tic := _icon_texture_rect(ICON_TROPHY_SOLID, Vector2(32, 32), GOLD.lightened(0.25))
+	tic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	trow.add_child(tic)
+	var tlbl := _label("TROPHY", 18, GOLD.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
+	tlbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	trow.add_child(tlbl)
+	col.add_child(trophy)
+	items.append(trophy)
+	col.set_meta("anim_items", items)
+	col.set_meta("anim_pop", false)
+	return col
 
 
 func _render_deck_training_slide(direction: int = 0) -> void:
@@ -9889,29 +10141,42 @@ func _render_deck_training_slide(direction: int = 0) -> void:
 	_update_deck_training_nav()
 
 
-# Staggered, GPU-friendly entrance: the disc pops, then the title and body fade in.
+# Staggered, GPU-friendly entrance: the visual's pieces deal in one by one (like the
+# real board/catch), then the title and body fade in beneath them.
 func _animate_deck_slide_in(slide: Control) -> void:
-	var disc: Control = slide.get_meta("disc")
+	var visual: Control = slide.get_meta("visual")
 	var title: Control = slide.get_meta("title")
 	var body: Control = slide.get_meta("body")
 
-	disc.pivot_offset = Vector2(70, 70)
-	disc.scale = Vector2(0.5, 0.5)
-	disc.modulate = Color(1, 1, 1, 0)
-	var dt := disc.create_tween()
-	dt.set_parallel(true)
-	dt.tween_property(disc, "modulate:a", 1.0, 0.16)
-	dt.tween_property(disc, "scale", Vector2(1.1, 1.1), 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	dt.chain().tween_property(disc, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	var items: Array = []
+	if visual != null and is_instance_valid(visual):
+		items = visual.get_meta("anim_items", [])
+		if items.is_empty():
+			items = [visual]
+	var pop: bool = visual.get_meta("anim_pop", false) if (visual != null and is_instance_valid(visual)) else false
+	var stagger := clampf(0.55 / float(max(1, items.size())), 0.018, 0.07)
+	for i in range(items.size()):
+		var it: Control = items[i]
+		if not is_instance_valid(it):
+			continue
+		it.modulate = Color(1, 1, 1, 0)
+		if pop:
+			it.scale = Vector2(0.62, 0.62)
+		var it_t := it.create_tween()
+		it_t.tween_interval(0.03 + float(i) * stagger)
+		it_t.set_parallel(true)
+		it_t.tween_property(it, "modulate:a", 1.0, 0.18)
+		if pop:
+			it_t.tween_property(it, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 	title.modulate = Color(1, 1, 1, 0)
 	var tt := title.create_tween()
-	tt.tween_interval(0.1)
+	tt.tween_interval(0.14)
 	tt.tween_property(title, "modulate:a", 1.0, 0.22)
 
 	body.modulate = Color(1, 1, 1, 0)
 	var bt := body.create_tween()
-	bt.tween_interval(0.17)
+	bt.tween_interval(0.2)
 	bt.tween_property(body, "modulate:a", 1.0, 0.24)
 
 
