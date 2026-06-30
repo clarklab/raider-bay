@@ -3143,52 +3143,35 @@ func _build_tray_overlay() -> void:
 
 	var head := HBoxContainer.new()
 	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_theme_constant_override("separation", 14)
 	col.add_child(head)
 
-	ui["tray_title"] = _label("UPGRADE", 18, TEXT_PRIMARY)
+	ui["tray_title"] = _label("UPGRADE", 30, TEXT_PRIMARY)
 	ui["tray_title"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["tray_title"].size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(ui["tray_title"])
 
-	ui["tray_money"] = _pill("$0", GOLD)
+	# Chunky, color-filled funds readout — keyed "tray_money" so _pill_set_text still drives it.
+	ui["tray_money"] = _funds_pill("$0")
 	ui["tray_money"].size_flags_horizontal = Control.SIZE_SHRINK_END
-	ui["tray_money"].custom_minimum_size = Vector2(118, 0)
+	ui["tray_money"].size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(ui["tray_money"])
 
-	ui["tray_hint"] = _label("Tap an upgrade row to inspect the next card.", 11, TEXT_DIM)
+	ui["tray_hint"] = _label("Tap an upgrade to inspect its card.", FONT_BODY, TEXT_DIM)
 	col.add_child(ui["tray_hint"])
 
-	ui["upgrade_plan"] = _label("Plan: $0", FONT_SMALL, TEXT_MUTED)
-	ui["upgrade_plan"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(ui["upgrade_plan"])
-
-	var body_scroll := ScrollContainer.new()
-	body_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	body_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_child(body_scroll)
-
+	# Body host: each mode (upgrade / repair) supplies its own layout and scrolling.
 	ui["tray_body"] = VBoxContainer.new()
 	ui["tray_body"].add_theme_constant_override("separation", 6)
 	ui["tray_body"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["tray_body"].size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body_scroll.add_child(ui["tray_body"])
+	col.add_child(ui["tray_body"])
 
 	var actions := HBoxContainer.new()
 	actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	actions.add_theme_constant_override("separation", 8)
 	col.add_child(actions)
 
-	ui["upgrade_reset"] = _tactile_button("RESET", 0, 44, BG_PANEL, BORDER_DARK, TEXT_MUTED)
-	ui["upgrade_reset"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["upgrade_reset"].pressed.connect(_reset_upgrade_plan)
-	actions.add_child(ui["upgrade_reset"])
-
-	ui["upgrade_checkout"] = _tactile_button("CHECKOUT", 0, 44, PURPLE_DEEP, PURPLE, TEXT_PRIMARY)
-	ui["upgrade_checkout"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["upgrade_checkout"].pressed.connect(_checkout_upgrade_cart)
-	actions.add_child(ui["upgrade_checkout"])
-
-	var close := _tactile_button("CLOSE", 0, 44, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
+	var close := _tactile_button("CLOSE", 0, 60, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
 	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	close.pressed.connect(_close_tray)
 	actions.add_child(close)
@@ -3201,64 +3184,143 @@ func _build_tray_overlay() -> void:
 
 
 func _build_tray_body_upgrade() -> void:
-	var body := VBoxContainer.new()
+	# Two columns: a narrow Extra Night buy panel on the left, the upgrade lanes
+	# filling (and scrolling within) the whole right side.
+	var body := HBoxContainer.new()
 	body.name = "UpgradeBody"
-	body.add_theme_constant_override("separation", 10)
+	body.add_theme_constant_override("separation", 14)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	ui["tray_body"].add_child(body)
 	ui["tray_body_upgrade"] = body
 
-	var night_panel := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 1, 5, 3)
-	night_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_child(night_panel)
+	body.add_child(_build_extra_night_column())
 
-	var night_pad := MarginContainer.new()
-	night_pad.add_theme_constant_override("margin_left", 10)
-	night_pad.add_theme_constant_override("margin_right", 10)
-	night_pad.add_theme_constant_override("margin_top", 8)
-	night_pad.add_theme_constant_override("margin_bottom", 8)
-	night_panel.add_child(night_pad)
+	var right_scroll := ScrollContainer.new()
+	right_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right_scroll.clip_contents = true
+	body.add_child(right_scroll)
 
-	var night_row := HBoxContainer.new()
-	night_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	night_row.add_theme_constant_override("separation", 8)
-	night_pad.add_child(night_row)
-
-	var night_copy := VBoxContainer.new()
-	night_copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	night_copy.add_theme_constant_override("separation", 0)
-	night_row.add_child(night_copy)
-	night_copy.add_child(_label("EXTRA NIGHT", FONT_BODY, TEXT_PRIMARY))
-	night_copy.add_child(_label("$%d buys one more day." % EXTRA_NIGHT_COST, FONT_SMALL, TEXT_MUTED))
-
-	ui["extra_night_count"] = _label("+0", 24, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["extra_night_count"].custom_minimum_size = Vector2(50, 0)
-	night_row.add_child(ui["extra_night_count"])
-
-	ui["extra_night_remove"] = _tactile_button("-", 42, 40, BG_PANEL, BORDER_DARK, TEXT_MUTED)
-	ui["extra_night_remove"].pressed.connect(_remove_extra_night_from_cart)
-	night_row.add_child(ui["extra_night_remove"])
-
-	ui["extra_night_add"] = _tactile_button("+", 42, 40, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
-	ui["extra_night_add"].pressed.connect(_add_extra_night_to_cart)
-	night_row.add_child(ui["extra_night_add"])
+	var lanes := VBoxContainer.new()
+	lanes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lanes.add_theme_constant_override("separation", 12)
+	right_scroll.add_child(lanes)
 
 	for key in UPGRADE_KEYS:
 		var lane := _upgrade_store_lane(key)
-		body.add_child(lane)
+		lanes.add_child(lane)
 		upgrade_store_lanes[key] = lane
+
+
+# Narrow left column of the upgrade shop: buy one extra night at sea, instant purchase.
+func _build_extra_night_column() -> Control:
+	var panel := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 8, 5)
+	panel.custom_minimum_size = Vector2(236, 0)
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 16)
+	pad.add_theme_constant_override("margin_right", 16)
+	pad.add_theme_constant_override("margin_top", 18)
+	pad.add_theme_constant_override("margin_bottom", 18)
+	panel.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 14)
+	pad.add_child(col)
+
+	col.add_child(_label("EXTRA NIGHT", 25, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+
+	var icon := _icon_texture_rect(ICON_DAY_TEXTURE, Vector2(80, 80), GOLD)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(icon)
+
+	var blurb := _label("Buy one more day at sea. Extends the season the moment you buy.", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	blurb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(blurb)
+
+	ui["extra_night_owned"] = _label("", FONT_BODY, CYAN, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["extra_night_owned"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(ui["extra_night_owned"])
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(spacer)
+
+	ui["extra_night_buy"] = _tactile_button("BUY  $%d" % EXTRA_NIGHT_COST, 0, 68, GOLD_DEEP, GOLD, Color("#241a02"))
+	ui["extra_night_buy"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["extra_night_buy"].pressed.connect(_buy_extra_night)
+	col.add_child(ui["extra_night_buy"])
+
+	return panel
 
 
 func _build_tray_body_repair() -> void:
 	var body := VBoxContainer.new()
 	body.name = "RepairBody"
-	body.add_theme_constant_override("separation", 6)
+	body.add_theme_constant_override("separation", 12)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	ui["tray_body"].add_child(body)
 	ui["tray_body_repair"] = body
 
 	for key in CONDITION_KEYS:
-		var row := _segment_row(_condition_name(key), CONDITION_MAX, false, key, true)
+		var row := _segment_row(_condition_name(key), CONDITION_MAX, false, key, true, true)
 		body.add_child(row)
 		repair_tray_rows[key] = row
+
+
+# Chunky, color-filled funds readout for the shop header.
+func _funds_pill(text: String) -> PanelContainer:
+	var p := PanelContainer.new()
+	var s := _styled_shadow(GOLD_DEEP.lerp(GOLD, 0.32), GOLD.lightened(0.18), 3, 9, 5)
+	s.shadow_color = Color(0, 0, 0, 0.4)
+	s.shadow_offset = Vector2(0, 3)
+	s.content_margin_top = 8
+	s.content_margin_bottom = 10
+	s.content_margin_left = 18
+	s.content_margin_right = 20
+	p.add_theme_stylebox_override("panel", s)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 9)
+	p.add_child(row)
+
+	var icon := _icon_texture_rect(ICON_FUNDS_TEXTURE, Vector2(30, 30), Color("#3a2c05"))
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(icon)
+
+	var l := _label(text, 30, Color("#241a02"), HORIZONTAL_ALIGNMENT_CENTER)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(l)
+
+	p.set_meta("label", l)
+	return p
+
+
+# Solid accent chip used on the card-preview overlay, e.g. "+1 MOTOR".
+func _preview_chip(text: String, accent: Color) -> PanelContainer:
+	var p := PanelContainer.new()
+	var s := _styled_shadow(accent.darkened(0.06), accent.lightened(0.32), 2, 8, 4)
+	s.shadow_color = Color(0, 0, 0, 0.4)
+	s.shadow_offset = Vector2(0, 3)
+	s.content_margin_top = 7
+	s.content_margin_bottom = 9
+	s.content_margin_left = 22
+	s.content_margin_right = 22
+	p.add_theme_stylebox_override("panel", s)
+	var l := _label(text, 27, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.add_child(l)
+	p.set_meta("label", l)
+	return p
 
 
 func _build_upgrade_card_preview_overlay(parent: Control) -> void:
@@ -3279,75 +3341,49 @@ func _build_upgrade_card_preview_overlay(parent: Control) -> void:
 	shade.gui_input.connect(_on_upgrade_preview_backdrop_input)
 	overlay.add_child(shade)
 
-	var stage := HBoxContainer.new()
+	# Vertical stack so the card art is the hero; only a chip + price + buttons below it.
+	var stage := VBoxContainer.new()
 	stage.anchor_left = 0.5
 	stage.anchor_right = 0.5
 	stage.anchor_top = 0.5
 	stage.anchor_bottom = 0.5
-	stage.offset_left = -390
-	stage.offset_right = 390
-	stage.offset_top = -245
-	stage.offset_bottom = 245
+	stage.offset_left = -240
+	stage.offset_right = 240
+	stage.offset_top = -340
+	stage.offset_bottom = 340
 	stage.alignment = BoxContainer.ALIGNMENT_CENTER
-	stage.add_theme_constant_override("separation", 26)
+	stage.add_theme_constant_override("separation", 16)
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(stage)
 	ui["upgrade_card_preview_stage"] = stage
 
 	var card_slot := Control.new()
 	card_slot.custom_minimum_size = Vector2(316, 412)
+	card_slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	card_slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	card_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(card_slot)
 	ui["upgrade_card_preview_slot"] = card_slot
 
-	var info := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 7, 8)
-	info.custom_minimum_size = Vector2(310, 0)
-	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	stage.add_child(info)
+	ui["upgrade_card_preview_chip"] = _preview_chip("+1 MOTOR", GOLD)
+	ui["upgrade_card_preview_chip"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	stage.add_child(ui["upgrade_card_preview_chip"])
 
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 18)
-	pad.add_theme_constant_override("margin_right", 18)
-	pad.add_theme_constant_override("margin_top", 16)
-	pad.add_theme_constant_override("margin_bottom", 16)
-	info.add_child(pad)
+	ui["upgrade_card_preview_price"] = _label("$0", 36, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["upgrade_card_preview_price"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	stage.add_child(ui["upgrade_card_preview_price"])
 
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 10)
-	pad.add_child(col)
-
-	ui["upgrade_card_preview_title"] = _label("UPGRADE", 28, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["upgrade_card_preview_title"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(ui["upgrade_card_preview_title"])
-
-	ui["upgrade_card_preview_level"] = _label("CARD 1/5", FONT_BODY, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["upgrade_card_preview_level"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(ui["upgrade_card_preview_level"])
-
-	ui["upgrade_card_preview_desc"] = _label("", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["upgrade_card_preview_desc"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["upgrade_card_preview_desc"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(ui["upgrade_card_preview_desc"])
-
-	ui["upgrade_card_preview_effect"] = _label("", FONT_BODY, CYAN, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["upgrade_card_preview_effect"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["upgrade_card_preview_effect"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(ui["upgrade_card_preview_effect"])
-
-	ui["upgrade_card_preview_price"] = _label("$0", 34, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["upgrade_card_preview_price"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(ui["upgrade_card_preview_price"])
-
-	ui["upgrade_card_preview_buy"] = _tactile_button("UPGRADE", 0, 58, PURPLE_DEEP, PURPLE, TEXT_PRIMARY)
-	ui["upgrade_card_preview_buy"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["upgrade_card_preview_buy"] = _tactile_button("UPGRADE", 0, 64, PURPLE_DEEP, PURPLE, TEXT_PRIMARY)
+	ui["upgrade_card_preview_buy"].custom_minimum_size = Vector2(320, 64)
+	ui["upgrade_card_preview_buy"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	ui["upgrade_card_preview_buy"].pressed.connect(_purchase_selected_upgrade)
-	col.add_child(ui["upgrade_card_preview_buy"])
+	stage.add_child(ui["upgrade_card_preview_buy"])
 
-	ui["upgrade_card_preview_close"] = _tactile_button("CLOSE", 0, 48, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
-	ui["upgrade_card_preview_close"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["upgrade_card_preview_close"] = _tactile_button("CLOSE", 0, 52, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
+	ui["upgrade_card_preview_close"].custom_minimum_size = Vector2(320, 52)
+	ui["upgrade_card_preview_close"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	ui["upgrade_card_preview_close"].pressed.connect(_close_upgrade_card_preview)
-	col.add_child(ui["upgrade_card_preview_close"])
+	stage.add_child(ui["upgrade_card_preview_close"])
 
 
 func _build_card_tooltip_overlay() -> void:
@@ -3607,6 +3643,10 @@ func _open_upgrade_card_preview(key: String) -> void:
 	var current := int(upgrades.get(key, 0))
 	selected_upgrade_card_level = clampi(current + 1, 1, UPGRADE_MAX_LEVEL)
 	upgrade_card_purchase_locked = false
+	if ui.has("upgrade_card_preview_stage"):
+		var st: Control = ui["upgrade_card_preview_stage"]
+		st.scale = Vector2.ONE
+		st.modulate = Color(1, 1, 1, 1)
 	if ui.has("upgrade_card_preview_overlay"):
 		(ui["upgrade_card_preview_overlay"] as Control).visible = true
 	_refresh_upgrade_card_preview()
@@ -3644,15 +3684,18 @@ func _refresh_upgrade_card_preview() -> void:
 	var cost := _upgrade_cost(key, current) if not maxed else 0
 	var can_buy := not maxed and _is_docked() and money >= cost and not upgrade_card_purchase_locked
 
-	(ui["upgrade_card_preview_title"] as Label).text = _upgrade_name(key).to_upper()
-	(ui["upgrade_card_preview_level"] as Label).text = "CARD %d/%d" % [level, UPGRADE_MAX_LEVEL]
-	(ui["upgrade_card_preview_desc"] as Label).text = _row_description(key, true)
-	(ui["upgrade_card_preview_effect"] as Label).text = _upgrade_effect_text(key, level)
+	var chip: PanelContainer = ui["upgrade_card_preview_chip"]
+	(chip.get_meta("label") as Label).text = "MAXED" if maxed else "+1 %s" % _upgrade_name(key).to_upper()
+	chip.visible = true
+
 	var price: Label = ui["upgrade_card_preview_price"]
 	price.text = "MAXED" if maxed else "$%d" % cost
 	price.add_theme_color_override("font_color", GOLD if can_buy or maxed else RED)
+	price.visible = true
+
 	var buy: Button = ui["upgrade_card_preview_buy"]
-	buy.text = "MAXED" if maxed else "UPGRADE"
+	buy.visible = not maxed
+	buy.text = "UPGRADE"
 	buy.disabled = not can_buy
 	var buy_text := TEXT_PRIMARY if can_buy else TEXT_DIM
 	buy.add_theme_color_override("font_color", buy_text)
@@ -3661,19 +3704,8 @@ func _refresh_upgrade_card_preview() -> void:
 	buy.add_theme_color_override("font_disabled_color", buy_text)
 	_apply_tactile_style(buy, PURPLE_DEEP if can_buy else BG_PANEL, PURPLE if can_buy else BORDER_DARK)
 
-
-func _set_upgrade_preview_purchased_state(level: int, cost: int) -> void:
-	if not ui.has("upgrade_card_preview_price") or selected_upgrade_card_key == "":
-		return
-	(ui["upgrade_card_preview_level"] as Label).text = "UNLOCKED CARD %d/%d" % [level, UPGRADE_MAX_LEVEL]
-	(ui["upgrade_card_preview_price"] as Label).text = "-$%d" % cost
-	(ui["upgrade_card_preview_price"] as Label).add_theme_color_override("font_color", GOLD)
-	var buy: Button = ui["upgrade_card_preview_buy"]
-	buy.text = "UPGRADED"
-	buy.disabled = true
-	buy.add_theme_color_override("font_color", TEXT_DIM)
-	buy.add_theme_color_override("font_disabled_color", TEXT_DIM)
-	_apply_tactile_style(buy, BG_PANEL, BORDER_DARK)
+	if ui.has("upgrade_card_preview_close"):
+		(ui["upgrade_card_preview_close"] as Button).visible = true
 
 
 func _rebuild_upgrade_preview_cards() -> void:
@@ -3766,14 +3798,44 @@ func _purchase_selected_upgrade() -> void:
 	flip.tween_callback(_finish_upgrade_card_purchase.bind(level, cost))
 
 
-func _finish_upgrade_card_purchase(level: int, cost: int) -> void:
+func _finish_upgrade_card_purchase(_level: int, _cost: int) -> void:
 	upgrade_card_purchase_locked = false
-	_set_upgrade_preview_purchased_state(level, cost)
+	var key := selected_upgrade_card_key
 	_refresh_upgrade_store_lanes()
-	_show_upgrade_purchase_fanfare(_upgrade_accent(selected_upgrade_card_key))
+
+	# Reveal: drop the price/buttons and leave only the card art + "+1 …" chip,
+	# then animate the whole stage away and close.
+	if ui.has("upgrade_card_preview_price"):
+		(ui["upgrade_card_preview_price"] as Label).visible = false
+	if ui.has("upgrade_card_preview_buy"):
+		(ui["upgrade_card_preview_buy"] as Button).visible = false
+	if ui.has("upgrade_card_preview_close"):
+		(ui["upgrade_card_preview_close"] as Button).visible = false
+	if ui.has("upgrade_card_preview_chip") and key != "":
+		var chip: PanelContainer = ui["upgrade_card_preview_chip"]
+		(chip.get_meta("label") as Label).text = "+1 %s" % _upgrade_name(key).to_upper()
+		chip.visible = true
+
+	_show_upgrade_purchase_fanfare(_upgrade_accent(key))
 	if audio_catch:
 		audio_catch.stop()
 		audio_catch.play()
+
+	var stage: Control = ui.get("upgrade_card_preview_stage", null)
+	if stage != null and is_instance_valid(stage):
+		stage.pivot_offset = stage.size * 0.5
+		var t := stage.create_tween()
+		t.tween_interval(0.72)
+		t.tween_property(stage, "scale", Vector2(0.84, 0.84), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+		t.parallel().tween_property(stage, "modulate:a", 0.0, 0.22)
+		t.tween_callback(func() -> void:
+			if is_instance_valid(stage):
+				stage.scale = Vector2.ONE
+				stage.modulate = Color(1, 1, 1, 1)
+			_close_upgrade_card_preview())
+	else:
+		_close_upgrade_card_preview()
+
 	_update_ui()
 
 
@@ -4001,13 +4063,13 @@ func _upgrade_effect_text(key: String, level: int) -> String:
 # Segmented bar widget
 # ────────────────────────────────────────────────────────────────────────
 
-func _segment_row(title: String, total_segments: int, is_upgrade: bool, key: String, interactive: bool) -> Control:
+func _segment_row(title: String, total_segments: int, is_upgrade: bool, key: String, interactive: bool, chunky: bool = false) -> Control:
 	var wrap := PanelContainer.new()
 	var wrap_style := _styled(BG_BODY, BORDER_DARK, 0, 0)
-	wrap_style.content_margin_left = 10
-	wrap_style.content_margin_right = 10
-	wrap_style.content_margin_top = 12
-	wrap_style.content_margin_bottom = 12
+	wrap_style.content_margin_left = 16 if chunky else 10
+	wrap_style.content_margin_right = 16 if chunky else 10
+	wrap_style.content_margin_top = 16 if chunky else 12
+	wrap_style.content_margin_bottom = 16 if chunky else 12
 	wrap.add_theme_stylebox_override("panel", wrap_style)
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
@@ -4031,15 +4093,15 @@ func _segment_row(title: String, total_segments: int, is_upgrade: bool, key: Str
 	title_line.add_theme_constant_override("separation", 8)
 	top.add_child(title_line)
 
-	var name_label := _label("%s:" % title, 21, TEXT_PRIMARY)
+	var name_label := _label("%s:" % title, 27 if chunky else 21, TEXT_PRIMARY)
 	title_line.add_child(name_label)
 
-	var desc := _label(_row_description(key, is_upgrade), FONT_BODY, TEXT_MUTED)
+	var desc := _label(_row_description(key, is_upgrade), 18 if chunky else FONT_BODY, TEXT_MUTED)
 	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_line.add_child(desc)
 
-	var percent_label := _label("", 28, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_RIGHT)
-	percent_label.custom_minimum_size = Vector2(70, 0)
+	var percent_label := _label("", 34 if chunky else 28, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_RIGHT)
+	percent_label.custom_minimum_size = Vector2(78 if chunky else 70, 0)
 	top.add_child(percent_label)
 
 	var bar_line := HBoxContainer.new()
@@ -4066,7 +4128,7 @@ func _segment_row(title: String, total_segments: int, is_upgrade: bool, key: Str
 	for i in range(total_segments):
 		var seg_btn := Button.new()
 		seg_btn.focus_mode = Control.FOCUS_NONE
-		seg_btn.custom_minimum_size = Vector2(28, 24)
+		seg_btn.custom_minimum_size = Vector2(44, 40) if chunky else Vector2(28, 24)
 		seg_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		seg_btn.add_theme_font_size_override("font_size", 1)
 		seg_btn.text = ""
@@ -4317,6 +4379,23 @@ func _remove_extra_night_from_cart() -> void:
 		return
 	extra_night_cart -= 1
 	_log_upgrade_cart_status()
+	_update_ui()
+
+
+# Instant purchase of one extra night at sea (no cart / checkout step).
+func _buy_extra_night() -> void:
+	if game_over:
+		return
+	if not _is_docked():
+		_log("Buy extra nights at the docks.")
+		return
+	if money < EXTRA_NIGHT_COST:
+		_log("An extra night costs $%d. You only have $%d." % [EXTRA_NIGHT_COST, money])
+		return
+	money -= EXTRA_NIGHT_COST
+	extra_nights += 1
+	_stat_add("extra_nights_bought", 1)
+	_log("Bought an extra night at sea (+1 day) for $%d." % EXTRA_NIGHT_COST)
 	_update_ui()
 
 
@@ -6618,46 +6697,14 @@ func _update_boat_tab() -> void:
 
 
 func _update_upgrade_cart_ui() -> void:
-	var cost := _upgrade_cart_cost()
-	var remaining := money - cost
-	var showing_upgrade_controls := active_tray == "" or active_tray == "upgrade"
 	_refresh_upgrade_store_lanes()
-	if ui.has("upgrade_funds"):
-		var funds: Label = ui["upgrade_funds"]
-		funds.text = "Funds: $%d" % money
-		funds.add_theme_color_override("font_color", TEXT_PRIMARY)
-	if ui.has("upgrade_plan"):
-		var plan: Label = ui["upgrade_plan"]
-		plan.visible = showing_upgrade_controls
-		var extra_text := ""
-		if extra_night_cart > 0:
-			extra_text = " · +%d night%s" % [extra_night_cart, "" if extra_night_cart == 1 else "s"]
-		if cost > 0:
-			plan.text = "Plan: $%d · Remaining: $%d%s" % [cost, remaining, extra_text]
-		else:
-			plan.text = "Pick a card lane to inspect the next upgrade."
-		plan.add_theme_color_override("font_color", RED if remaining < 0 else (GOLD if cost > 0 else TEXT_MUTED))
-	if ui.has("extra_night_count"):
-		var nights: Label = ui["extra_night_count"]
-		nights.visible = showing_upgrade_controls
-		nights.text = "+%d" % extra_night_cart
-		nights.add_theme_color_override("font_color", GOLD if extra_night_cart > 0 else TEXT_DIM)
-	if ui.has("extra_night_add"):
-		var add_btn: Button = ui["extra_night_add"]
-		add_btn.visible = showing_upgrade_controls
-		add_btn.disabled = game_over or not _is_docked()
-	if ui.has("extra_night_remove"):
-		var remove_btn: Button = ui["extra_night_remove"]
-		remove_btn.visible = showing_upgrade_controls
-		remove_btn.disabled = game_over or not _is_docked() or extra_night_cart <= 0
-	if ui.has("upgrade_checkout"):
-		var checkout: Button = ui["upgrade_checkout"]
-		checkout.visible = showing_upgrade_controls and cost > 0
-		checkout.disabled = game_over or not _is_docked() or cost <= 0 or remaining < 0
-	if ui.has("upgrade_reset"):
-		var reset: Button = ui["upgrade_reset"]
-		reset.visible = showing_upgrade_controls and cost > 0
-		reset.disabled = game_over or not _is_docked() or cost <= 0
+	if ui.has("extra_night_owned"):
+		var owned: Label = ui["extra_night_owned"]
+		owned.text = "Already added: +%d night%s" % [extra_nights, "" if extra_nights == 1 else "s"] if extra_nights > 0 else "No extra nights yet"
+		owned.add_theme_color_override("font_color", CYAN if extra_nights > 0 else TEXT_DIM)
+	if ui.has("extra_night_buy"):
+		var buy: Button = ui["extra_night_buy"]
+		buy.disabled = game_over or not _is_docked() or money < EXTRA_NIGHT_COST
 
 
 func _update_live_well_tab() -> void:
