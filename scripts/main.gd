@@ -101,6 +101,7 @@ const CARD_TREASURE_100_TEXTURE: Texture2D = preload("res://assets/cards/card-tr
 const CARD_TREASURE_200_TEXTURE: Texture2D = preload("res://assets/cards/card-treasure-200.png")
 const CARD_TREASURE_NIGHT_TEXTURE: Texture2D = preload("res://assets/cards/card-night-1.png")
 const CARD_BACK_TEXTURE: Texture2D = preload("res://assets/cards/card-back.png")
+const CATCH_WAVES_VIDEO: VideoStream = preload("res://assets/cutscenes/catch-waves-1.ogv")
 const CARD_MOTOR_TEXTURES: Array[Texture2D] = [
 	preload("res://assets/cards/card-motor-1.png"),
 	preload("res://assets/cards/card-motor-2.png"),
@@ -2909,6 +2910,18 @@ func _build_catch_card_overlay() -> void:
 	add_child(overlay)
 	ui["catch_card_overlay"] = overlay
 
+	# Fullscreen background video (revealed by the comic-cut entrance on catch fans).
+	var video := VideoStreamPlayer.new()
+	video.stream = CATCH_WAVES_VIDEO
+	video.expand = true
+	video.loop = true
+	video.autoplay = false
+	video.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	video.visible = false
+	_anchor_fill(video)
+	overlay.add_child(video)
+	ui["catch_video"] = video
+
 	var shade := ColorRect.new()
 	shade.color = _with_alpha(Color("#020b15"), 0.68)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2939,6 +2952,50 @@ func _build_catch_card_overlay() -> void:
 	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(layer)
 	ui["catch_card_layer"] = layer
+
+	# Comic-cut shutters: two dark panels meeting on a diagonal seam that the "strike"
+	# splits open to reveal the video. Built inside a rotated Node2D frame whose local
+	# x-axis is the seam, so the two covers just slide along local ±y to open.
+	var slash := Node2D.new()
+	slash.visible = false
+	overlay.add_child(slash)
+	ui["catch_slash"] = slash
+
+	var big := 2400.0
+	var cover_col := Color("#04101c")
+	var cover_a := ColorRect.new()
+	cover_a.color = cover_col
+	cover_a.size = Vector2(big * 2.0, big)
+	cover_a.position = Vector2(-big, -big)
+	cover_a.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slash.add_child(cover_a)
+	ui["catch_slash_a"] = cover_a
+
+	var cover_b := ColorRect.new()
+	cover_b.color = cover_col
+	cover_b.size = Vector2(big * 2.0, big)
+	cover_b.position = Vector2(-big, 0.0)
+	cover_b.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slash.add_child(cover_b)
+	ui["catch_slash_b"] = cover_b
+
+	var line := ColorRect.new()
+	line.color = Color(0.88, 0.96, 1.0, 1.0)
+	line.size = Vector2(big * 2.0, 7.0)
+	line.position = Vector2(-big, -3.5)
+	line.pivot_offset = Vector2(0.0, 3.5)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slash.add_child(line)
+	ui["catch_slash_line"] = line
+
+	var flash := ColorRect.new()
+	flash.color = Color(1, 1, 1, 1)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.modulate = Color(1, 1, 1, 0)
+	flash.visible = false
+	_anchor_fill(flash)
+	overlay.add_child(flash)
+	ui["catch_flash"] = flash
 
 
 func _build_action_bar(parent: Container) -> void:
@@ -7692,6 +7749,7 @@ func _bloom_fan_options() -> Dictionary:
 func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, origin_center: Vector2 = Vector2(-1, -1), weather_mult: float = 1.0, catch_base: int = 0, catch_extra: int = 0) -> void:
 	var label := "+%d %s" % [quantity, species]
 	var opts := _bloom_fan_options()
+	opts["video_entrance"] = true
 	if multiplier > 1:
 		opts["mult_label"] = "X%d MULT" % multiplier
 		opts["mult_accent"] = GOLD
@@ -7731,6 +7789,74 @@ func _show_treasure_card_fan(tile: Dictionary, origin_center: Vector2 = Vector2(
 	_show_card_result_fan(_treasure_card_texture(value), 1, "+$%d Treasure" % value, GOLD, GOLD, "", Color(0, 0, 0, 0), origin_center, _bloom_fan_options())
 
 
+# Comic-book "anime cut": a diagonal strike rips across, then the screen splits open
+# along it in both directions to reveal the background video. Returns the time after
+# which the screen is clear and the card fan should fire.
+func _play_catch_video_entrance(token: int) -> float:
+	if not ui.has("catch_video") or not ui.has("catch_slash"):
+		return 0.0
+	var vp := get_viewport().get_visible_rect().size
+	var video: VideoStreamPlayer = ui["catch_video"]
+	video.visible = true
+	video.stop()
+	video.play()
+
+	var slash: Node2D = ui["catch_slash"]
+	var cover_a: ColorRect = ui["catch_slash_a"]
+	var cover_b: ColorRect = ui["catch_slash_b"]
+	var line: ColorRect = ui["catch_slash_line"]
+	var flash: ColorRect = ui["catch_flash"]
+	var big := 2400.0
+	var open_dist := 1300.0
+
+	# Cut runs from the top edge (1/3 in from the right) down to the bottom edge
+	# (1/3 in from the left); the strike draws from that top-right end toward bottom-left.
+	var a := Vector2(vp.x * 2.0 / 3.0, 0.0)
+	var b := Vector2(vp.x / 3.0, vp.y)
+	slash.position = (a + b) * 0.5
+	slash.rotation = (b - a).angle()
+	slash.visible = true
+	cover_a.position = Vector2(-big, -big)
+	cover_b.position = Vector2(-big, 0.0)
+	line.scale = Vector2(0.0, 1.0)
+	line.modulate = Color(1, 1, 1, 1)
+	line.visible = true
+
+	var strike := 0.16
+	var hold := 0.07
+	var open := 0.42
+
+	var t := slash.create_tween()
+	# Strike: the line rips across the seam, with a white impact flash.
+	t.tween_property(line, "scale:x", 1.0, strike).set_trans(Tween.TRANS_QUART).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_callback(func() -> void:
+		if not is_instance_valid(flash):
+			return
+		flash.visible = true
+		flash.modulate = Color(1, 1, 1, 0)
+		var ft := flash.create_tween()
+		ft.tween_property(flash, "modulate:a", 0.55, strike * 0.5)
+		ft.tween_property(flash, "modulate:a", 0.0, strike * 0.7)
+		ft.tween_callback(func() -> void:
+			if is_instance_valid(flash):
+				flash.visible = false))
+	t.tween_interval(hold)
+	# Open: the covers slide apart along the seam normal; the line fades out.
+	t.tween_callback(func() -> void:
+		if not is_instance_valid(cover_a):
+			return
+		var ot := cover_a.create_tween()
+		ot.set_parallel(true)
+		ot.tween_property(cover_a, "position:y", -big - open_dist, open).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+		ot.tween_property(cover_b, "position:y", open_dist, open).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+		ot.tween_property(line, "modulate:a", 0.0, open * 0.55))
+	t.tween_interval(open)
+	t.tween_callback(func() -> void:
+		if token == catch_card_token and is_instance_valid(slash):
+			slash.visible = false)
+	return strike + hold + open
+
+
 func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: String, total_accent: Color, unit_accent: Color, card_badge_text: String = "", card_badge_accent: Color = Color(0, 0, 0, 0), origin_center: Vector2 = Vector2(-1, -1), options: Dictionary = {}) -> void:
 	if quantity <= 0 or not ui.has("catch_card_overlay") or not ui.has("catch_card_layer"):
 		return
@@ -7756,6 +7882,25 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 	overlay.visible = true
 	overlay.modulate = Color(1, 1, 1, 0)
 	layer.modulate = Color(1, 1, 1, 1)
+
+	# Catch fans open with the comic-cut video reveal; everything else delays by 0.
+	var use_video := bool(options.get("video_entrance", false)) and ui.has("catch_video")
+	var entrance_seconds := 0.0
+	var shade: ColorRect = ui["catch_card_shade"]
+	if use_video:
+		# Lighter tint so the revealed video reads through behind the cards.
+		shade.color = _with_alpha(Color("#03080f"), 0.32)
+		entrance_seconds = _play_catch_video_entrance(token)
+	else:
+		shade.color = _with_alpha(Color("#020b15"), 0.68)
+		if ui.has("catch_video"):
+			var v: VideoStreamPlayer = ui["catch_video"]
+			v.stop()
+			v.visible = false
+		if ui.has("catch_slash"):
+			(ui["catch_slash"] as Node2D).visible = false
+		if ui.has("catch_flash"):
+			(ui["catch_flash"] as Control).visible = false
 
 	var overlay_tween := overlay.create_tween()
 	ui["catch_card_overlay_tween"] = overlay_tween
@@ -7834,6 +7979,8 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 	# Drive the cascade: one card per stagger beat.
 	var driver := layer.create_tween()
 	ui["catch_card_driver_tween"] = driver
+	if entrance_seconds > 0.0:
+		driver.tween_interval(entrance_seconds)
 	driver.tween_callback(deal_card.bind(0))
 	for m in range(1, card_count):
 		driver.tween_interval(draw_stagger)
@@ -7844,7 +7991,7 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 		var spread_delay := float(options.get("spread_delay", 0.2))
 		var spread_seconds := float(options.get("spread_seconds", 0.46))
 		var spread_stagger := float(options.get("spread_stagger", 0.022))
-		var spread_at := float(card_count - 1) * draw_stagger + draw_seconds + spread_delay
+		var spread_at := entrance_seconds + float(card_count - 1) * draw_stagger + draw_seconds + spread_delay
 		var spread_sched := layer.create_tween()
 		spread_sched.tween_interval(spread_at)
 		spread_sched.tween_callback(func():
@@ -7856,7 +8003,7 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 		)
 
 	# The big species total slams in; a multiplier (if any) is its own colored pill below it.
-	var total_delay := _catch_total_appear_delay(card_count, options)
+	var total_delay := entrance_seconds + _catch_total_appear_delay(card_count, options)
 	_schedule_catch_total_bug(layer, total_label, total_accent, total_center, total_delay, token, options)
 	var mult_label := str(options.get("mult_label", ""))
 	if mult_label != "":
@@ -8204,6 +8351,12 @@ func _schedule_catch_overlay_hide(overlay: Control, delay: float, token: int) ->
 			if token == catch_card_token:
 				overlay.visible = false
 				_clear_catch_card_layer()
+				if ui.has("catch_video"):
+					var v: VideoStreamPlayer = ui["catch_video"]
+					v.stop()
+					v.visible = false
+				if ui.has("catch_slash"):
+					(ui["catch_slash"] as Node2D).visible = false
 		)
 	)
 
