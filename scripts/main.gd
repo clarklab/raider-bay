@@ -582,6 +582,7 @@ func _process(delta: float) -> void:
 	if ui.has("board_wrap"):
 		_update_board_presence_fx()
 	_update_audio(delta)
+	_update_end_day_prompt(delta)
 	if board_press_cell.x >= 0 and not board_long_fired and not game_over and active_tray == "":
 		board_press_time += delta
 		if board_press_time >= BOARD_LONG_PRESS_SECONDS:
@@ -729,13 +730,23 @@ func _update_audio(delta: float) -> void:
 	audio_birds.volume_db = AUDIO_SILENT_DB if birds_v <= 0.001 else linear_to_db(birds_v)
 
 
+# Once there's nothing useful left to do at sea, flash the MOVES/END DAY counter
+# (it reads "END DAY" at that point) so it's obvious that's the tap to finish the day.
 func _update_end_day_prompt(delta: float) -> void:
-	var b: Button = action_buttons["end_day"]
-	if not b.visible or b.disabled or not bool(b.get_meta("action_prompt", false)):
+	if not ui.has("stat_moves"):
+		return
+	var card: Control = ui["stat_moves"]
+	if not is_instance_valid(card):
+		return
+	if not game_started or game_over or active_tray != "" or _is_docked() or _has_useful_action():
+		if end_day_prompt_time != 0.0:
+			end_day_prompt_time = 0.0
+			card.modulate = Color(1, 1, 1, 1)
 		return
 	end_day_prompt_time += delta
-	var pulse := 0.68 + 0.32 * ((sin(end_day_prompt_time * PI * 3.0) + 1.0) * 0.5)
-	b.modulate = Color(1, 1, 1, pulse)
+	var t := (sin(end_day_prompt_time * PI * 2.6) + 1.0) * 0.5
+	var glow := lerpf(1.0, 1.55, t)
+	card.modulate = Color(glow, glow, glow, 1.0)
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1540,8 +1551,8 @@ func _show_confirm_overlay(title_text: String, body_text: String, confirm_label:
 func _request_end_day() -> void:
 	if game_over or active_tray != "":
 		return
-	if moves_remaining > 0 or casts_remaining > 0 or finds_remaining > 0:
-		_show_confirm_overlay("END YOUR DAY?", "You still have moves, casts, or finds left. Are you sure you want to end your day?", "END DAY", _end_day)
+	if _has_useful_action():
+		_show_confirm_overlay("END YOUR DAY?", "You can still move, fish, or cast from here. Are you sure you want to end your day?", "END DAY", _end_day)
 	else:
 		_end_day()
 
@@ -5195,12 +5206,25 @@ func _can_attempt_cast_here() -> bool:
 	return bool(tile["found"]) and str(tile["content"]) == "treasure"
 
 
-func _should_prompt_end_day() -> bool:
-	if game_over or active_tray != "" or _is_docked():
+# A fish-finder use only helps on water you haven't scanned or fished yet.
+func _can_find_here() -> bool:
+	if _is_docked() or finds_remaining <= 0:
+		return false
+	var tile: Dictionary = board[_cell_index(boat_pos)]
+	return not bool(tile["found"]) and not bool(tile["depleted"])
+
+
+# True only when the player could still spend an action to some effect this turn:
+# move somewhere, scan un-found water, or cast a workable hole. Holding leftover
+# casts/finds you can't actually use here (already-fished square) does not count.
+func _has_useful_action() -> bool:
+	if _is_docked():
 		return false
 	if moves_remaining > 0:
-		return false
-	return casts_remaining <= 0 or not _can_attempt_cast_here()
+		return true
+	if _can_attempt_cast_here():
+		return true
+	return _can_find_here()
 
 
 func _cast() -> void:
@@ -6297,7 +6321,8 @@ func _update_ui() -> void:
 
 func _update_hud() -> void:
 	_counter_set("stat_day", "%d/%d" % [day, _season_days()], true)
-	_counter_set("stat_funds", "$%d" % money, true)
+	# At the docks the funds counter doubles as the upgrade-store button.
+	_counter_set("stat_funds", "$%d" % money, true, "UPGRADE" if _is_docked() else "FUNDS")
 	if moves_remaining > 0:
 		_counter_set("stat_moves", "%d" % moves_remaining, true, "MOVES")
 	else:
