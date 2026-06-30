@@ -15,8 +15,8 @@ const DOCK_END_COL := DOCK_COL + 1
 const DOCK_ACCESS_START_COL := DOCK_START_COL - 1
 const DOCK_ACCESS_END_COL := DOCK_END_COL + 1
 const BOARD_CARD_GAP := 4
-const BOARD_CELL_WIDTH := 78
-const BOARD_CELL_HEIGHT := 101
+const BOARD_CELL_WIDTH := 68
+const BOARD_CELL_HEIGHT := 87
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
 const BOARD_WRAP_WIDTH := BOARD_GRID_WIDTH + 54
@@ -46,8 +46,8 @@ const MID_CASH_ITEM_COUNT := 1
 const DEEP_CASH_ITEM_COUNT := 2
 const CASTS_PER_HOLE: Array[int] = [1, 2, 3, 5]
 const CAST_DIE_SIDES := 6
-const TABLE_SIDE_WIDTH := 280
-const TABLE_COMMAND_WIDTH := 332
+const TABLE_SIDE_WIDTH := 232
+const TABLE_COMMAND_WIDTH := 556
 const TABLE_HEADER_HEIGHT := 118
 const SAVE_PATH := "user://raider_bay_save.json"
 const HIGH_SCORES_PATH := "user://raider_bay_high_scores.json"
@@ -237,6 +237,12 @@ const BG_PANEL_DARK  := Color("#071a27")
 const BG_PANEL_LIGHT := Color("#12384f")
 const BG_BODY        := Color("#203b59")
 const BG_NAV         := Color("#081722")
+# Structural colors sampled from the study (assets/preview-design.png).
+const REF_BG_NAVY    := Color("#061854")  # deep screen background
+const REF_PANEL      := Color("#486084")  # right-side group + boat-status panel fill
+const REF_INSET      := Color("#0c182a")  # dark list/container insets
+const REF_CARD_NAVY  := Color("#24487e")  # weather card body
+const REF_BORDER     := Color("#fcfcfc")  # card / cell white border
 const BG_ROW         := Color("#243f5f")
 const BORDER_DARK    := Color("#07121c")
 const BORDER_FRAME   := Color("#27668d")
@@ -244,18 +250,19 @@ const BORDER_HI      := Color("#6fb6d8")
 const TEXT_PRIMARY   := Color("#f1f7fb")
 const TEXT_MUTED     := Color("#a3bccd")
 const TEXT_DIM       := Color("#5a7993")
-const CYAN           := Color("#8bd7f5")
+# Accents sampled from assets/preview-design.png (the study) for an exact match.
+const CYAN           := Color("#8ad2f0")
 const CYAN_DEEP      := Color("#1688b0")
-const GOLD           := Color("#f4c64a")
+const GOLD           := Color("#fcba00")
 const GOLD_DEEP      := Color("#b98a1d")
 const GOLD_DIM       := Color("#5b4818")
 const NEON_COMPUTER_YELLOW := Color("#fff04a")
-const RED            := Color("#f87171")
+const RED            := Color("#fc6060")
 const RED_DEEP       := Color("#a64545")
 const RED_DIM        := Color("#5b1f24")
-const GREEN          := Color("#62d3a0")
+const GREEN          := Color("#84ed72")
 const GREEN_DEEP     := Color("#2e8c66")
-const PURPLE         := Color("#b59cf6")
+const PURPLE         := Color("#c684fc")
 const PURPLE_DEEP    := Color("#6d58b8")
 const INDIGO         := Color("#8f9cf1")
 const INDIGO_DEEP    := Color("#4f5db9")
@@ -802,7 +809,7 @@ func _build_ui() -> void:
 	add_child(background)
 
 	var background_wash := ColorRect.new()
-	background_wash.color = _with_alpha(BG_BODY, 0.54)
+	background_wash.color = _with_alpha(REF_BG_NAVY, 0.66)
 	background_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	background_wash.anchor_right = 1.0
 	background_wash.anchor_bottom = 1.0
@@ -954,11 +961,11 @@ func _build_left_table_rail(parent: Container) -> void:
 	col.add_theme_constant_override("separation", 16)
 	pad.add_child(col)
 
-	col.add_child(_counter_button("stat_day", ICON_DAY_TEXTURE, "DAY", Color("#8ad5f3"), Callable()))
-	col.add_child(_counter_button("stat_funds", ICON_FUNDS_TEXTURE, "FUNDS", Color("#ffba00"), _on_funds_pressed))
-	col.add_child(_counter_button("stat_moves", ICON_MOVES_TEXTURE, "MOVES", Color("#ff6161"), _request_end_day))
-	col.add_child(_counter_button("stat_finds", ICON_FIND_FISH_TEXTURE, "FIND FISH", Color("#c889ff"), _on_finds_counter_pressed))
-	col.add_child(_counter_button("stat_casts", ICON_CAST_TEXTURE, "CAST", Color("#84ed72"), _cast))
+	col.add_child(_counter_button("stat_day", ICON_DAY_TEXTURE, "DAY", Color("#8ad2f0"), Color("#12548a"), Callable()))
+	col.add_child(_counter_button("stat_funds", ICON_FUNDS_TEXTURE, "FUNDS", Color("#fcba00"), Color("#723c00"), _on_funds_pressed))
+	col.add_child(_counter_button("stat_moves", ICON_MOVES_TEXTURE, "MOVES", Color("#fc6060"), Color("#781818"), _request_end_day))
+	col.add_child(_counter_button("stat_finds", ICON_FIND_FISH_TEXTURE, "FIND FISH", Color("#c684fc"), Color("#381098"), _on_finds_counter_pressed))
+	col.add_child(_counter_button("stat_casts", ICON_CAST_TEXTURE, "CAST", Color("#84ea72"), Color("#005860"), _cast))
 
 
 func _build_center_table(parent: Container) -> void:
@@ -982,60 +989,228 @@ func _build_center_table(parent: Container) -> void:
 
 
 func _build_command_rail(parent: Container) -> void:
-	# Fixed-width rail. clip_contents + clipped/auto-wrapped labels keep its width pinned
-	# to TABLE_COMMAND_WIDTH so dynamic text (log lines, fish counts) can never widen it
-	# and shove the board sideways — the old source of board/rail layout shift.
 	var rail := _bare_panel()
 	rail.custom_minimum_size = Vector2(TABLE_COMMAND_WIDTH, 0)
-	rail.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	rail.size_flags_horizontal = Control.SIZE_SHRINK_END
 	rail.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	rail.clip_contents = true
 	parent.add_child(rail)
 
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 10)
-	pad.add_theme_constant_override("margin_right", 10)
-	pad.add_theme_constant_override("margin_top", 10)
-	pad.add_theme_constant_override("margin_bottom", 10)
+	pad.add_theme_constant_override("margin_left", 6)
+	pad.add_theme_constant_override("margin_right", 6)
+	pad.add_theme_constant_override("margin_top", 6)
+	pad.add_theme_constant_override("margin_bottom", 6)
 	rail.add_child(pad)
 
-	# Outer column: a fixed (never-scrolling) priority stack on top, scrollable extras below.
 	var outer := VBoxContainer.new()
 	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	outer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	outer.add_theme_constant_override("separation", 12)
+	outer.add_theme_constant_override("separation", 10)
 	pad.add_child(outer)
 
-	# Priority stack — always pinned to the top, never reflows: weather, live well, market.
-	var top := VBoxContainer.new()
-	top.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	top.add_theme_constant_override("separation", 12)
-	outer.add_child(top)
-	_build_weather_calendar(top)
-	_build_live_well_card(top)
-	_build_market_card(top)
+	# The forecast + live well + market are one grouped interface; boat status sits below.
+	_build_forecast_group(outer)
+	_build_boat_status_panel(outer)
 
-	# Everything you scroll to lives below the fold.
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.scroll_deadzone = 8
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.clip_contents = true
-	outer.add_child(scroll)
+
+# Forecast card-stack + the Live Well / Market interface attached beneath it.
+func _build_forecast_group(parent: Container) -> void:
+	var group := PanelContainer.new()
+	group.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	group.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	group.size_flags_stretch_ratio = 1.35
+	var gstyle := _styled_shadow(REF_PANEL, REF_PANEL.darkened(0.32), 2, 13, 5)
+	gstyle.content_margin_left = 13
+	gstyle.content_margin_right = 13
+	gstyle.content_margin_top = 11
+	gstyle.content_margin_bottom = 12
+	group.add_theme_stylebox_override("panel", gstyle)
+	parent.add_child(group)
 
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 12)
-	scroll.add_child(col)
-	ui["command_rail_col"] = col
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 10)
+	group.add_child(col)
 
-	_build_compact_ship_card(col)
-	_build_action_bar(col)
-	_build_radio_card(col)
-	_build_log_strip(col)
+	# Header — title + the radio megaphone.
+	var head := HBoxContainer.new()
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_theme_constant_override("separation", 8)
+	col.add_child(head)
+	var title := _label("WEATHER FORECAST", 17, CYAN)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(title)
+	head.add_child(_radio_megaphone_button())
 
-	_make_rail_scrollable(col)
+	# Weather card stack sits in a dark inset; it's wider than the window so further
+	# days peek off the right edge.
+	var wx_inset := PanelContainer.new()
+	wx_inset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var wxs := _styled(REF_INSET, REF_INSET.lightened(0.08), 1, 11)
+	wxs.content_margin_left = 9
+	wxs.content_margin_right = 9
+	wxs.content_margin_top = 9
+	wxs.content_margin_bottom = 9
+	wx_inset.add_theme_stylebox_override("panel", wxs)
+	col.add_child(wx_inset)
+	var window := Control.new()
+	window.clip_contents = true
+	window.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	window.custom_minimum_size = Vector2(0, 112)
+	wx_inset.add_child(window)
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", WEATHER_DAY_CARD_GAP)
+	strip.anchor_top = 0.0
+	strip.anchor_bottom = 1.0
+	window.add_child(strip)
+	ui["weather_strip"] = strip
+
+	# Live Well + Market interface row.
+	var iface := HBoxContainer.new()
+	iface.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	iface.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	iface.add_theme_constant_override("separation", 10)
+	col.add_child(iface)
+	iface.add_child(_build_live_well_column())
+	iface.add_child(_build_market_column())
+
+
+func _radio_megaphone_button() -> Control:
+	var btn := Button.new()
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size = Vector2(36, 30)
+	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_apply_transparent_button_style(btn)
+	btn.pressed.connect(_on_radio_pressed)
+	var ic := _icon_texture_rect(ICON_RADIO_TEXTURE, Vector2(28, 26), TEXT_PRIMARY)
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(ic)
+	btn.add_child(ic)
+	return btn
+
+
+# Section header (cyan) on the slate panel, with a dark inset list below it.
+func _build_inset_section(title_text: String, accent: Color, ratio: float, rows_key: String, subhead: String = "", status_key: String = "") -> Control:
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.size_flags_stretch_ratio = ratio
+	col.add_theme_constant_override("separation", 5)
+
+	var head := HBoxContainer.new()
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(head)
+	var title := _label(title_text, 16, accent)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	if subhead != "":
+		head.add_child(_label(subhead, 11, TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT))
+	if status_key != "":
+		ui[status_key] = _label("EMPTY", 12, TEXT_MUTED, HORIZONTAL_ALIGNMENT_RIGHT)
+		ui[status_key].clip_text = true
+		head.add_child(ui[status_key])
+
+	var inset := PanelContainer.new()
+	inset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inset.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var istyle := _styled(REF_INSET, REF_INSET.lightened(0.08), 1, 9)
+	istyle.content_margin_left = 9
+	istyle.content_margin_right = 9
+	istyle.content_margin_top = 8
+	istyle.content_margin_bottom = 8
+	inset.add_theme_stylebox_override("panel", istyle)
+	inset.clip_contents = true
+	col.add_child(inset)
+
+	var rows := VBoxContainer.new()
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rows.add_theme_constant_override("separation", 4)
+	inset.add_child(rows)
+	ui[rows_key] = rows
+	return col
+
+
+func _build_live_well_column() -> Control:
+	return _build_inset_section("LIVE WELL", CYAN, 1.08, "live_well_lines", "", "live_well_status")
+
+
+func _build_market_column() -> Control:
+	return _build_inset_section("MARKET PRICES", CYAN, 0.92, "top_market_rows")
+
+
+# Boat status: overlapping mini-cards that double as power meters, in three columns.
+func _build_boat_status_panel(parent: Container) -> void:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel.size_flags_stretch_ratio = 1.0
+	var style := _styled_shadow(REF_PANEL, REF_PANEL.darkened(0.32), 2, 13, 5)
+	style.content_margin_left = 12
+	style.content_margin_right = 12
+	style.content_margin_top = 11
+	style.content_margin_bottom = 12
+	panel.add_theme_stylebox_override("panel", style)
+	parent.add_child(panel)
+
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 10)
+	panel.add_child(row)
+
+	var vpill := PanelContainer.new()
+	vpill.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var vps := _styled(REF_INSET, REF_INSET.lightened(0.08), 1, 11)
+	vps.content_margin_left = 3
+	vps.content_margin_right = 3
+	vps.content_margin_top = 10
+	vps.content_margin_bottom = 10
+	vpill.add_theme_stylebox_override("panel", vps)
+	vpill.add_child(_vertical_label("BOAT STATUS", 15, CYAN))
+	row.add_child(vpill)
+
+	var cols := HBoxContainer.new()
+	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cols.add_theme_constant_override("separation", 7)
+	row.add_child(cols)
+
+	var col_nodes: Array[Control] = []
+	for i in range(3):
+		var c := VBoxContainer.new()
+		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		c.add_theme_constant_override("separation", 6)
+		cols.add_child(c)
+		col_nodes.append(c)
+	ui["boat_status_cols"] = col_nodes
+
+
+# A vertically-stacked label (reads bottom-to-top), recentered whenever its box resizes.
+func _vertical_label(text: String, font_size: int, color: Color) -> Control:
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(font_size + 8, 0)
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.clip_contents = true
+	var lbl := _label(text, font_size, color, HORIZONTAL_ALIGNMENT_CENTER)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lbl.rotation = deg_to_rad(-90.0)
+	box.add_child(lbl)
+	var reposition := func() -> void:
+		if not is_instance_valid(lbl):
+			return
+		var ts := lbl.get_minimum_size()
+		lbl.size = ts
+		lbl.pivot_offset = Vector2.ZERO
+		# After a -90° turn the label runs upward; place its origin so it centers in the box.
+		lbl.position = Vector2(box.size.x * 0.5 - ts.y * 0.5, box.size.y * 0.5 + ts.x * 0.5)
+	box.resized.connect(reposition)
+	reposition.call()
+	return box
 
 
 # Make interactive children transparent to drags so a finger-drag that STARTS on a button
@@ -1049,8 +1224,8 @@ func _make_rail_scrollable(node: Node) -> void:
 			_make_rail_scrollable(c)
 
 
-const WEATHER_DAY_CARD_WIDTH := 80
-const WEATHER_DAY_CARD_GAP := 7
+const WEATHER_DAY_CARD_WIDTH := 86
+const WEATHER_DAY_CARD_GAP := 8
 
 # Calendar-style forecast: three day-cards visible with a fourth overhanging the right
 # edge (clipped) as a "more weather ahead" affordance. Only the per-day multiplier pill
@@ -2427,7 +2602,7 @@ func _build_board(parent: Container) -> void:
 	ui["dock_strip"] = dock_btn
 	var right_cells := GRID_COLS - DOCK_COL - DOCK_WIDTH_CELLS
 	if right_cells > 0:
-		dock_row.add_child(_dock_parking_zone(right_cells, true))
+		dock_row.add_child(_dock_parking_zone(right_cells))
 
 	# Depth reads from card color alone — no rail/markings.
 	_build_board_toast(board_wrap)
@@ -2591,30 +2766,13 @@ func _draw_squarestep_card(parent: Control, card_size: Vector2, fill: Color, bor
 
 
 # A dashed-outline parking placeholder spanning `width_cells` cells of the dock row.
-func _dock_parking_zone(width_cells: int, with_boat: bool = false) -> Control:
+# Always empty now — the player's ship sits inside THE DOCKS square instead.
+func _dock_parking_zone(width_cells: int) -> Control:
 	var zone := Control.new()
 	var w := BOARD_CELL_WIDTH * width_cells + BOARD_CARD_GAP * (width_cells - 1)
 	zone.custom_minimum_size = Vector2(w, BOARD_CELL_HEIGHT)
 	zone.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	zone.draw.connect(_draw_parking_zone.bind(zone))
-	if with_boat:
-		# The player's ship parks in the first dotted slot, right beside THE DOCKS.
-		var boat := TextureRect.new()
-		boat.texture = ICON_CARD_SHIP_TEXTURE
-		boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		boat.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		boat.visible = false
-		boat.modulate = _with_alpha(TEXT_PRIMARY, 0.96)
-		boat.anchor_top = 0.5
-		boat.anchor_bottom = 0.5
-		boat.offset_left = 12.0
-		boat.offset_right = 66.0
-		boat.offset_top = -34.0
-		boat.offset_bottom = 28.0
-		zone.add_child(boat)
-		ui["dock_boat"] = boat
 	return zone
 
 
@@ -2654,6 +2812,27 @@ func _decorate_dock_button(dock_btn: Button) -> void:
 	_anchor_fill(label)
 	dock_btn.add_child(label)
 	dock_btn.set_meta("dock_label", label)
+
+	# The player's ship sits docked in the right half of the square (shown only when docked).
+	var boat := TextureRect.new()
+	boat.texture = ICON_CARD_SHIP_TEXTURE
+	boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boat.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boat.visible = false
+	boat.modulate = _with_alpha(TEXT_PRIMARY, 0.96)
+	boat.z_index = 12
+	boat.anchor_left = 0.5
+	boat.anchor_right = 1.0
+	boat.anchor_top = 0.0
+	boat.anchor_bottom = 1.0
+	boat.offset_left = 2.0
+	boat.offset_right = -10.0
+	boat.offset_top = 10.0
+	boat.offset_bottom = -10.0
+	dock_btn.add_child(boat)
+	ui["dock_boat"] = boat
 
 
 func _add_dock_card_shell_layer(dock_btn: Button) -> void:
@@ -6585,6 +6764,7 @@ func _update_forecast() -> void:
 		strip.add_child(_weather_day_card(current_weather, 0, true))
 		for i in range(min(3, forecast.size())):
 			strip.add_child(_weather_day_card(forecast[i], i + 1, false))
+		strip.add_child(_weather_peek_card())
 		return
 
 	if ui.has("forecast_slots"):
@@ -6772,6 +6952,17 @@ func _update_dock_strip() -> void:
 	if dock_boat:
 		dock_boat.visible = docked
 
+	# Boat in the dock → label hugs the left so the ship sits on the right; otherwise centered.
+	if dock_label:
+		if docked:
+			dock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			dock_label.offset_left = 16.0
+			dock_label.offset_right = 0.0
+		else:
+			dock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			dock_label.offset_left = 0.0
+			dock_label.offset_right = 0.0
+
 	var dock_fill := Color("#142449")
 	if docked:
 		dock_fill = Color("#1e355a")
@@ -6808,8 +6999,9 @@ func _update_action_buttons() -> void:
 		sell.disabled = game_over or not _is_docked() or live_well.is_empty()
 		_apply_action_visual_state(sell)
 
-	(ui["action_heading"] as Label).text = "AT THE DOCKS" if docked else "AT SEA"
-	(ui["action_heading"] as Label).add_theme_color_override("font_color", GOLD if docked else CYAN)
+	if ui.has("action_heading"):
+		(ui["action_heading"] as Label).text = "AT THE DOCKS" if docked else "AT SEA"
+		(ui["action_heading"] as Label).add_theme_color_override("font_color", GOLD if docked else CYAN)
 
 
 func _update_tabs() -> void:
@@ -6960,28 +7152,119 @@ func _update_radio_tab() -> void:
 			lines.add_child(line_lbl)
 
 
+const BOAT_METER_BLUE := Color("#00bafc")
+const BOAT_STATUS_UP_LABELS := {"motor": "MOTOR", "fish_finder": "FINDS", "nets": "NETS", "live_well": "WELL", "cannons": "GUNS", "defense": "DEFS"}
+const BOAT_STATUS_COND_LABELS := {"hull": "HULL", "propeller": "PROP", "rudder": "RUDDER", "nets": "NETS"}
+
 func _update_compact_ship_cards() -> void:
-	if not ui.has("compact_ship_cards"):
+	if not ui.has("boat_status_cols"):
 		return
-	var grid: GridContainer = ui["compact_ship_cards"]
-	for child in grid.get_children():
-		child.queue_free()
+	var cols: Array = ui["boat_status_cols"]
+	if cols.size() < 3:
+		return
+	for c in cols:
+		for child in (c as Control).get_children():
+			child.queue_free()
 
-	# Upgrades first (motor, finder, nets, well, guns, defense), ship health below — all on a 5-blip scale.
-	for key in UPGRADE_KEYS:
-		var value := int(upgrades.get(key, 0))
-		var accent := PURPLE if value > 0 else TEXT_DIM
-		grid.add_child(_compact_system_card(_upgrade_short_label(key), float(value), float(UPGRADE_MAX_LEVEL), 5, "%d/%d" % [value, UPGRADE_MAX_LEVEL], accent))
-
+	# Col 1 & 2: upgrade levels (blue meters). Col 3: hull/systems condition (green→red).
+	for key in ["motor", "fish_finder", "nets", "live_well"]:
+		(cols[0] as Control).add_child(_boat_status_meter(str(BOAT_STATUS_UP_LABELS[key]), int(upgrades.get(key, 0)), UPGRADE_MAX_LEVEL, 5, BOAT_METER_BLUE, ""))
+	for key in ["cannons", "defense"]:
+		(cols[1] as Control).add_child(_boat_status_meter(str(BOAT_STATUS_UP_LABELS[key]), int(upgrades.get(key, 0)), UPGRADE_MAX_LEVEL, 5, BOAT_METER_BLUE, ""))
 	for key in CONDITION_KEYS:
 		var value := int(conditions.get(key, CONDITION_MAX))
 		var ratio := float(value) / float(CONDITION_MAX)
-		var accent := GREEN
-		if ratio < 0.4:
-			accent = RED
-		elif ratio < 0.7:
-			accent = GOLD
-		grid.add_child(_compact_system_card(_condition_short_label(key), float(value), float(CONDITION_MAX), 5, "%d%%" % int(round(ratio * 100.0)), accent))
+		var accent := GREEN if ratio >= 0.7 else (GOLD if ratio >= 0.4 else RED)
+		(cols[2] as Control).add_child(_boat_status_meter(str(BOAT_STATUS_COND_LABELS[key]), value, CONDITION_MAX, 5, accent, key))
+
+
+# A little card that doubles as a power meter: label + segmented bar. Condition cards
+# (repair_key set) are tappable at the docks to repair one segment.
+func _boat_status_meter(label_text: String, value: int, max_v: int, segs: int, accent: Color, repair_key: String) -> Control:
+	# No card background — the label + meter sit directly on the slate panel.
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var style := _styled(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 0)
+	style.content_margin_top = 3
+	style.content_margin_bottom = 3
+	style.content_margin_left = 2
+	style.content_margin_right = 2
+	card.add_theme_stylebox_override("panel", style)
+
+	var row := HBoxContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_theme_constant_override("separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(row)
+
+	var lbl := _label(label_text, 15, TEXT_PRIMARY)
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(lbl)
+
+	var bar := _meter_bar(float(value), float(max_v), segs, accent)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(bar)
+
+	if repair_key != "":
+		var btn := Button.new()
+		btn.flat = true
+		btn.focus_mode = Control.FOCUS_NONE
+		_anchor_fill(btn)
+		for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+			btn.add_theme_stylebox_override(st, _transparent_style())
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		btn.pressed.connect(_on_status_repair_pressed.bind(repair_key))
+		card.add_child(btn)
+	return card
+
+
+func _meter_bar(value: float, max_v: float, segs: int, accent: Color) -> Control:
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 2)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var step: float = max_v / float(segs)
+	for i in range(segs):
+		var frac := clampf((value - float(i) * step) / step, 0.0, 1.0)
+		var lit := frac > 0.5
+		var seg := Panel.new()
+		seg.custom_minimum_size = Vector2(12, 18)
+		seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var s: StyleBoxFlat
+		if lit:
+			# Lit segments are bright with a thick white border — little cards.
+			s = _styled_shadow(accent, REF_BORDER, 2, 4, 1)
+		else:
+			s = _styled(REF_BG_NAVY, REF_BG_NAVY.lightened(0.22), 1, 4)
+		seg.add_theme_stylebox_override("panel", s)
+		box.add_child(seg)
+	return box
+
+
+func _on_status_repair_pressed(key: String) -> void:
+	if game_over or active_tray != "":
+		return
+	if not _is_docked():
+		_log("Repairs are done at the docks.")
+		return
+	if int(conditions.get(key, CONDITION_MAX)) >= CONDITION_MAX:
+		return
+	_repair_segment(key)
+
+
+func _on_radio_pressed() -> void:
+	if game_over:
+		return
+	var lines: Array[String] = []
+	if versus_mode:
+		var place := "the docks" if _bot_is_docked() else "%s water" % str(board[_cell_index(bot_pos)]["zone"])
+		lines.append("%s — $%d · %d fish · %d trophies · %s." % [BOT_NAME, bot_money, _bot_total_fish(), _bot_trophy_count(), place])
+		lines.append("")
+	for i in range(min(8, log_lines.size())):
+		lines.append(log_lines[i])
+	var body := "\n".join(lines) if not lines.is_empty() else "Quiet on the radio tonight."
+	_show_info_overlay("RADIO", body)
 
 
 func _compact_system_card(title: String, value: float, max_value: float, pips: int, value_text: String, accent: Color) -> Control:
@@ -7534,10 +7817,10 @@ func _row_water_color(row: int) -> Color:
 
 func _board_zone_card_color(row: int) -> Color:
 	if row <= 1:
-		return Color("#0f4fa8")
+		return Color("#0648a2")
 	if row <= 3:
-		return Color("#2f79d8")
-	return Color("#6b9bd8")
+		return Color("#246cd2")
+	return Color("#6696d8")
 
 
 func _water_cell_style(fill: Color, border: Color, border_w: int, highlight: bool, padding: int = -1, pos: Vector2i = Vector2i(-1, -1)) -> StyleBoxFlat:
@@ -7750,6 +8033,14 @@ func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, o
 	var label := "+%d %s" % [quantity, species]
 	var opts := _bloom_fan_options()
 	opts["video_entrance"] = true
+	# The catch fan plays big over the video — bigger cards and a wider spread.
+	opts["card_size_scale"] = 1.5
+	opts["spread_viewport"] = 0.84
+	opts["spread_max"] = 124.0
+	opts["spread_step"] = 116.0
+	opts["fan_sag"] = 20.0
+	opts["arc_height"] = 96.0
+	var fan_quantity := quantity
 	if multiplier > 1:
 		opts["mult_label"] = "X%d MULT" % multiplier
 		opts["mult_accent"] = GOLD
@@ -7760,10 +8051,15 @@ func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, o
 		if catch_extra > 0:
 			opts["extra_label"] = "%d + %d EXTRA" % [catch_base, catch_extra]
 			opts["extra_accent"] = GREEN
+			# Show the base catch in the fan first, then pop the weather bonus on top.
+			fan_quantity = catch_base
+			opts["bonus_count"] = catch_extra
+			opts["bonus_label"] = "+%d EXTRA" % catch_extra
+			opts["bonus_accent"] = GOLD
 		elif catch_extra < 0:
 			opts["extra_label"] = "%d - %d" % [catch_base, -catch_extra]
 			opts["extra_accent"] = RED
-	_show_card_result_fan(_fish_card_texture(species), quantity, label, _species_accent(species), GREEN, "", Color(0, 0, 0, 0), origin_center, opts)
+	_show_card_result_fan(_fish_card_texture(species), fan_quantity, label, _species_accent(species), GREEN, "", Color(0, 0, 0, 0), origin_center, opts)
 
 
 # Forward-looking: special / scoring cards (e.g. "+2 Luck") render like a catch but
@@ -7908,7 +8204,11 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 
 	var viewport_size := get_viewport().get_visible_rect().size
 	var card_size := _catch_card_size(viewport_size) * float(options.get("card_size_scale", 1.0))
-	var card_count: int = mini(quantity, CATCH_CARD_MAX_DRAW)
+	# The fan deals `base_count` cards, then any weather-bonus cards arrive as a second wave.
+	var bonus_count: int = maxi(0, int(options.get("bonus_count", 0)))
+	var base_count: int = mini(quantity, CATCH_CARD_MAX_DRAW)
+	var card_count: int = mini(quantity + bonus_count, CATCH_CARD_MAX_DRAW)
+	var actual_bonus: int = card_count - base_count
 	var style := str(options.get("style", "bloom"))
 	var growth_mode := "stack" if style == "stack_spread" else "fan"
 	var center := Vector2(viewport_size.x * 0.5, viewport_size.y * float(options.get("center_y", 0.50)))
@@ -7925,6 +8225,8 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 
 	var draw_stagger := float(options.get("draw_stagger", CATCH_CARD_DRAW_STAGGER))
 	var draw_seconds := float(options.get("draw_seconds", CATCH_CARD_DRAW_SECONDS))
+	var bonus_gap := float(options.get("bonus_gap", 0.6))
+	var bonus_stagger := float(options.get("bonus_stagger", 0.42))
 	var widen_seconds := float(options.get("widen_seconds", 0.24))
 	var start_scale := float(options.get("start_scale", 0.72))
 	var start_rotation := float(options.get("start_rotation", 12.0))
@@ -7964,27 +8266,58 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 			for i in range(m):
 				_retarget_fan_card(cards, card_anims, i, layout[i], widen_seconds, Tween.TRANS_CUBIC, Tween.EASE_OUT)
 		# Count this card once it has settled: a "+1" attached to the card pops after a beat, with its plonk.
+		var is_bonus := m >= base_count
 		var count_at := draw_seconds + float(options.get("unit_pop_pause", 0.14))
 		if card_count > 1:
-			_attach_card_unit_pop(cards[m], unit_accent, count_at, options)
+			var pop_accent: Color = options.get("bonus_accent", GOLD) if is_bonus else unit_accent
+			_attach_card_unit_pop(cards[m], pop_accent, count_at, options)
 		if bool(options.get("plonk", true)):
 			var pidx := m
 			var plonk_sched := layer.create_tween()
 			plonk_sched.tween_interval(count_at)
 			plonk_sched.tween_callback(func():
-				if token == catch_card_token:
+				if token != catch_card_token:
+					return
+				if is_bonus:
+					# Bonus cards land with their own brighter cue.
+					_play_catch_plonk(5)
+					if audio_catch and m == base_count:
+						audio_catch.stop()
+						audio_catch.play()
+				else:
 					_play_catch_plonk(pidx)
 			)
 
-	# Drive the cascade: one card per stagger beat.
+	# Drive the cascade: one card per stagger beat. Base wave first, then the bonus wave.
 	var driver := layer.create_tween()
 	ui["catch_card_driver_tween"] = driver
 	if entrance_seconds > 0.0:
 		driver.tween_interval(entrance_seconds)
-	driver.tween_callback(deal_card.bind(0))
-	for m in range(1, card_count):
-		driver.tween_interval(draw_stagger)
+	for m in range(base_count):
+		if m > 0:
+			driver.tween_interval(draw_stagger)
 		driver.tween_callback(deal_card.bind(m))
+	if actual_bonus > 0:
+		if base_count > 0:
+			driver.tween_interval(bonus_gap)
+		# A clear "bonus" callout as the extra weather cards arrive.
+		var bonus_center := total_center + Vector2(0, -float(options.get("label_height", 74.0)) * 0.5 - 30.0)
+		var bonus_text := str(options.get("bonus_label", "+%d EXTRA" % actual_bonus))
+		var bonus_acc: Color = options.get("bonus_accent", GOLD)
+		var bonus_opts := options.duplicate()
+		bonus_opts["label_font_size"] = int(options.get("bonus_font_size", 34))
+		bonus_opts["label_height"] = 58.0
+		bonus_opts["label_width_min"] = 200.0
+		bonus_opts["label_hold"] = 0.95
+		bonus_opts["label_scale_peak"] = 1.18
+		driver.tween_callback(func() -> void:
+			if token == catch_card_token:
+				_schedule_catch_total_bug(layer, bonus_text, bonus_acc, bonus_center, 0.0, token, bonus_opts)
+		)
+		for m in range(base_count, card_count):
+			if m > base_count:
+				driver.tween_interval(bonus_stagger)
+			driver.tween_callback(deal_card.bind(m))
 
 	# Stack concept: after the suspense beat, the whole pile fans open at once.
 	if growth_mode == "stack" and card_count > 1:
@@ -8004,6 +8337,11 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 
 	# The big species total slams in; a multiplier (if any) is its own colored pill below it.
 	var total_delay := entrance_seconds + _catch_total_appear_delay(card_count, options)
+	if actual_bonus > 0:
+		# The species total lands after the bonus wave has settled, not the base wave.
+		total_delay = entrance_seconds + maxf(0.0, float(base_count - 1)) * draw_stagger + draw_seconds \
+			+ bonus_gap + maxf(0.0, float(actual_bonus - 1)) * bonus_stagger + draw_seconds \
+			+ float(options.get("total_pop_delay", CATCH_TOTAL_POP_DELAY))
 	_schedule_catch_total_bug(layer, total_label, total_accent, total_center, total_delay, token, options)
 	var mult_label := str(options.get("mult_label", ""))
 	if mult_label != "":
@@ -9153,54 +9491,57 @@ func _stat_card_set(card: PanelContainer, value: String, color: Color = TEXT_PRI
 
 # A left-rail HUD counter: dark-accent card body, accent icon+title, and a brighter inset "well"
 # holding the count. Pushes/pops like a physical button on touch. Optionally clickable.
-func _counter_button(key: String, icon: Texture2D, title: String, accent: Color, on_pressed: Callable) -> Control:
+func _counter_button(key: String, icon: Texture2D, title: String, accent: Color, dark: Color, on_pressed: Callable) -> Control:
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	card.custom_minimum_size = Vector2(0, 96)
 	card.clip_contents = false
-	var style := _styled_shadow(accent.darkened(0.66), accent.darkened(0.04), 4, 9, 5)
+	# Solid bright colour fill, no stroke — just a soft contact shadow for chunk.
+	# `dark` (sampled from the study) is the recessed well + the label/icon ink.
+	var ink := dark
+	var style := _styled_shadow(accent, accent, 0, 16, 6)
+	style.shadow_color = Color(0, 0, 0, 0.4)
+	style.shadow_offset = Vector2(0, 4)
 	style.content_margin_left = 14
 	style.content_margin_right = 14
-	style.content_margin_top = 13
-	style.content_margin_bottom = 14
+	style.content_margin_top = 12
+	style.content_margin_bottom = 13
 	card.add_theme_stylebox_override("panel", style)
 
 	var col := VBoxContainer.new()
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 9)
+	col.add_theme_constant_override("separation", 8)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(col)
 
 	var head := HBoxContainer.new()
 	head.alignment = BoxContainer.ALIGNMENT_CENTER
-	head.add_theme_constant_override("separation", 9)
+	head.add_theme_constant_override("separation", 8)
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(head)
-	var ic := _icon_texture_rect(icon, Vector2(30, 30), accent)
+	var ic := _icon_texture_rect(icon, Vector2(28, 28), ink)
 	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(ic)
-	var title_label := _label(title, 21, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	var title_label := _label(title, 21, ink, HORIZONTAL_ALIGNMENT_CENTER)
 	title_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(title_label)
 
-	# Inset "well" — a brighter, more saturated take on the card body.
+	# Recessed value "well" — a darker shade of the fill, value text in bright ink.
 	var well := PanelContainer.new()
 	well.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	well.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var well_style := _styled(accent.darkened(0.44).lerp(accent, 0.12), Color(0, 0, 0, 0.5), 1, 6)
-	well_style.border_width_top = 2
-	well_style.border_width_bottom = 0
-	well_style.content_margin_top = 5
+	var well_style := _styled(dark, Color(0, 0, 0, 0), 0, 13)
+	well_style.content_margin_top = 4
 	well_style.content_margin_bottom = 6
 	well_style.content_margin_left = 10
 	well_style.content_margin_right = 10
 	well.add_theme_stylebox_override("panel", well_style)
 	col.add_child(well)
-	var value_label := _label("0", 40, accent.lightened(0.25), HORIZONTAL_ALIGNMENT_CENTER)
+	var value_label := _label("0", 40, accent, HORIZONTAL_ALIGNMENT_CENTER)
 	value_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	value_label.add_theme_constant_override("outline_size", 3)
-	value_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+	value_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.35))
 	well.add_child(value_label)
 
 	var btn := Button.new()
@@ -9287,87 +9628,82 @@ func _pill_set_text(pill: PanelContainer, text: String) -> void:
 # pill at the bottom (green boost / red cut / grey neutral).
 func _weather_day_card(weather: Dictionary, day_offset: int, is_tonight: bool) -> Control:
 	var weather_name := str(weather["name"])
-	var icon_tint := TEXT_MUTED
 	var label := "CLEAR"
 	match weather_name:
 		"Storm":
-			icon_tint = CYAN
 			label = "STORM"
 		"Hurricane":
-			icon_tint = RED.lightened(0.1)
 			label = "HURR"
 		_:
-			icon_tint = Color("#cfe0ec")
 			label = "CLEAR"
 
-	var body_fill := BG_PANEL.lightened(0.02) if is_tonight else BG_PANEL_DARK
-	var body_border := CYAN_DEEP if is_tonight else BORDER_FRAME.darkened(0.45)
+	# Square navy card, thick white border, weather name up top, mult pill at the bottom.
+	var body_fill := REF_CARD_NAVY.lightened(0.08) if is_tonight else REF_CARD_NAVY
 	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(WEATHER_DAY_CARD_WIDTH, 0)
 	card.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	var style := _styled_shadow(body_fill, body_border, 2 if is_tonight else 1, 7, 2)
-	style.content_margin_left = 0
-	style.content_margin_right = 0
-	style.content_margin_top = 0
-	style.content_margin_bottom = 0
+	card.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var style := _styled_shadow(body_fill, REF_BORDER, 4, 12, 2)
+	style.content_margin_left = 9
+	style.content_margin_right = 8
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
 	card.add_theme_stylebox_override("panel", style)
 	card.clip_contents = true
 
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 0)
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 2)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(col)
 
-	# Date header band.
-	var band := PanelContainer.new()
-	var band_style := _styled(body_border.darkened(0.2) if is_tonight else Color("#0e1f2c"), Color(0, 0, 0, 0), 0, 0)
-	band_style.corner_radius_top_left = 6
-	band_style.corner_radius_top_right = 6
-	band_style.content_margin_top = 3
-	band_style.content_margin_bottom = 3
-	band_style.content_margin_left = 2
-	band_style.content_margin_right = 2
-	band.add_theme_stylebox_override("panel", band_style)
-	col.add_child(band)
-	var day_text := "TONIGHT" if is_tonight else "DAY %d" % (day + day_offset)
-	var day_label := _label(day_text, 12, TEXT_PRIMARY if is_tonight else TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	day_label.clip_text = true
-	band.add_child(day_label)
-
-	var inner := VBoxContainer.new()
-	inner.alignment = BoxContainer.ALIGNMENT_CENTER
-	inner.add_theme_constant_override("separation", 3)
-	inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var inner_pad := MarginContainer.new()
-	inner_pad.add_theme_constant_override("margin_top", 6)
-	inner_pad.add_theme_constant_override("margin_bottom", 6)
-	inner_pad.add_child(inner)
-	col.add_child(inner_pad)
-
-	var ic := _icon_texture_rect(_weather_icon_texture(weather_name), Vector2(28, 28), icon_tint)
-	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	inner.add_child(ic)
-
-	var name_label := _label(label, 12, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var name_label := _label(label, 18, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_LEFT)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.clip_text = true
-	inner.add_child(name_label)
+	col.add_child(name_label)
 
-	# Mult pill — the lone splash of colour.
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(spacer)
+
 	var mult := float(weather.get("mult", 1.0))
-	var mult_accent := GREEN if mult > 1.001 else (RED if mult < 0.999 else TEXT_DIM)
-	var pill := PanelContainer.new()
-	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var pill_style := _styled(mult_accent.darkened(0.55), mult_accent, 1, 6)
-	pill_style.content_margin_left = 7
-	pill_style.content_margin_right = 7
-	pill_style.content_margin_top = 1
-	pill_style.content_margin_bottom = 2
-	pill.add_theme_stylebox_override("panel", pill_style)
-	inner.add_child(pill)
-	var pill_label := _label("%.1f×" % mult, 13, mult_accent.lightened(0.35), HORIZONTAL_ALIGNMENT_CENTER)
-	pill.add_child(pill_label)
+	if abs(mult - 1.0) > 0.001:
+		var mult_accent := GREEN if mult > 1.0 else RED
+		var pill := PanelContainer.new()
+		pill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		var pill_style := _styled(mult_accent, mult_accent.darkened(0.18), 0, 6)
+		pill_style.content_margin_left = 7
+		pill_style.content_margin_right = 7
+		pill_style.content_margin_top = 1
+		pill_style.content_margin_bottom = 2
+		pill.add_theme_stylebox_override("panel", pill_style)
+		col.add_child(pill)
+		var pill_label := _label("%.1fx" % mult, 14, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
+		pill.add_child(pill_label)
 	return card
+
+
+# A stack of light-blue cards peeking off the edge — "more days ahead".
+func _weather_peek_card() -> Control:
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(WEATHER_DAY_CARD_WIDTH, 0)
+	holder.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for i in range(3):
+		var c := Panel.new()
+		c.add_theme_stylebox_override("panel", _styled_shadow(Color("#6696d8"), REF_BORDER, 4, 12, 1))
+		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var off := float(2 - i) * 7.0
+		c.anchor_right = 1.0
+		c.anchor_bottom = 1.0
+		c.offset_left = off
+		c.offset_top = off
+		c.offset_right = off
+		c.offset_bottom = off
+		holder.add_child(c)
+	return holder
 
 
 func _forecast_chip(weather: Dictionary, is_current: bool) -> Control:
