@@ -3141,24 +3141,26 @@ func _build_tray_overlay() -> void:
 	col.add_theme_constant_override("separation", 10)
 	pad.add_child(col)
 
+	# Header is just the funds readout + a corner X — no title / hint copy.
 	var head := HBoxContainer.new()
 	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_theme_constant_override("separation", 14)
+	head.add_theme_constant_override("separation", 12)
 	col.add_child(head)
 
-	ui["tray_title"] = _label("UPGRADE", 30, TEXT_PRIMARY)
-	ui["tray_title"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["tray_title"].size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	head.add_child(ui["tray_title"])
+	var head_spacer := Control.new()
+	head_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(head_spacer)
 
-	# Chunky, color-filled funds readout — keyed "tray_money" so _pill_set_text still drives it.
+	# Color-filled funds readout — keyed "tray_money" so _pill_set_text still drives it.
 	ui["tray_money"] = _funds_pill("$0")
 	ui["tray_money"].size_flags_horizontal = Control.SIZE_SHRINK_END
 	ui["tray_money"].size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	head.add_child(ui["tray_money"])
 
-	ui["tray_hint"] = _label("Tap an upgrade to inspect its card.", FONT_BODY, TEXT_DIM)
-	col.add_child(ui["tray_hint"])
+	var close_x := _tactile_button("X", 56, 56, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
+	close_x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	close_x.pressed.connect(_close_tray)
+	head.add_child(close_x)
 
 	# Body host: each mode (upgrade / repair) supplies its own layout and scrolling.
 	ui["tray_body"] = VBoxContainer.new()
@@ -3166,15 +3168,6 @@ func _build_tray_overlay() -> void:
 	ui["tray_body"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["tray_body"].size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(ui["tray_body"])
-
-	var actions := HBoxContainer.new()
-	actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(actions)
-
-	var close := _tactile_button("CLOSE", 0, 60, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
-	close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	close.pressed.connect(_close_tray)
-	actions.add_child(close)
 
 	_build_tray_body_upgrade()
 	_build_tray_body_repair()
@@ -3216,36 +3209,42 @@ func _build_tray_body_upgrade() -> void:
 
 # Narrow left column of the upgrade shop: buy one extra night at sea, instant purchase.
 func _build_extra_night_column() -> Control:
-	var panel := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 8, 5)
-	panel.custom_minimum_size = Vector2(236, 0)
+	# No stroke — a lighter shade of navy defines the area against the tray body.
+	var panel := _panel_lifted(BG_PANEL_LIGHT, BG_PANEL_LIGHT, 0, 10, 5)
+	panel.custom_minimum_size = Vector2(284, 0)
 	panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 16)
-	pad.add_theme_constant_override("margin_right", 16)
-	pad.add_theme_constant_override("margin_top", 18)
-	pad.add_theme_constant_override("margin_bottom", 18)
+	pad.add_theme_constant_override("margin_left", 22)
+	pad.add_theme_constant_override("margin_right", 22)
+	pad.add_theme_constant_override("margin_top", 22)
+	pad.add_theme_constant_override("margin_bottom", 22)
 	panel.add_child(pad)
 
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 14)
+	col.add_theme_constant_override("separation", 16)
 	pad.add_child(col)
 
-	col.add_child(_label("EXTRA NIGHT", 25, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	col.add_child(_label("EXTRA NIGHT", 28, GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 
-	var icon := _icon_texture_rect(ICON_DAY_TEXTURE, Vector2(80, 80), GOLD)
+	# Current season progress lives here in the days column.
+	ui["shop_day_count"] = _label("DAY 1 / 14", 22, CYAN, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["shop_day_count"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(ui["shop_day_count"])
+
+	var icon := _icon_texture_rect(ICON_DAY_TEXTURE, Vector2(84, 84), GOLD)
 	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	col.add_child(icon)
 
-	var blurb := _label("Buy one more day at sea. Extends the season the moment you buy.", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var blurb := _label("Buy one more day at sea. Extends the season the moment you buy.", 17, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	blurb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(blurb)
 
-	ui["extra_night_owned"] = _label("", FONT_BODY, CYAN, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["extra_night_owned"] = _label("", 17, CYAN, HORIZONTAL_ALIGNMENT_CENTER)
 	ui["extra_night_owned"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(ui["extra_night_owned"])
 
@@ -3253,7 +3252,7 @@ func _build_extra_night_column() -> Control:
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(spacer)
 
-	ui["extra_night_buy"] = _tactile_button("BUY  $%d" % EXTRA_NIGHT_COST, 0, 68, GOLD_DEEP, GOLD, Color("#241a02"))
+	ui["extra_night_buy"] = _tactile_button("BUY  $%d" % EXTRA_NIGHT_COST, 0, 72, GOLD_DEEP, GOLD, Color("#241a02"))
 	ui["extra_night_buy"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["extra_night_buy"].pressed.connect(_buy_extra_night)
 	col.add_child(ui["extra_night_buy"])
@@ -3279,7 +3278,8 @@ func _build_tray_body_repair() -> void:
 # Chunky, color-filled funds readout for the shop header.
 func _funds_pill(text: String) -> PanelContainer:
 	var p := PanelContainer.new()
-	var s := _styled_shadow(GOLD_DEEP.lerp(GOLD, 0.32), GOLD.lightened(0.18), 3, 9, 5)
+	# Solid gold fill, no stroke.
+	var s := _styled_shadow(GOLD_DEEP.lerp(GOLD, 0.32), GOLD_DEEP.lerp(GOLD, 0.32), 0, 9, 5)
 	s.shadow_color = Color(0, 0, 0, 0.4)
 	s.shadow_offset = Vector2(0, 3)
 	s.content_margin_top = 8
@@ -3458,54 +3458,62 @@ func _upgrade_store_lane(key: String) -> Button:
 	var lane := Button.new()
 	lane.text = ""
 	lane.focus_mode = Control.FOCUS_NONE
-	lane.custom_minimum_size = Vector2(0, 124)
+	lane.custom_minimum_size = Vector2(0, 146)
 	lane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lane.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	lane.pressed.connect(_open_upgrade_card_preview.bind(key))
 
 	var pad := MarginContainer.new()
 	_anchor_fill(pad)
-	pad.add_theme_constant_override("margin_left", 12)
-	pad.add_theme_constant_override("margin_right", 12)
-	pad.add_theme_constant_override("margin_top", 10)
-	pad.add_theme_constant_override("margin_bottom", 10)
+	pad.add_theme_constant_override("margin_left", 20)
+	pad.add_theme_constant_override("margin_right", 20)
+	pad.add_theme_constant_override("margin_top", 14)
+	pad.add_theme_constant_override("margin_bottom", 14)
 	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lane.add_child(pad)
 
 	var row := HBoxContainer.new()
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", 22)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pad.add_child(row)
 
+	# Count sits on the inside-left.
+	var count := _label("0/%d" % UPGRADE_MAX_LEVEL, 32, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	count.custom_minimum_size = Vector2(74, 0)
+	count.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(count)
+
 	var copy := VBoxContainer.new()
-	copy.custom_minimum_size = Vector2(180, 0)
+	copy.custom_minimum_size = Vector2(190, 0)
 	copy.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	copy.alignment = BoxContainer.ALIGNMENT_CENTER
-	copy.add_theme_constant_override("separation", 3)
+	copy.add_theme_constant_override("separation", 5)
 	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(copy)
 
-	var title := _label(_upgrade_name(key).to_upper(), 23, TEXT_PRIMARY)
+	var title := _label(_upgrade_name(key).to_upper(), 26, TEXT_PRIMARY)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	copy.add_child(title)
 
-	var desc := _label(_row_description(key, true), FONT_SMALL, TEXT_MUTED)
+	var desc := _label(_row_description(key, true), 16, TEXT_MUTED)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.custom_minimum_size = Vector2(172, 0)
+	desc.custom_minimum_size = Vector2(182, 0)
 	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	copy.add_child(desc)
 
-	var cost := _label("", FONT_SMALL, GOLD)
+	var cost := _label("", 16, GOLD)
 	cost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	copy.add_child(cost)
 
+	# Cards live on the right side of the lane.
 	var slots := HBoxContainer.new()
 	slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slots.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	slots.alignment = BoxContainer.ALIGNMENT_CENTER
-	slots.add_theme_constant_override("separation", 8)
+	slots.alignment = BoxContainer.ALIGNMENT_END
+	slots.add_theme_constant_override("separation", 10)
 	slots.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(slots)
 
@@ -3517,11 +3525,6 @@ func _upgrade_store_lane(key: String) -> Button:
 		slot.mouse_filter = Control.MOUSE_FILTER_PASS
 		slots.add_child(slot)
 		slot_nodes.append(slot)
-
-	var count := _label("0/%d" % UPGRADE_MAX_LEVEL, 27, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_RIGHT)
-	count.custom_minimum_size = Vector2(76, 0)
-	count.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(count)
 
 	lane.set_meta("key", key)
 	lane.set_meta("title_label", title)
@@ -6698,6 +6701,8 @@ func _update_boat_tab() -> void:
 
 func _update_upgrade_cart_ui() -> void:
 	_refresh_upgrade_store_lanes()
+	if ui.has("shop_day_count"):
+		(ui["shop_day_count"] as Label).text = "DAY %d / %d" % [day, _season_days()]
 	if ui.has("extra_night_owned"):
 		var owned: Label = ui["extra_night_owned"]
 		owned.text = "Already added: +%d night%s" % [extra_nights, "" if extra_nights == 1 else "s"] if extra_nights > 0 else "No extra nights yet"
