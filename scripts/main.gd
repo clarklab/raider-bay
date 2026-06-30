@@ -122,6 +122,42 @@ const CARD_NETS_TEXTURES: Array[Texture2D] = [
 	preload("res://assets/cards/card-nets-4.png"),
 	preload("res://assets/cards/card-nets-5.png"),
 ]
+const CARD_WELL_TEXTURES: Array[Texture2D] = [
+	preload("res://assets/cards/card-well-1.png"),
+	preload("res://assets/cards/card-well-2.png"),
+	preload("res://assets/cards/card-well-3.png"),
+	preload("res://assets/cards/card-well-4.png"),
+	preload("res://assets/cards/card-well-5.png"),
+]
+# Small per-level icon art used inside the mini cards in the shop lanes.
+const ICON_MOTOR_SMALL: Array[Texture2D] = [
+	preload("res://assets/icons/icon-motor-1-small.png"),
+	preload("res://assets/icons/icon-motor-2-small.png"),
+	preload("res://assets/icons/icon-motor-3-small.png"),
+	preload("res://assets/icons/icon-motor-4-small.png"),
+	preload("res://assets/icons/icon-motor-5-small.png"),
+]
+const ICON_FINDER_SMALL: Array[Texture2D] = [
+	preload("res://assets/icons/icon-finder-1-small.png"),
+	preload("res://assets/icons/icon-finder-2-small.png"),
+	preload("res://assets/icons/icon-finder-3-small.png"),
+	preload("res://assets/icons/icon-finder-4-small.png"),
+	preload("res://assets/icons/icon-finder-5-small.png"),
+]
+const ICON_NETS_SMALL: Array[Texture2D] = [
+	preload("res://assets/icons/icon-nets-1-small.png"),
+	preload("res://assets/icons/icon-nets-2-small.png"),
+	preload("res://assets/icons/icon-nets-3-small.png"),
+	preload("res://assets/icons/icon-nets-4-small.png"),
+	preload("res://assets/icons/icon-nets-5-small.png"),
+]
+const ICON_WELL_SMALL: Array[Texture2D] = [
+	preload("res://assets/icons/icon-well-1-small.png"),
+	preload("res://assets/icons/icon-well-2-small.png"),
+	preload("res://assets/icons/icon-well-3-small.png"),
+	preload("res://assets/icons/icon-well-4-small.png"),
+	preload("res://assets/icons/icon-well-5-small.png"),
+]
 
 const BG_CALM_STREAM: AudioStream = preload("res://assets/bg-calm.mp3")
 const BG_BIRDS_STREAM: AudioStream = preload("res://assets/bg-birds.mp3")
@@ -3341,49 +3377,80 @@ func _build_upgrade_card_preview_overlay(parent: Control) -> void:
 	shade.gui_input.connect(_on_upgrade_preview_backdrop_input)
 	overlay.add_child(shade)
 
-	# Vertical stack so the card art is the hero; only a chip + price + buttons below it.
-	var stage := VBoxContainer.new()
+	# Card and its details sit side by side. The details column hides on purchase so the
+	# card reveal animation plays alone.
+	var stage := HBoxContainer.new()
 	stage.anchor_left = 0.5
 	stage.anchor_right = 0.5
 	stage.anchor_top = 0.5
 	stage.anchor_bottom = 0.5
-	stage.offset_left = -240
-	stage.offset_right = 240
-	stage.offset_top = -340
-	stage.offset_bottom = 340
+	stage.offset_left = -410
+	stage.offset_right = 410
+	stage.offset_top = -300
+	stage.offset_bottom = 300
 	stage.alignment = BoxContainer.ALIGNMENT_CENTER
-	stage.add_theme_constant_override("separation", 16)
+	stage.add_theme_constant_override("separation", 40)
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(stage)
 	ui["upgrade_card_preview_stage"] = stage
+
+	# Left column: the card and its "+1 …" chip, both kept through the reveal.
+	var left := VBoxContainer.new()
+	left.alignment = BoxContainer.ALIGNMENT_CENTER
+	left.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	left.add_theme_constant_override("separation", 18)
+	left.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(left)
 
 	var card_slot := Control.new()
 	card_slot.custom_minimum_size = Vector2(316, 412)
 	card_slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	card_slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	card_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(card_slot)
+	left.add_child(card_slot)
 	ui["upgrade_card_preview_slot"] = card_slot
 
 	ui["upgrade_card_preview_chip"] = _preview_chip("+1 MOTOR", GOLD)
 	ui["upgrade_card_preview_chip"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	stage.add_child(ui["upgrade_card_preview_chip"])
+	left.add_child(ui["upgrade_card_preview_chip"])
 
-	ui["upgrade_card_preview_price"] = _label("$0", 36, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["upgrade_card_preview_price"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	stage.add_child(ui["upgrade_card_preview_price"])
+	# Right column: description + price + buttons. All hidden on Buy.
+	var info := VBoxContainer.new()
+	info.custom_minimum_size = Vector2(372, 0)
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	info.alignment = BoxContainer.ALIGNMENT_CENTER
+	info.add_theme_constant_override("separation", 16)
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(info)
+	ui["upgrade_card_preview_info"] = info
+
+	ui["upgrade_card_preview_level"] = _label("CARD 1 / 5", FONT_BODY, GOLD)
+	ui["upgrade_card_preview_level"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_child(ui["upgrade_card_preview_level"])
+
+	ui["upgrade_card_preview_desc"] = _label("", 22, TEXT_PRIMARY)
+	ui["upgrade_card_preview_desc"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ui["upgrade_card_preview_desc"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_child(ui["upgrade_card_preview_desc"])
+
+	ui["upgrade_card_preview_effect"] = _label("", 18, CYAN)
+	ui["upgrade_card_preview_effect"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ui["upgrade_card_preview_effect"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_child(ui["upgrade_card_preview_effect"])
+
+	ui["upgrade_card_preview_price"] = _label("$0", 38, GOLD)
+	ui["upgrade_card_preview_price"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_child(ui["upgrade_card_preview_price"])
 
 	ui["upgrade_card_preview_buy"] = _tactile_button("UPGRADE", 0, 64, PURPLE_DEEP, PURPLE, TEXT_PRIMARY)
-	ui["upgrade_card_preview_buy"].custom_minimum_size = Vector2(320, 64)
-	ui["upgrade_card_preview_buy"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ui["upgrade_card_preview_buy"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["upgrade_card_preview_buy"].pressed.connect(_purchase_selected_upgrade)
-	stage.add_child(ui["upgrade_card_preview_buy"])
+	info.add_child(ui["upgrade_card_preview_buy"])
 
 	ui["upgrade_card_preview_close"] = _tactile_button("CLOSE", 0, 52, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
-	ui["upgrade_card_preview_close"].custom_minimum_size = Vector2(320, 52)
-	ui["upgrade_card_preview_close"].size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ui["upgrade_card_preview_close"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["upgrade_card_preview_close"].pressed.connect(_close_upgrade_card_preview)
-	stage.add_child(ui["upgrade_card_preview_close"])
+	info.add_child(ui["upgrade_card_preview_close"])
 
 
 func _build_card_tooltip_overlay() -> void:
@@ -3691,6 +3758,18 @@ func _refresh_upgrade_card_preview() -> void:
 	(chip.get_meta("label") as Label).text = "MAXED" if maxed else "+1 %s" % _upgrade_name(key).to_upper()
 	chip.visible = true
 
+	# Details panel (description of what the card does) starts visible; hidden on buy.
+	if ui.has("upgrade_card_preview_info"):
+		(ui["upgrade_card_preview_info"] as Control).visible = true
+	if ui.has("upgrade_card_preview_level"):
+		(ui["upgrade_card_preview_level"] as Label).text = "CARD %d / %d" % [level, UPGRADE_MAX_LEVEL]
+	if ui.has("upgrade_card_preview_desc"):
+		(ui["upgrade_card_preview_desc"] as Label).text = _upgrade_name(key).to_upper() + " — " + _row_description(key, true)
+	if ui.has("upgrade_card_preview_effect"):
+		var eff: Label = ui["upgrade_card_preview_effect"]
+		eff.text = "Now: %s" % _upgrade_effect_text(key, level)
+		eff.visible = not maxed
+
 	var price: Label = ui["upgrade_card_preview_price"]
 	price.text = "MAXED" if maxed else "$%d" % cost
 	price.add_theme_color_override("font_color", GOLD if can_buy or maxed else RED)
@@ -3732,30 +3811,21 @@ func _rebuild_upgrade_preview_cards() -> void:
 		"card_step_px": 4,
 	}
 
-	var back := _build_store_card_visual(key, level, false, card_size, options)
-	back.position = pos
-	back.pivot_offset = card_size * 0.5
-	back.scale = Vector2(0.58, 0.58)
-	back.rotation = deg_to_rad(-8.0)
-	back.modulate = Color(1, 1, 1, 0)
-	slot.add_child(back)
-
+	# Full screen always shows the real card image (front), zooming up as it opens.
 	var front := _build_store_card_visual(key, level, true, card_size, options)
 	front.position = pos
 	front.pivot_offset = card_size * 0.5
-	front.scale = Vector2(0.04, 1.0)
-	front.rotation = 0.0
-	front.visible = false
+	front.scale = Vector2(0.58, 0.58)
+	front.rotation = deg_to_rad(-8.0)
+	front.modulate = Color(1, 1, 1, 0)
 	slot.add_child(front)
-
-	ui["upgrade_card_preview_back"] = back
 	ui["upgrade_card_preview_front"] = front
 
-	var t := back.create_tween()
+	var t := front.create_tween()
 	t.set_parallel(true)
-	t.tween_property(back, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_property(back, "rotation", 0.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	t.tween_property(back, "modulate:a", 1.0, 0.12)
+	t.tween_property(front, "scale", Vector2.ONE, 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(front, "rotation", 0.0, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(front, "modulate:a", 1.0, 0.14)
 
 
 func _purchase_selected_upgrade() -> void:
@@ -3778,27 +3848,19 @@ func _purchase_selected_upgrade() -> void:
 	buy.add_theme_color_override("font_disabled_color", TEXT_DIM)
 	_apply_tactile_style(buy, BG_PANEL, BORDER_DARK)
 
-	var back: Control = ui.get("upgrade_card_preview_back", null)
+	# The card image is already shown; the reveal is a celebratory pop + fanfare.
 	var front: Control = ui.get("upgrade_card_preview_front", null)
-	if back == null or front == null or not is_instance_valid(back) or not is_instance_valid(front):
+	if front == null or not is_instance_valid(front):
 		_finish_upgrade_card_purchase(level, cost)
 		return
 
 	_play_catch_plonk(1)
-	var flip := back.create_tween()
-	flip.tween_property(back, "scale:x", 0.035, 0.13).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	flip.tween_callback(func():
-		if is_instance_valid(back):
-			back.visible = false
-		if is_instance_valid(front):
-			front.visible = true
-			front.scale = Vector2(0.035, 1.0)
-		_play_catch_plonk(3)
-	)
-	flip.tween_property(front, "scale:x", 1.0, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	flip.parallel().tween_property(front, "rotation", deg_to_rad(1.8), 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	flip.tween_property(front, "rotation", 0.0, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	flip.tween_callback(_finish_upgrade_card_purchase.bind(level, cost))
+	front.pivot_offset = front.size * 0.5
+	var pop := front.create_tween()
+	pop.tween_property(front, "scale", Vector2(1.12, 1.12), 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	pop.tween_callback(_play_catch_plonk.bind(3))
+	pop.tween_property(front, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	pop.tween_callback(_finish_upgrade_card_purchase.bind(level, cost))
 
 
 func _finish_upgrade_card_purchase(_level: int, _cost: int) -> void:
@@ -3806,14 +3868,10 @@ func _finish_upgrade_card_purchase(_level: int, _cost: int) -> void:
 	var key := selected_upgrade_card_key
 	_refresh_upgrade_store_lanes()
 
-	# Reveal: drop the price/buttons and leave only the card art + "+1 …" chip,
-	# then animate the whole stage away and close.
-	if ui.has("upgrade_card_preview_price"):
-		(ui["upgrade_card_preview_price"] as Label).visible = false
-	if ui.has("upgrade_card_preview_buy"):
-		(ui["upgrade_card_preview_buy"] as Button).visible = false
-	if ui.has("upgrade_card_preview_close"):
-		(ui["upgrade_card_preview_close"] as Button).visible = false
+	# Reveal: drop the whole details column (description, price, buttons) and leave only
+	# the card art + "+1 …" chip, then animate the stage away and close.
+	if ui.has("upgrade_card_preview_info"):
+		(ui["upgrade_card_preview_info"] as Control).visible = false
 	if ui.has("upgrade_card_preview_chip") and key != "":
 		var chip: PanelContainer = ui["upgrade_card_preview_chip"]
 		(chip.get_meta("label") as Label).text = "+1 %s" % _upgrade_name(key).to_upper()
@@ -3889,15 +3947,22 @@ func _build_store_card_visual(key: String, level: int, face_up: bool, card_size:
 	card.pivot_offset = card_size * 0.5
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+	var mini := bool(options.get("mini", false))
+	# Mini cards (shop lanes) always use the generated face with the small icon art.
+	# Big cards (preview) use the full-resolution card image when one exists.
+	var full_tex: Texture2D = null if mini else _upgrade_card_texture(key, level)
+	var small_icon: Texture2D = _upgrade_small_icon_texture(key, level) if mini else null
 	var fill := Color("#011244")
-	if face_up and _upgrade_art_texture(key, level) == null:
+	if small_icon != null:
+		# Match the small icon's own navy background so the icon blends into the card.
+		fill = Color("#010f44")
+	elif face_up and full_tex == null:
 		fill = _upgrade_accent(key).darkened(0.64)
 	var inner := _add_squarestep_card_shell(card, card_size, fill, options)
 	var inner_size := Vector2(card_size.x - inner * 2.0, card_size.y - inner * 2.0)
 	if face_up:
-		var tex := _upgrade_art_texture(key, level)
-		if tex:
-			var face := _gallery_face(tex)
+		if full_tex != null:
+			var face := _gallery_face(full_tex)
 			face.position = Vector2(inner, inner)
 			face.size = inner_size
 			card.add_child(face)
@@ -3955,12 +4020,23 @@ func _add_generated_upgrade_card_face(card: Control, key: String, level: int, re
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(title)
 
-	var icon_size := rect.size.x * (0.54 if mini else 0.48)
-	var icon := _icon_texture_rect(_upgrade_icon_texture(key), Vector2(icon_size, icon_size), accent.lightened(0.36))
-	icon.position = rect.position + Vector2((rect.size.x - icon_size) * 0.5, rect.size.y * (0.34 if mini else 0.32))
-	icon.size = Vector2(icon_size, icon_size)
-	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	card.add_child(icon)
+	# Prefer the per-level small icon art (full colour) on mini cards; fall back to the
+	# generic tinted material icon for upgrades without bespoke art (cannons, defense).
+	var small_icon: Texture2D = _upgrade_small_icon_texture(key, level) if mini else null
+	if small_icon != null:
+		var s := rect.size.x * 0.82
+		var icon := _icon_texture_rect(small_icon, Vector2(s, s), Color(1, 1, 1, 1))
+		icon.position = rect.position + Vector2((rect.size.x - s) * 0.5, rect.size.y * 0.24)
+		icon.size = Vector2(s, s)
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		card.add_child(icon)
+	else:
+		var icon_size := rect.size.x * (0.54 if mini else 0.48)
+		var icon := _icon_texture_rect(_upgrade_icon_texture(key), Vector2(icon_size, icon_size), accent.lightened(0.36))
+		icon.position = rect.position + Vector2((rect.size.x - icon_size) * 0.5, rect.size.y * (0.34 if mini else 0.32))
+		icon.size = Vector2(icon_size, icon_size)
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		card.add_child(icon)
 
 	var level_size := int(clampf(rect.size.x * (0.18 if mini else 0.13), 12.0, 30.0))
 	var level_label := _label("LVL %d" % level, level_size, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
@@ -3999,7 +4075,8 @@ func _add_store_slot_badge(card: Control, card_size: Vector2, text: String, acce
 	card.add_child(badge)
 
 
-func _upgrade_art_texture(key: String, level: int) -> Texture2D:
+# Full-resolution card art for the big, zoomed-up card in the preview overlay.
+func _upgrade_card_texture(key: String, level: int) -> Texture2D:
 	var idx := clampi(level, 1, UPGRADE_MAX_LEVEL) - 1
 	match key:
 		"motor":
@@ -4008,6 +4085,23 @@ func _upgrade_art_texture(key: String, level: int) -> Texture2D:
 			return CARD_FISH_FINDER_TEXTURES[idx]
 		"nets":
 			return CARD_NETS_TEXTURES[idx]
+		"live_well":
+			return CARD_WELL_TEXTURES[idx]
+	return null
+
+
+# Small per-level icon art for the mini cards in the shop lanes (low-res collection view).
+func _upgrade_small_icon_texture(key: String, level: int) -> Texture2D:
+	var idx := clampi(level, 1, UPGRADE_MAX_LEVEL) - 1
+	match key:
+		"motor":
+			return ICON_MOTOR_SMALL[idx]
+		"fish_finder":
+			return ICON_FINDER_SMALL[idx]
+		"nets":
+			return ICON_NETS_SMALL[idx]
+		"live_well":
+			return ICON_WELL_SMALL[idx]
 	return null
 
 
