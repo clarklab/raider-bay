@@ -14,10 +14,15 @@ iOS) on top for mobile — for verified player identity and the native leaderboa
 - **Hybrid, not replacement.** The Netlify board (`GLOBAL_SCORES_API`) stays the
   everywhere-source of truth (web, Android, iOS). Native boards are an *additional*
   submission target on mobile.
-- **One "Career" leaderboard.** Ranked by a single composite score:
-  `career_score = trophies * 1_000_000 + clamp(money, 0, 999_999)`.
+- **One "High Score" leaderboard, per solo run.** Ranked by a single composite score
+  for that run: `run_score = trophies * 1_000_000 + clamp(money, 0, 999_999)`.
   Trophies dominate; money is the tiebreak — matching the current local sort
-  (`_is_high_score_better`: trophies, then money, then upgrades).
+  (`_is_high_score_better`: trophies, then money, then upgrades). The native service
+  keeps each player's *best* submitted run, so the board reads as "best solo voyage."
+- **Solo runs only** are submitted to native boards. Versus runs are never submitted
+  to native (they stay on the Netlify board only).
+- **Lifetime / career aggregate stats are player-only** (local, on the stats screen).
+  They are never submitted to any leaderboard — only per-run solo high scores are.
 - **Phased.** Ship the integration seam now (safe, testable, nothing breaks);
   wire real native services when the apps are actually published.
 - **Google Play Games first, Game Center later** ("iOS equivalent when ready").
@@ -26,17 +31,16 @@ iOS) on top for mobile — for verified player identity and the native leaderboa
 
 ### Score model
 A single helper computes the composite from an already-recorded run:
-`_career_score(trophies, money) -> int`. Used for both the native submission and
-(optionally) surfaced in the UI. Solo runs only are submitted to native boards
-(versus outcomes stay on the Netlify board only) — keeps the native board a fair
-single-player career ranking. *(Confirm during review; easy to change.)*
+`_run_score(trophies, money) -> int`. Native submission fires **only for solo runs**;
+versus runs and lifetime/career aggregate stats are never submitted (they remain on
+Netlify / the local stats screen respectively).
 
 ### Submission path
 `_submit_career_score()` is the single entry point, called from `_record_high_score()`
 right where `_submit_global_high_score(entry)` already fires:
-1. Always submit to Netlify (unchanged — existing behavior).
-2. If a native leaderboard service is available and signed in, submit
-   `_career_score(...)` to it too.
+1. Always submit to Netlify (unchanged — existing behavior; solo and versus).
+2. If the run is **solo** and a native leaderboard service is available and signed in,
+   submit `_run_score(...)` to it too.
 
 ### Feature-gating seam (the important part for "get ready for the future")
 Native calls go through a thin wrapper that is a **no-op unless the native plugin is
@@ -60,7 +64,7 @@ The "HIGH SCORES" / leaderboard entry point:
 
 ## Phase 1 — build now (testable, no external deps)
 
-- `_career_score()` composite helper.
+- `_run_score()` composite helper.
 - `_submit_career_score()` + a `_native_leaderboards.gd`-style wrapper that
   feature-gates all native calls (all no-op without the plugin + IDs).
 - Config constants for the leaderboard/app IDs (empty).
@@ -82,8 +86,8 @@ simple-export build green until the gradle build is proven.
 2. Set up **Play Games Services**: link the app, create an **OAuth2 client** with the
    signing cert **SHA-1** (both the debug keystore used in CI *and* the release upload
    key).
-3. Create a **leaderboard** ("Career") → note its **leaderboard ID**; note the
-   **project/app ID**.
+3. Create a **leaderboard** ("High Score", larger-is-better) → note its
+   **leaderboard ID**; note the **project/app ID**.
 4. Send me the leaderboard ID + app ID; I wire them into the config + Android manifest
    and finish the gradle/CI plumbing.
 5. Test sign-in + submit on a physical device signed into Google Play.
