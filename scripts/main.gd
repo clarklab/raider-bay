@@ -11162,7 +11162,12 @@ func _show_high_scores_screen() -> void:
 
 	global_scores_status = "Loading global scores..." if _global_scores_enabled() else "Local scores on this device."
 	_render_high_scores_screen(_load_high_scores(), "HIGH SCORES", global_scores_status)
-	(ui["high_scores_overlay"] as Control).visible = true
+	var overlay := ui["high_scores_overlay"] as Control
+	# GUI input picking walks siblings by tree order (not z_index), so become the
+	# top-most sibling — otherwise clicks/scroll fall through to the still-visible
+	# start screen behind us. Same fix as _show_deck_training().
+	overlay.move_to_front()
+	overlay.visible = true
 	_fetch_global_high_scores()
 
 
