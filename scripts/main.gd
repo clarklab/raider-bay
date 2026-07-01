@@ -135,6 +135,10 @@ const CARD_BACK_TEXTURE: Texture2D = preload("res://assets/cards/card-back.png")
 const CATCH_WAVES_VIDEO: VideoStream = preload("res://assets/cutscenes/catch-waves-1.ogv")
 const CATCH_CALM_VIDEO: VideoStream = preload("res://assets/cutscenes/catch-calm.ogv")
 const CATCH_STORM_VIDEO: VideoStream = preload("res://assets/cutscenes/catch-storm-squall.ogv")
+const CARD_WEATHER_CALM: Texture2D = preload("res://assets/cards/card-weather-calm-1.png")
+const CARD_WEATHER_RAIN: Texture2D = preload("res://assets/cards/card-weather-rain-1.png")
+const CARD_WEATHER_SQUALL: Texture2D = preload("res://assets/cards/card-weather-squall-1.png")
+const CARD_WEATHER_HURRICANE: Texture2D = preload("res://assets/cards/card-weather-hurricane-1.png")
 const CARD_MOTOR_TEXTURES: Array[Texture2D] = [
 	preload("res://assets/cards/card-motor-1.png"),
 	preload("res://assets/cards/card-motor-2.png"),
@@ -354,7 +358,7 @@ var extra_night_cart := 0
 
 var weather_deck: Array[Dictionary] = []
 var forecast: Array[Dictionary] = []
-var current_weather: Dictionary = {"name": "Clear", "strength": 0}
+var current_weather: Dictionary = {"name": "Calm", "strength": 0}
 var log_lines: Array[String] = []
 var cast_holes_today: Dictionary = {}
 
@@ -791,8 +795,8 @@ func _update_audio(delta: float) -> void:
 		return
 
 	var on_start_screen := ui.has("start_overlay") and (ui["start_overlay"] as Control).visible
-	var weather_name := str(current_weather.get("name", "Clear")) if not current_weather.is_empty() else "Clear"
-	var want_calm := on_start_screen or weather_name == "Clear"
+	var weather_name := str(current_weather.get("name", "Calm")) if not current_weather.is_empty() else "Calm"
+	var want_calm := on_start_screen or weather_name == "Calm"
 
 	var calm_target := 1.0 if want_calm else 0.0
 	var waves_target := 0.0 if want_calm else 1.0
@@ -894,6 +898,7 @@ func _build_ui() -> void:
 	_build_high_scores_screen()
 	_build_deck_training_screen()
 	_build_boat_setup_screen()
+	_build_weather_card_preview_overlay()
 
 
 func _build_table_layout(parent: Container) -> void:
@@ -2286,9 +2291,9 @@ func _rules_text() -> String:
 		+ "  • [b]Nets[/b] at 0 — no nets bonus on the d6 cast.\n"
 		+ "Pay at the docks to repair.\n\n"
 		+ "[b]WEATHER[/b]\n"
-		+ "Each evening the weather card is drawn: Clear, Storm (strength 2-5), or Hurricane (strength 2-5). Clear nights pass "
-		+ "safely. Bad weather rolls a d6: if your roll is below the storm's strength, you take damage equal to the difference "
-		+ "to random systems. Docked boats are safe.\n\n"
+		+ "Each evening a weather card is drawn: Calm, Rain, Squall, or Hurricane. Calm nights pass safely. Rain boosts your "
+		+ "catch, Squall and Hurricane cut it. Any weather with strength rolls a d6: if your roll is below the strength, you "
+		+ "take damage equal to the difference to random systems. Docked boats are safe. Tap a forecast card to see its effect.\n\n"
 		+ "[b]COMBAT (PIRATE BATTLE)[/b]\n"
 		+ "When both boats are at sea and within 2 squares of each other, the captain with Cannons can ATTACK. Damage rolls "
 		+ "against the rival's hull and systems; Defense reduces the hit. Sinking your rival ends the contest.\n\n"
@@ -4993,7 +4998,7 @@ func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
 	_roll_market()
 	_generate_board()
 	_build_weather_deck()
-	current_weather = {"name": "Clear", "strength": 0}
+	current_weather = {"name": "Calm", "strength": 0}
 	forecast.clear()
 	for i in range(4):
 		forecast.append(_draw_weather())
@@ -5173,7 +5178,8 @@ func _load_game() -> bool:
 	forecast = _dict_array(data.get("forecast", []))
 	while forecast.size() < 4:
 		forecast.append(_draw_weather())
-	current_weather = _dict_copy(data.get("current_weather", {"name": "Clear", "strength": 0}))
+	current_weather = _dict_copy(data.get("current_weather", {"name": "Calm", "strength": 0}))
+	_migrate_weather_names()
 	cast_holes_today = _locks_from_array(data.get("cast_holes_today", []))
 
 	log_lines.clear()
@@ -5519,20 +5525,36 @@ func _depth_info(row: int) -> Dictionary:
 	return {"zone": "Shoal", "rating": 0.33}
 
 
+# Old saves stored weather as Clear/Storm/Hurricane; map the retired names onto
+# the current set (Calm/Rain/Squall/Hurricane) so a mid-game load renders right.
+func _migrate_weather_names() -> void:
+	var all: Array = [current_weather]
+	all.append_array(weather_deck)
+	all.append_array(forecast)
+	for w in all:
+		if w is Dictionary:
+			match str(w.get("name", "")):
+				"Clear":
+					w["name"] = "Calm"
+				"Storm":
+					w["name"] = "Rain"
+
+
 func _build_weather_deck() -> void:
 	weather_deck = []
-	for i in range(15):
-		weather_deck.append({"name": "Clear", "strength": 0})
-	weather_deck.append({"name": "Storm", "strength": 5})
-	weather_deck.append({"name": "Storm", "strength": 4})
-	weather_deck.append({"name": "Storm", "strength": 4})
-	weather_deck.append({"name": "Storm", "strength": 3})
-	weather_deck.append({"name": "Storm", "strength": 3})
-	weather_deck.append({"name": "Storm", "strength": 2})
+	for i in range(13):
+		weather_deck.append({"name": "Calm", "strength": 0})
+	weather_deck.append({"name": "Rain", "strength": 3})
+	weather_deck.append({"name": "Rain", "strength": 2})
+	weather_deck.append({"name": "Rain", "strength": 2})
+	weather_deck.append({"name": "Rain", "strength": 1})
+	weather_deck.append({"name": "Squall", "strength": 4})
+	weather_deck.append({"name": "Squall", "strength": 3})
+	weather_deck.append({"name": "Squall", "strength": 3})
+	weather_deck.append({"name": "Squall", "strength": 2})
 	weather_deck.append({"name": "Hurricane", "strength": 5})
 	weather_deck.append({"name": "Hurricane", "strength": 4})
 	weather_deck.append({"name": "Hurricane", "strength": 3})
-	weather_deck.append({"name": "Hurricane", "strength": 2})
 	weather_deck.shuffle()
 
 
@@ -5540,12 +5562,14 @@ func _draw_weather() -> Dictionary:
 	if weather_deck.is_empty():
 		_build_weather_deck()
 	var w: Dictionary = weather_deck.pop_back()
-	# Roll the catch multiplier fresh each draw: rain boosts, hurricanes cut.
+	# Roll the catch multiplier fresh each draw: rain boosts, squalls/hurricanes cut.
 	match str(w["name"]):
-		"Storm":
-			w["mult"] = rng.randf_range(1.0, 1.5)
+		"Rain":
+			w["mult"] = rng.randf_range(1.1, 1.5)
+		"Squall":
+			w["mult"] = rng.randf_range(0.8, 0.95)
 		"Hurricane":
-			w["mult"] = rng.randf_range(0.7, 0.9)
+			w["mult"] = rng.randf_range(0.6, 0.85)
 		_:
 			w["mult"] = 1.0
 	return w
@@ -6446,7 +6470,7 @@ func _end_day() -> void:
 func _resolve_weather() -> void:
 	var strength: int = int(current_weather["strength"])
 	if strength <= 0:
-		_log("Clear night.")
+		_log("Calm night.")
 		return
 
 	_resolve_weather_for_player(strength)
@@ -7668,11 +7692,40 @@ func _species_from_key(key: String) -> String:
 
 func _weather_icon_texture(weather_name: String) -> Texture2D:
 	match weather_name:
-		"Storm":
+		"Rain", "Squall":
 			return ICON_STORM_TEXTURE
 		"Hurricane":
 			return ICON_HURRICANE_TEXTURE
 	return ICON_CLEAR_TEXTURE
+
+
+# Central metadata for the four weather types (Calm / Rain / Squall / Hurricane):
+# full label, short label (narrow forecast cards), accent colour, full-size card art.
+func _weather_meta(weather_name: String) -> Dictionary:
+	match weather_name:
+		"Rain":
+			return {"label": "RAIN", "short": "RAIN", "accent": GREEN, "card": CARD_WEATHER_RAIN}
+		"Squall":
+			return {"label": "SQUALL", "short": "SQUALL", "accent": GOLD, "card": CARD_WEATHER_SQUALL}
+		"Hurricane":
+			return {"label": "HURRICANE", "short": "HURR", "accent": RED, "card": CARD_WEATHER_HURRICANE}
+		_:
+			return {"label": "CALM", "short": "CALM", "accent": CYAN, "card": CARD_WEATHER_CALM}
+
+
+# One-line effect description for the full-size weather card (uses tonight's strength).
+func _weather_effect_desc(weather: Dictionary) -> String:
+	var name := str(weather.get("name", "Calm"))
+	var strength := int(weather.get("strength", 0))
+	match name:
+		"Rain":
+			return "Fish bite in the rain — a richer haul. But roll a d6: below %d and rough water damages random systems. Safe at the docks." % strength
+		"Squall":
+			return "Choppy seas scatter the fish — a leaner haul. Roll a d6: below %d and you take damage to random systems. Safe at the docks." % strength
+		"Hurricane":
+			return "The worst of the season — a poor catch and heavy damage. Roll a d6: below %d and it wrecks random systems. Safe at the docks." % strength
+		_:
+			return "Flat, quiet water — a safe night. No storm damage, and your catch pays the usual rate."
 
 
 func _cell_text(pos: Vector2i, tile: Dictionary) -> String:
@@ -8310,10 +8363,10 @@ func _show_treasure_card_fan(tile: Dictionary, origin_center: Vector2 = Vector2(
 # along it in both directions to reveal the background video. Returns the time after
 # which the screen is clear and the card fan should fire.
 # The catch cutscene shown behind the card fan, chosen by tonight's weather:
-# calm seas when Clear, a squall when Storm, big waves in a Hurricane.
+# calm seas when Calm, a squall in Rain/Squall, big waves in a Hurricane.
 func _weather_catch_video() -> VideoStream:
-	match str(current_weather.get("name", "Clear")):
-		"Storm":
+	match str(current_weather.get("name", "Calm")):
+		"Rain", "Squall":
 			return CATCH_STORM_VIDEO
 		"Hurricane":
 			return CATCH_WAVES_VIDEO
@@ -9862,16 +9915,10 @@ func _pill_set_text(pill: PanelContainer, text: String) -> void:
 # pill at the bottom (green boost / red cut / grey neutral).
 func _weather_day_card(weather: Dictionary, day_offset: int, is_tonight: bool) -> Control:
 	var weather_name := str(weather["name"])
-	var label := "CLEAR"
-	match weather_name:
-		"Storm":
-			label = "STORM"
-		"Hurricane":
-			label = "HURR"
-		_:
-			label = "CLEAR"
+	var meta := _weather_meta(weather_name)
 
-	# Square navy card, thick white border, weather name up top, mult pill at the bottom.
+	# Solid navy chip, thick white border, weather name up top, mult pill at the bottom.
+	# No art — tapping it pops the full-size illustrated card.
 	var body_fill := REF_CARD_NAVY.lightened(0.08) if is_tonight else REF_CARD_NAVY
 	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(WEATHER_DAY_CARD_WIDTH, 0)
@@ -9891,7 +9938,7 @@ func _weather_day_card(weather: Dictionary, day_offset: int, is_tonight: bool) -
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(col)
 
-	var name_label := _label(label, 18, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_LEFT)
+	var name_label := _label(str(meta["short"]), 18, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_LEFT)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_label.clip_text = true
 	col.add_child(name_label)
@@ -9915,7 +9962,174 @@ func _weather_day_card(weather: Dictionary, day_offset: int, is_tonight: bool) -
 		col.add_child(pill)
 		var pill_label := _label("%.1fx" % mult, 14, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
 		pill.add_child(pill_label)
+
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	_anchor_fill(btn)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(st, _transparent_style())
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.pressed.connect(_open_weather_card_preview.bind(weather.duplicate(true)))
+	card.add_child(btn)
 	return card
+
+
+# --- Full-size weather card popup (tap a forecast card) -------------------
+
+func _build_weather_card_preview_overlay() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 216
+	add_child(overlay)
+	ui["weather_preview_overlay"] = overlay
+
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0.01, 0.04, 0.11, 0.8)
+	_anchor_fill(backdrop)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	backdrop.gui_input.connect(_on_weather_preview_backdrop_input)
+	overlay.add_child(backdrop)
+
+	# Centered stage: illustrated card on the left, title + effect on the right.
+	var stage := HBoxContainer.new()
+	stage.anchor_left = 0.5
+	stage.anchor_right = 0.5
+	stage.anchor_top = 0.5
+	stage.anchor_bottom = 0.5
+	stage.offset_left = -450
+	stage.offset_right = 450
+	stage.offset_top = -280
+	stage.offset_bottom = 280
+	stage.alignment = BoxContainer.ALIGNMENT_CENTER
+	stage.add_theme_constant_override("separation", 44)
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(stage)
+
+	var card_slot := Control.new()
+	var cw := 372.0
+	card_slot.custom_minimum_size = Vector2(cw, cw * 1.337)
+	card_slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card_slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	card_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(card_slot)
+	ui["weather_preview_slot"] = card_slot
+
+	var info := VBoxContainer.new()
+	info.custom_minimum_size = Vector2(400, 0)
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	info.alignment = BoxContainer.ALIGNMENT_CENTER
+	info.add_theme_constant_override("separation", 18)
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(info)
+
+	ui["weather_preview_title"] = _label("", FONT_TITLE + 10, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+	ui["weather_preview_title"].add_theme_constant_override("outline_size", 3)
+	ui["weather_preview_title"].add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
+	info.add_child(ui["weather_preview_title"])
+
+	ui["weather_preview_desc"] = _label("", FONT_CELL, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_LEFT)
+	ui["weather_preview_desc"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ui["weather_preview_desc"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_child(ui["weather_preview_desc"])
+
+	var close_btn := _close_x_button()
+	close_btn.anchor_left = 1.0
+	close_btn.anchor_right = 1.0
+	close_btn.offset_left = -92
+	close_btn.offset_right = -32
+	close_btn.offset_top = 30
+	close_btn.offset_bottom = 90
+	close_btn.pressed.connect(_close_weather_card_preview)
+	overlay.add_child(close_btn)
+
+
+func _on_weather_preview_backdrop_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		_close_weather_card_preview()
+
+
+func _open_weather_card_preview(weather: Dictionary) -> void:
+	if not ui.has("weather_preview_overlay"):
+		return
+	var meta := _weather_meta(str(weather.get("name", "Calm")))
+	var title: Label = ui["weather_preview_title"]
+	title.text = str(meta["label"])
+	title.add_theme_color_override("font_color", meta["accent"])
+	(ui["weather_preview_desc"] as Label).text = _weather_effect_desc(weather)
+
+	var slot: Control = ui["weather_preview_slot"]
+	for c in slot.get_children():
+		c.queue_free()
+	var cw := slot.custom_minimum_size.x
+	var ch := slot.custom_minimum_size.y
+
+	# Chunky white stepped-border card shell (matches the fish/upgrade cards),
+	# with the weather illustration seated inside it.
+	var card := Control.new()
+	card.size = Vector2(cw, ch)
+	card.custom_minimum_size = Vector2(cw, ch)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var inner := _add_squarestep_card_shell(card, Vector2(cw, ch), Color("#0a1024"), {
+		"show_shadow": true,
+		"shadow_offset": Vector2(10, 14),
+		"card_border_px": 9,
+		"card_step_px": 5,
+	})
+	var face := _gallery_face(meta["card"])
+	face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	face.position = Vector2(inner, inner)
+	face.size = Vector2(cw - inner * 2.0, ch - inner * 2.0)
+	card.add_child(face)
+	slot.add_child(card)
+
+	# Mult chip pinned to the card's bottom-right, when it has one.
+	var mult := float(weather.get("mult", 1.0))
+	if abs(mult - 1.0) > 0.001:
+		var chip_accent := GREEN if mult > 1.0 else RED
+		var chip := PanelContainer.new()
+		var chip_style := _styled_shadow(chip_accent, chip_accent.darkened(0.3), 0, 10, 3)
+		chip_style.content_margin_left = 15
+		chip_style.content_margin_right = 15
+		chip_style.content_margin_top = 5
+		chip_style.content_margin_bottom = 6
+		chip.add_theme_stylebox_override("panel", chip_style)
+		chip.anchor_left = 1.0
+		chip.anchor_top = 1.0
+		chip.anchor_right = 1.0
+		chip.anchor_bottom = 1.0
+		chip.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		chip.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		chip.offset_left = -28
+		chip.offset_top = -28
+		chip.offset_right = -28
+		chip.offset_bottom = -28
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.add_child(chip)
+		var chip_lbl := _label("%.1fx" % mult, FONT_CELL_BIG, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
+		chip.add_child(chip_lbl)
+
+	slot.pivot_offset = Vector2(cw, ch) * 0.5
+	slot.scale = Vector2(0.5, 0.5)
+	slot.rotation = deg_to_rad(-6.0)
+	slot.modulate = Color(1, 1, 1, 0)
+	var overlay := ui["weather_preview_overlay"] as Control
+	overlay.move_to_front()
+	overlay.visible = true
+	var t := slot.create_tween()
+	t.set_parallel(true)
+	t.tween_property(slot, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(slot, "rotation", 0.0, 0.26).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(slot, "modulate:a", 1.0, 0.16)
+	_play_catch_plonk(0)
+
+
+func _close_weather_card_preview() -> void:
+	if ui.has("weather_preview_overlay"):
+		(ui["weather_preview_overlay"] as Control).visible = false
 
 
 # A stack of light-blue cards peeking off the edge — "more days ahead".
@@ -9942,18 +10156,9 @@ func _weather_peek_card() -> Control:
 
 func _forecast_chip(weather: Dictionary, is_current: bool) -> Control:
 	var weather_name := str(weather["name"])
-	var accent := TEXT_DIM
-	var name := "CLEAR"
-	match weather_name:
-		"Storm":
-			accent = CYAN_DEEP.lightened(0.28)
-			name = "STORM"
-		"Hurricane":
-			accent = RED
-			name = "HURR"
-		_:
-			accent = TEXT_DIM
-			name = "CLEAR"
+	var meta := _weather_meta(weather_name)
+	var name := str(meta["short"])
+	var accent: Color = TEXT_DIM if weather_name == "Calm" else meta["accent"]
 
 	# Match the left-rail counter look: accent border + dark accent fill + an inset "well".
 	var card := PanelContainer.new()
@@ -10005,19 +10210,9 @@ func _forecast_chip(weather: Dictionary, is_current: bool) -> Control:
 
 func _hud_forecast_chip(weather: Dictionary, is_current: bool) -> Control:
 	var weather_name := str(weather["name"])
-	var strength := int(weather["strength"])
-	var accent := TEXT_DIM
-	var name := "Clear"
-	match weather_name:
-		"Storm":
-			accent = CYAN_DEEP.lightened(0.26)
-			name = "Storms" if strength >= 4 else "Storm"
-		"Hurricane":
-			accent = TEXT_MUTED
-			name = "Hurricane"
-		_:
-			accent = TEXT_DIM
-			name = "Clear"
+	var meta := _weather_meta(weather_name)
+	var name := str(meta["label"]).capitalize()
+	var accent: Color = TEXT_DIM if weather_name == "Calm" else meta["accent"]
 
 	var row := HBoxContainer.new()
 	_anchor_fill(row)
@@ -10078,54 +10273,6 @@ func _hud_trophy_dot(species: String) -> Control:
 	style.content_margin_bottom = 0
 	dot.add_theme_stylebox_override("panel", style)
 	return dot
-
-
-func _weather_chip(weather: Dictionary, is_tonight: bool) -> Control:
-	var weather_name := str(weather["name"])
-	var strength := int(weather["strength"])
-	var accent := TEXT_MUTED
-	var label_text := "Clear"
-	match weather_name:
-		"Storm":
-			accent = CYAN
-			label_text = "Storm %d" % strength
-		"Hurricane":
-			accent = RED
-			label_text = "Hurr %d" % strength
-		_:
-			accent = GOLD if is_tonight else TEXT_MUTED
-			label_text = "Clear"
-
-	var fill := BG_PANEL_DARK
-	var border := BORDER_DARK
-	var text_color := accent
-	if is_tonight:
-		fill = accent.darkened(0.66) if weather_name != "Clear" else BG_PANEL_LIGHT
-		text_color = TEXT_PRIMARY if weather_name != "Clear" else GOLD
-		border = accent.darkened(0.12)
-	else:
-		fill = BG_PANEL_DARK.lerp(accent, 0.05)
-
-	var p := _panel(fill, border, 1, 4)
-	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 6)
-	pad.add_theme_constant_override("margin_right", 6)
-	pad.add_theme_constant_override("margin_top", 2)
-	pad.add_theme_constant_override("margin_bottom", 2)
-	p.add_child(pad)
-
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 4)
-	pad.add_child(row)
-
-	var icon := _icon_texture_rect(_weather_icon_texture(weather_name), Vector2(18, 18), text_color)
-	row.add_child(icon)
-
-	var lbl := _label(label_text, FONT_SMALL, text_color, HORIZONTAL_ALIGNMENT_CENTER)
-	row.add_child(lbl)
-	return p
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -11125,8 +11272,8 @@ func _deck_visual_weather() -> Control:
 	chips.custom_minimum_size = Vector2(300, 0)
 	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var weathers := [
-		{"name": "Storm", "strength": 3, "mult": 1.3},
-		{"name": "Clear", "strength": 0, "mult": 1.0},
+		{"name": "Rain", "strength": 3, "mult": 1.3},
+		{"name": "Calm", "strength": 0, "mult": 1.0},
 		{"name": "Hurricane", "strength": 4, "mult": 0.8},
 	]
 	for i in range(weathers.size()):
