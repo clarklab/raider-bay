@@ -2038,80 +2038,98 @@ func _build_sell_modal() -> void:
 	ui["sell_overlay"] = overlay
 
 	var backdrop := ColorRect.new()
-	backdrop.color = Color(0, 0, 0, 0.58)
+	backdrop.color = Color(0.01, 0.04, 0.12, 0.78)
 	backdrop.anchor_right = 1.0
 	backdrop.anchor_bottom = 1.0
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.add_child(backdrop)
 
-	var card := _panel_lifted(BG_PANEL_DARK, GOLD_DEEP, 2, 5, 12)
+	# Chunky navy panel with a gold "market" trim; fish sit on it as cards.
+	var card := _panel_lifted(REF_BG_NAVY, GOLD_DEEP, 3, 18, 16)
 	card.anchor_left = 0.5
 	card.anchor_right = 0.5
 	card.anchor_top = 0.5
 	card.anchor_bottom = 0.5
-	card.offset_left = -290
-	card.offset_right = 290
-	card.offset_top = -310
-	card.offset_bottom = 310
+	card.offset_left = -380
+	card.offset_right = 380
+	card.offset_top = -348
+	card.offset_bottom = 348
 	overlay.add_child(card)
 
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 20)
-	pad.add_theme_constant_override("margin_right", 20)
-	pad.add_theme_constant_override("margin_top", 18)
-	pad.add_theme_constant_override("margin_bottom", 18)
+	pad.add_theme_constant_override("margin_left", 26)
+	pad.add_theme_constant_override("margin_right", 26)
+	pad.add_theme_constant_override("margin_top", 22)
+	pad.add_theme_constant_override("margin_bottom", 22)
 	card.add_child(pad)
 
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 12)
+	col.add_theme_constant_override("separation", 14)
 	pad.add_child(col)
 
-	ui["sell_title"] = _label("Sell Catch", 28, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["sell_title"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(ui["sell_title"])
+	# Title row: coin icon + chunky gold heading.
+	var title_row := HBoxContainer.new()
+	title_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	title_row.add_theme_constant_override("separation", 12)
+	title_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title_row)
+	title_row.add_child(_icon_texture_rect(ICON_FUNDS_TEXTURE, Vector2(38, 38), GOLD))
+	ui["sell_title"] = _label("SELL YOUR CATCH", FONT_TITLE, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["sell_title"].add_theme_constant_override("outline_size", 3)
+	ui["sell_title"].add_theme_color_override("font_outline_color", Color("#3a2a00"))
+	title_row.add_child(ui["sell_title"])
 
 	var sell_scroll := ScrollContainer.new()
 	sell_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sell_scroll.custom_minimum_size = Vector2(0, 330)
+	sell_scroll.custom_minimum_size = Vector2(0, 400)
 	sell_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sell_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(sell_scroll)
 
 	ui["sell_rows"] = VBoxContainer.new()
 	ui["sell_rows"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["sell_rows"].add_theme_constant_override("separation", 4)
+	ui["sell_rows"].add_theme_constant_override("separation", 10)
 	sell_scroll.add_child(ui["sell_rows"])
 
-	ui["sell_total"] = _label("", 24, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	ui["sell_total"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(ui["sell_total"])
+	# Summary pill (chunky gold) — logic sets the inner label's text.
+	var total_pill := PanelContainer.new()
+	total_pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var tps := _styled(GOLD.darkened(0.62), GOLD, 2, 12)
+	tps.content_margin_left = 22
+	tps.content_margin_right = 22
+	tps.content_margin_top = 8
+	tps.content_margin_bottom = 8
+	total_pill.add_theme_stylebox_override("panel", tps)
+	col.add_child(total_pill)
+	ui["sell_total"] = _label("", FONT_CELL_BIG, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	total_pill.add_child(ui["sell_total"])
 
-	ui["sell_result"] = _label("", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["sell_result"] = _label("", FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	ui["sell_result"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(ui["sell_result"])
 
 	ui["sell_action_row"] = HBoxContainer.new()
 	ui["sell_action_row"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["sell_action_row"].add_theme_constant_override("separation", 8)
+	ui["sell_action_row"].add_theme_constant_override("separation", 12)
 	col.add_child(ui["sell_action_row"])
 
-	ui["sell_confirm"] = _tactile_button("SELL", 0, 54, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
+	ui["sell_confirm"] = _tactile_button("SELL", 0, 62, GREEN_DEEP, GREEN, TEXT_PRIMARY)
 	ui["sell_confirm"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["sell_confirm"].pressed.connect(_confirm_sale)
 	ui["sell_action_row"].add_child(ui["sell_confirm"])
 
-	ui["sell_haggle"] = _tactile_button("HAGGLE", 0, 54, BG_PANEL_LIGHT, CYAN_DEEP, CYAN)
+	ui["sell_haggle"] = _tactile_button("HAGGLE", 0, 62, GOLD.darkened(0.5), GOLD, GOLD)
 	ui["sell_haggle"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["sell_haggle"].pressed.connect(_haggle_sale)
 	ui["sell_action_row"].add_child(ui["sell_haggle"])
 
-	ui["sell_cancel"] = _tactile_button("CANCEL", 0, 54, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_MUTED)
+	ui["sell_cancel"] = _tactile_button("CANCEL", 0, 62, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_MUTED)
 	ui["sell_cancel"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["sell_cancel"].pressed.connect(_close_sell_modal)
 	ui["sell_action_row"].add_child(ui["sell_cancel"])
 
-	ui["sell_ok"] = _tactile_button("OK", 0, 54, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
+	ui["sell_ok"] = _tactile_button("OK", 0, 62, GREEN_DEEP, GREEN, TEXT_PRIMARY)
 	ui["sell_ok"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["sell_ok"].visible = false
 	ui["sell_ok"].pressed.connect(_close_sell_modal)
@@ -5836,8 +5854,8 @@ func _haggle_sale() -> void:
 		haggle_text = "Roll %d: market price. Auto-accepted." % roll
 
 	_populate_sell_rows(result["quantities"], delta_per_fish)
-	(ui["sell_title"] as Label).text = "Haggle Result"
-	(ui["sell_total"] as Label).text = "Sold for $%d" % int(result["total"])
+	(ui["sell_title"] as Label).text = "HAGGLE RESULT"
+	(ui["sell_total"] as Label).text = "SOLD FOR $%d" % int(result["total"])
 	(ui["sell_result"] as Label).text = haggle_text
 	(ui["sell_action_row"] as Control).visible = false
 	(ui["sell_ok"] as Control).visible = true
@@ -5850,12 +5868,14 @@ func _haggle_sale() -> void:
 func _open_sell_modal() -> void:
 	_reset_sale_selection()
 	_populate_sell_selection_rows(0)
-	(ui["sell_title"] as Label).text = "Sell Catch"
+	(ui["sell_title"] as Label).text = "SELL YOUR CATCH"
 	_refresh_sell_selection_summary(0)
-	(ui["sell_result"] as Label).text = "Check fish to sell. Use +/- to split a batch. Haggle is auto-accepted."
+	(ui["sell_result"] as Label).text = "Tap IN/KEEP to pick a batch · +/- to split it · HAGGLE rolls for a better price."
 	(ui["sell_action_row"] as Control).visible = true
 	(ui["sell_ok"] as Control).visible = false
-	(ui["sell_overlay"] as Control).visible = true
+	var overlay := ui["sell_overlay"] as Control
+	overlay.move_to_front()  # top-most sibling so clicks reach the modal
+	overlay.visible = true
 
 
 func _close_sell_modal() -> void:
@@ -5967,72 +5987,79 @@ func _populate_sell_selection_rows(delta_per_fish: int) -> void:
 
 		var species := str(batch.get("species", ""))
 		var selected := _selected_sale_quantity_for_batch(i)
+		var included := selected > 0
 		var unit_price: int = max(0, int(market_prices[species]) + delta_per_fish)
 		var subtotal := selected * unit_price
 
+		# Each batch is a chunky white-bordered navy card; gold trim when it's
+		# part of the sale, dimmed when it's being kept.
 		var wrap := PanelContainer.new()
-		var style := _styled(BG_ROW, BORDER_DARK, 1, 3)
-		style.content_margin_left = 8
-		style.content_margin_right = 8
-		style.content_margin_top = 7
-		style.content_margin_bottom = 7
+		var card_border := GOLD if included else Color(REF_BORDER.r, REF_BORDER.g, REF_BORDER.b, 0.32)
+		var style := _styled_shadow(REF_CARD_NAVY if included else REF_CARD_NAVY.darkened(0.22), card_border, 3, 14, 3)
+		style.content_margin_left = 12
+		style.content_margin_right = 14
+		style.content_margin_top = 10
+		style.content_margin_bottom = 10
 		wrap.add_theme_stylebox_override("panel", style)
 		wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		if selected <= 0:
-			wrap.modulate = Color(1, 1, 1, 0.58)
 		rows.add_child(wrap)
 
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_theme_constant_override("separation", 8)
+		row.add_theme_constant_override("separation", 12)
 		wrap.add_child(row)
 
-		var check := CheckBox.new()
-		check.custom_minimum_size = Vector2(42, 42)
-		check.focus_mode = Control.FOCUS_NONE
-		check.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		check.set_pressed_no_signal(selected > 0)
-		check.toggled.connect(_on_sell_batch_toggled.bind(i))
-		row.add_child(check)
+		# Chunky include toggle: green = in the sale, dark = keeping it.
+		var toggle := _tactile_button("IN" if included else "KEEP", 62, 62, GREEN_DEEP if included else BG_PANEL_DARK, GREEN if included else BORDER_FRAME, TEXT_PRIMARY if included else TEXT_DIM)
+		toggle.add_theme_font_size_override("font_size", FONT_SMALL)
+		toggle.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		toggle.pressed.connect(_on_sell_batch_toggled.bind(not included, i))
+		row.add_child(toggle)
 
 		var art := TextureRect.new()
 		art.texture = _fish_texture(species)
-		art.custom_minimum_size = Vector2(92, 66)
+		art.custom_minimum_size = Vector2(104, 78)
 		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(art)
 
 		var info := VBoxContainer.new()
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		info.add_theme_constant_override("separation", 1)
+		info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		info.add_theme_constant_override("separation", 2)
 		row.add_child(info)
 
-		info.add_child(_label(species, FONT_BODY, TEXT_PRIMARY))
+		info.add_child(_label(species, FONT_CELL, TEXT_PRIMARY))
 		info.add_child(_label("%s · %d aboard" % [_age_name(int(batch.get("age", 0))), batch_quantity], FONT_SMALL, TEXT_MUTED))
 		info.add_child(_label("$%d each" % unit_price, FONT_SMALL, GOLD))
 
 		var controls := HBoxContainer.new()
 		controls.alignment = BoxContainer.ALIGNMENT_CENTER
-		controls.add_theme_constant_override("separation", 5)
+		controls.add_theme_constant_override("separation", 8)
+		controls.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(controls)
 
-		var minus := _tactile_button("-", 36, 38, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
+		var minus := _tactile_button("-", 46, 46, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
+		minus.add_theme_font_size_override("font_size", FONT_CELL_BIG)
 		minus.disabled = selected <= 0
 		minus.pressed.connect(_adjust_sale_batch_quantity.bind(i, -1))
 		controls.add_child(minus)
 
-		var count_lbl := _label("%d/%d" % [selected, batch_quantity], FONT_BODY, TEXT_PRIMARY if selected > 0 else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
-		count_lbl.custom_minimum_size = Vector2(56, 0)
+		var count_lbl := _label("%d/%d" % [selected, batch_quantity], FONT_CELL, TEXT_PRIMARY if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		count_lbl.custom_minimum_size = Vector2(64, 0)
 		controls.add_child(count_lbl)
 
-		var plus := _tactile_button("+", 36, 38, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
+		var plus := _tactile_button("+", 46, 46, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
+		plus.add_theme_font_size_override("font_size", FONT_CELL_BIG)
 		plus.disabled = selected >= batch_quantity
 		plus.pressed.connect(_adjust_sale_batch_quantity.bind(i, 1))
 		controls.add_child(plus)
 
-		var price := _label("$%d" % subtotal, FONT_BODY, GOLD if selected > 0 else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
-		price.custom_minimum_size = Vector2(76, 0)
+		var price := _label("$%d" % subtotal, FONT_CELL_BIG, GOLD if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+		price.custom_minimum_size = Vector2(84, 0)
+		price.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(price)
 
 
@@ -6040,9 +6067,9 @@ func _refresh_sell_selection_summary(delta_per_fish: int) -> void:
 	var selected_count := _selected_sale_count()
 	var total := _sale_total_for(_selected_sale_quantities(), delta_per_fish)
 	if selected_count <= 0:
-		(ui["sell_total"] as Label).text = "Select fish to sell"
+		(ui["sell_total"] as Label).text = "SELECT FISH TO SELL"
 	else:
-		(ui["sell_total"] as Label).text = "%d fish selected · Sale price: $%d" % [selected_count, total]
+		(ui["sell_total"] as Label).text = "%d FISH  ·  $%d" % [selected_count, total]
 	if ui.has("sell_confirm"):
 		var confirm: Button = ui["sell_confirm"]
 		confirm.disabled = selected_count <= 0
@@ -6084,35 +6111,43 @@ func _populate_sell_rows(quantities: Dictionary, delta_per_fish: int) -> void:
 		var unit_price: int = max(0, int(market_prices[species]) + delta_per_fish)
 		var subtotal := quantity * unit_price
 
+		# Sold-fish card: white-bordered navy with a gold subtotal.
 		var wrap := PanelContainer.new()
-		var style := _styled(BG_ROW, BORDER_DARK, 1, 3)
-		style.content_margin_left = 10
-		style.content_margin_right = 10
-		style.content_margin_top = 8
-		style.content_margin_bottom = 8
+		var style := _styled_shadow(REF_CARD_NAVY, REF_BORDER, 3, 14, 3)
+		style.content_margin_left = 12
+		style.content_margin_right = 14
+		style.content_margin_top = 10
+		style.content_margin_bottom = 10
 		wrap.add_theme_stylebox_override("panel", style)
 		wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		rows.add_child(wrap)
 
 		var row := HBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_theme_constant_override("separation", 10)
+		row.add_theme_constant_override("separation", 12)
 		wrap.add_child(row)
 
 		var art := TextureRect.new()
 		art.texture = _fish_texture(species)
-		art.custom_minimum_size = Vector2(174, 126)
+		art.custom_minimum_size = Vector2(120, 88)
 		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(art)
 
-		var name := _label(species, FONT_BODY, TEXT_PRIMARY)
-		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(name)
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		info.add_theme_constant_override("separation", 2)
+		row.add_child(info)
+		info.add_child(_label(species, FONT_CELL, TEXT_PRIMARY))
+		info.add_child(_label("%d  ×  $%d each" % [quantity, unit_price], FONT_SMALL, TEXT_MUTED))
 
-		row.add_child(_label("%d x $%d" % [quantity, unit_price], FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_RIGHT))
-		row.add_child(_label("$%d" % subtotal, FONT_BODY, GOLD, HORIZONTAL_ALIGNMENT_RIGHT))
+		var price := _label("$%d" % subtotal, FONT_CELL_BIG, GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+		price.custom_minimum_size = Vector2(96, 0)
+		price.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(price)
 
 
 func _repair_segment(key: String) -> void:
