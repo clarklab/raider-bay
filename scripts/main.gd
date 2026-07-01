@@ -11138,30 +11138,31 @@ func _random_captain_name() -> String:
 
 
 # The codebase's first text input — a themed LineEdit that matches the design system.
-func _line_edit(placeholder_text: String, max_len: int) -> LineEdit:
+func _line_edit(placeholder_text: String, max_len: int, font_size: int = FONT_CELL) -> LineEdit:
 	var le := LineEdit.new()
 	le.placeholder_text = placeholder_text
 	le.max_length = max_len
 	le.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	le.add_theme_font_override("font", FONT_BALATRO)
-	le.add_theme_font_size_override("font_size", FONT_CELL)
+	le.add_theme_font_size_override("font_size", font_size)
 	le.add_theme_color_override("font_color", TEXT_PRIMARY)
 	le.add_theme_color_override("font_placeholder_color", TEXT_DIM)
 	le.add_theme_color_override("caret_color", CYAN)
 	le.add_theme_color_override("selection_color", Color(CYAN.r, CYAN.g, CYAN.b, 0.35))
+	var pad := maxi(11, int(font_size * 0.4))
 	var normal := _styled(REF_INSET, BORDER_FRAME, 2, 8)
-	normal.content_margin_left = 14
-	normal.content_margin_right = 14
-	normal.content_margin_top = 11
-	normal.content_margin_bottom = 11
+	normal.content_margin_left = 16
+	normal.content_margin_right = 16
+	normal.content_margin_top = pad
+	normal.content_margin_bottom = pad
 	le.add_theme_stylebox_override("normal", normal)
 	var focus := _styled(REF_INSET.lightened(0.05), BORDER_HI, 2, 8)
-	focus.content_margin_left = 14
-	focus.content_margin_right = 14
-	focus.content_margin_top = 11
-	focus.content_margin_bottom = 11
+	focus.content_margin_left = 16
+	focus.content_margin_right = 16
+	focus.content_margin_top = pad
+	focus.content_margin_bottom = pad
 	le.add_theme_stylebox_override("focus", focus)
-	le.custom_minimum_size = Vector2(0, 54)
+	le.custom_minimum_size = Vector2(0, font_size + 36)
 	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return le
 
@@ -11187,8 +11188,8 @@ func _build_boat_setup_screen() -> void:
 	overlay.add_child(center)
 
 	var col := VBoxContainer.new()
-	col.custom_minimum_size = Vector2(720, 0)
-	col.add_theme_constant_override("separation", 16)
+	col.custom_minimum_size = Vector2(1140, 0)
+	col.add_theme_constant_override("separation", 24)
 	center.add_child(col)
 
 	var title := _label("OUTFIT YOUR BOAT", FONT_TITLE + 6, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
@@ -11197,12 +11198,23 @@ func _build_boat_setup_screen() -> void:
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(title)
 
-	# Carousel: [◀]  boat card  [▶]
+	# Boat picker (left) and name picker (right), side by side.
+	var main_row := HBoxContainer.new()
+	main_row.add_theme_constant_override("separation", 52)
+	main_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	main_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(main_row)
+
+	# --- LEFT: boat carousel + position dots ---
+	var picker := VBoxContainer.new()
+	picker.add_theme_constant_override("separation", 16)
+	picker.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	main_row.add_child(picker)
+
 	var carousel := HBoxContainer.new()
-	carousel.add_theme_constant_override("separation", 16)
+	carousel.add_theme_constant_override("separation", 14)
 	carousel.alignment = BoxContainer.ALIGNMENT_CENTER
-	carousel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(carousel)
+	picker.add_child(carousel)
 
 	var left_arrow := _tactile_button("<", 74, 150, BG_PANEL_LIGHT, CYAN_DEEP, CYAN)
 	left_arrow.add_theme_font_size_override("font_size", 42)
@@ -11232,12 +11244,11 @@ func _build_boat_setup_screen() -> void:
 	right_arrow.pressed.connect(func(): _boat_setup_cycle(1))
 	carousel.add_child(right_arrow)
 
-	# Position dots
 	var dots := HBoxContainer.new()
 	dots.alignment = BoxContainer.ALIGNMENT_CENTER
 	dots.add_theme_constant_override("separation", 12)
 	dots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(dots)
+	picker.add_child(dots)
 	ui["boat_setup_dots"] = dots
 	for i in range(BOAT_TEXTURES.size()):
 		var dot := PanelContainer.new()
@@ -11245,17 +11256,27 @@ func _build_boat_setup_screen() -> void:
 		dot.add_theme_stylebox_override("panel", _styled(TEXT_DIM, Color(0, 0, 0, 0), 0, 8))
 		dots.add_child(dot)
 
-	# Captain + boat name fields
-	var cap_label := _label("CAPTAIN", FONT_HEADER, CYAN, HORIZONTAL_ALIGNMENT_LEFT)
-	col.add_child(cap_label)
-	var cap_edit := _line_edit("Captain's name", 22)
-	col.add_child(cap_edit)
+	# --- RIGHT: captain + boat name fields (2x fonts) ---
+	var names := VBoxContainer.new()
+	names.add_theme_constant_override("separation", 8)
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	main_row.add_child(names)
+
+	var cap_label := _label("CAPTAIN", FONT_HEADER * 2, CYAN, HORIZONTAL_ALIGNMENT_LEFT)
+	names.add_child(cap_label)
+	var cap_edit := _line_edit("Captain's name", 22, FONT_CELL * 2)
+	names.add_child(cap_edit)
 	ui["boat_setup_captain"] = cap_edit
 
-	var boat_label := _label("BOAT NAME", FONT_HEADER, CYAN, HORIZONTAL_ALIGNMENT_LEFT)
-	col.add_child(boat_label)
-	var boat_edit := _line_edit("Boat name", 24)
-	col.add_child(boat_edit)
+	var name_gap := Control.new()
+	name_gap.custom_minimum_size = Vector2(0, 18)
+	names.add_child(name_gap)
+
+	var boat_label := _label("BOAT NAME", FONT_HEADER * 2, CYAN, HORIZONTAL_ALIGNMENT_LEFT)
+	names.add_child(boat_label)
+	var boat_edit := _line_edit("Boat name", 24, FONT_CELL * 2)
+	names.add_child(boat_edit)
 	ui["boat_setup_boat"] = boat_edit
 
 	# Buttons: SHUFFLE + SET SAIL
