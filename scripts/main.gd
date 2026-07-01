@@ -11087,46 +11087,68 @@ func _build_high_scores_screen() -> void:
 	add_child(overlay)
 	ui["high_scores_overlay"] = overlay
 
-	var shade := ColorRect.new()
-	shade.color = Color(0, 0, 0, 0.88)
-	shade.anchor_right = 1.0
-	shade.anchor_bottom = 1.0
-	shade.mouse_filter = Control.MOUSE_FILTER_STOP
-	overlay.add_child(shade)
+	# Solid deep-navy screen (design-system background), not a translucent modal.
+	var bg := ColorRect.new()
+	bg.color = REF_BG_NAVY
+	bg.anchor_right = 1.0
+	bg.anchor_bottom = 1.0
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(bg)
 
+	# Root layout: fixed header (title + X) up top, scrolling score list below.
+	var root := VBoxContainer.new()
+	root.anchor_right = 1.0
+	root.anchor_bottom = 1.0
+	root.offset_left = 26
+	root.offset_right = -26
+	root.offset_top = 22
+	root.offset_bottom = -22
+	root.add_theme_constant_override("separation", 14)
+	overlay.add_child(root)
+
+	# --- Fixed header: trophy + big title on the left, chunky X on the right ---
+	var header := HBoxContainer.new()
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_theme_constant_override("separation", 16)
+	root.add_child(header)
+
+	var title_icon := _icon_texture_rect(ICON_TROPHY_SOLID, Vector2(48, 48), GOLD)
+	title_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(title_icon)
+
+	var title := _label("HIGH SCORES", FONT_TITLE + 8, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+	title.add_theme_constant_override("shadow_offset_y", 4)
+	title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	title.add_theme_constant_override("outline_size", 3)
+	title.add_theme_color_override("font_outline_color", Color("#3a2a00"))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(title)
+	ui["high_scores_title"] = title
+
+	var close_btn := _close_x_button()
+	close_btn.pressed.connect(_return_from_high_scores)
+	header.add_child(close_btn)
+	ui["high_scores_back"] = close_btn
+
+	# Status line under the header (loading / local vs global).
+	var status := _label("", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_LEFT)
+	status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.add_child(status)
+	ui["high_scores_status"] = status
+
+	# --- Scrolling list of chunky score cards ---
 	var scroll := ScrollContainer.new()
-	scroll.anchor_right = 1.0
-	scroll.anchor_bottom = 1.0
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	overlay.add_child(scroll)
-
-	var pad := MarginContainer.new()
-	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	pad.add_theme_constant_override("margin_left", 20)
-	pad.add_theme_constant_override("margin_right", 20)
-	pad.add_theme_constant_override("margin_top", 48)
-	pad.add_theme_constant_override("margin_bottom", 106)
-	scroll.add_child(pad)
+	root.add_child(scroll)
 
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 10)
-	pad.add_child(col)
+	col.add_theme_constant_override("separation", 9)
+	scroll.add_child(col)
 	ui["high_scores_col"] = col
-
-	var back_btn := _tactile_button("BACK", 170, 50, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
-	back_btn.anchor_left = 0.34
-	back_btn.anchor_right = 0.66
-	back_btn.anchor_top = 0.925
-	back_btn.anchor_bottom = 0.975
-	back_btn.offset_left = 0
-	back_btn.offset_right = 0
-	back_btn.offset_top = 0
-	back_btn.offset_bottom = 0
-	back_btn.mouse_filter = Control.MOUSE_FILTER_STOP
-	back_btn.pressed.connect(_return_from_high_scores)
-	overlay.add_child(back_btn)
-	ui["high_scores_back"] = back_btn
 
 
 func _show_high_scores_screen() -> void:
@@ -11144,112 +11166,165 @@ func _show_high_scores_screen() -> void:
 	_fetch_global_high_scores()
 
 
+# A chunky red X close button for the top-right of the high-scores screen.
+func _close_x_button() -> Button:
+	var b := _tactile_button("X", 60, 60, Color("#7a2323"), RED, Color("#ffe4e4"))
+	b.add_theme_font_size_override("font_size", 30)
+	b.mouse_filter = Control.MOUSE_FILTER_STOP
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return b
+
+
+# Big medal-style rank chip: gold #1, silver #2, bronze #3, slate beyond.
+func _hs_rank_badge(rank: int) -> Control:
+	var accent := REF_PANEL
+	var text_col := TEXT_PRIMARY
+	match rank:
+		1:
+			accent = GOLD
+			text_col = Color("#3a2a00")
+		2:
+			accent = Color("#c6d4e0")
+			text_col = Color("#1c2a3a")
+		3:
+			accent = Color("#e0954e")
+			text_col = Color("#2a1600")
+	var badge := PanelContainer.new()
+	badge.custom_minimum_size = Vector2(54, 54)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var s := _styled_shadow(accent, REF_BORDER, 3, 12, 2)
+	s.content_margin_left = 0
+	s.content_margin_right = 0
+	s.content_margin_top = 0
+	s.content_margin_bottom = 0
+	badge.add_theme_stylebox_override("panel", s)
+	var l := _label("%d" % rank, FONT_CELL_BIG, text_col, HORIZONTAL_ALIGNMENT_CENTER)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	badge.add_child(l)
+	return badge
+
+
+# Icon + value stat block (trophies, money) — the primary, colorful figures.
+func _hs_stat_block(icon: Texture2D, value: String, color: Color, min_w: int) -> Control:
+	var h := HBoxContainer.new()
+	h.custom_minimum_size = Vector2(min_w, 0)
+	h.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_theme_constant_override("separation", 7)
+	var ic := _icon_texture_rect(icon, Vector2(30, 30), color)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(ic)
+	var l := _label(value, FONT_CELL_BIG, color, HORIZONTAL_ALIGNMENT_LEFT)
+	l.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	h.add_child(l)
+	return h
+
+
+# Small captioned stat (UPG / FISH / DAY) — value on top, tiny label beneath.
+func _hs_mini_stat(caption: String, value: String, color: Color) -> Control:
+	var v := VBoxContainer.new()
+	v.custom_minimum_size = Vector2(64, 0)
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	v.add_theme_constant_override("separation", 0)
+	var val := _label(value, FONT_CELL, color, HORIZONTAL_ALIGNMENT_CENTER)
+	val.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(val)
+	var cap := _label(caption, FONT_SMALL - 2, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	cap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(cap)
+	return v
+
+
+# Mode + outcome chip on the right edge (gold champion / red sunk / cyan otherwise).
+func _hs_result_chip(outcome: String, is_vs: bool) -> Control:
+	var accent := CYAN
+	if outcome == "CHAMPION!":
+		accent = GOLD
+	elif outcome == "SUNK!" or outcome == "DEFEATED":
+		accent = RED
+	var mode_text := "VS" if is_vs else "SOLO"
+	var text := mode_text if outcome == "" else "%s · %s" % [mode_text, outcome]
+	var chip := PanelContainer.new()
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var s := _styled(BG_PANEL_DARK.lerp(accent, 0.14), accent, 2, 9)
+	s.content_margin_left = 13
+	s.content_margin_right = 13
+	s.content_margin_top = 8
+	s.content_margin_bottom = 8
+	chip.add_theme_stylebox_override("panel", s)
+	var l := _label(text, FONT_BODY, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	chip.add_child(l)
+	return chip
+
+
 func _render_high_scores_screen(scores: Array, title_text: String, status_text: String = "") -> void:
+	if ui.has("high_scores_title"):
+		(ui["high_scores_title"] as Label).text = title_text
+	if ui.has("high_scores_status"):
+		var status_lbl: Label = ui["high_scores_status"]
+		status_lbl.text = status_text
+		status_lbl.visible = status_text != ""
+
 	var col: VBoxContainer = ui["high_scores_col"]
 	for child in col.get_children():
 		child.queue_free()
 
-	var title := _label(title_text, 28, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
-	title.add_theme_constant_override("shadow_offset_y", 4)
-	title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(title)
-
-	if status_text != "":
-		var status := _label(status_text, FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-		status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		col.add_child(status)
-
 	if scores.is_empty():
-		var empty := _label("No games played yet.", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		var empty_card := PanelContainer.new()
+		empty_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var es := _styled(REF_CARD_NAVY.darkened(0.12), Color(REF_BORDER.r, REF_BORDER.g, REF_BORDER.b, 0.4), 2, 12)
+		es.content_margin_top = 40
+		es.content_margin_bottom = 40
+		empty_card.add_theme_stylebox_override("panel", es)
+		col.add_child(empty_card)
+		var empty := _label("No voyages logged yet — cast off and set a score!", FONT_CELL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 		empty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		col.add_child(empty)
-	else:
-		var header := HBoxContainer.new()
-		header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		header.add_theme_constant_override("separation", 6)
-		col.add_child(header)
+		empty_card.add_child(empty)
+		return
 
-		var rank_h := _label("#", FONT_SMALL, TEXT_DIM)
-		rank_h.custom_minimum_size = Vector2(28, 0)
-		header.add_child(rank_h)
-		var trophy_h := _label("★", FONT_SMALL, TEXT_DIM)
-		trophy_h.custom_minimum_size = Vector2(32, 0)
-		header.add_child(trophy_h)
-		var money_h := _label("$", FONT_SMALL, TEXT_DIM)
-		money_h.custom_minimum_size = Vector2(78, 0)
-		header.add_child(money_h)
-		var upgrade_h := _label("UPG", FONT_SMALL, TEXT_DIM)
-		upgrade_h.custom_minimum_size = Vector2(38, 0)
-		header.add_child(upgrade_h)
-		var fish_h := _label("FISH", FONT_SMALL, TEXT_DIM)
-		fish_h.custom_minimum_size = Vector2(46, 0)
-		header.add_child(fish_h)
-		var day_h := _label("DAY", FONT_SMALL, TEXT_DIM)
-		day_h.custom_minimum_size = Vector2(40, 0)
-		header.add_child(day_h)
-		var mode_h := _label("MODE", FONT_SMALL, TEXT_DIM)
-		mode_h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		header.add_child(mode_h)
-		header.add_child(_label("RESULT", FONT_SMALL, TEXT_DIM))
+	for i in range(scores.size()):
+		var entry: Dictionary = scores[i]
+		var rank := i + 1
+		var is_top := rank <= 3
 
-		col.add_child(_divider(BORDER_FRAME))
+		var card := PanelContainer.new()
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var fill := REF_CARD_NAVY.lightened(0.10) if rank == 1 else (REF_CARD_NAVY if is_top else REF_CARD_NAVY.darkened(0.20))
+		var border := GOLD if rank == 1 else (REF_BORDER if is_top else Color(REF_BORDER.r, REF_BORDER.g, REF_BORDER.b, 0.42))
+		var bw := 4 if rank == 1 else (3 if is_top else 2)
+		var cs := _styled_shadow(fill, border, bw, 12, 3)
+		cs.content_margin_left = 12
+		cs.content_margin_right = 14
+		cs.content_margin_top = 10
+		cs.content_margin_bottom = 10
+		card.add_theme_stylebox_override("panel", cs)
+		col.add_child(card)
 
-		for i in range(scores.size()):
-			var entry: Dictionary = scores[i]
-			var is_top := i < 3
+		var row := HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_theme_constant_override("separation", 14)
+		card.add_child(row)
 
-			var row_wrap := PanelContainer.new()
-			var row_bg := BG_PANEL_LIGHT if is_top else (BG_PANEL_DARK if i % 2 == 0 else BG_PANEL)
-			var row_border := GOLD_DIM if i == 0 else BORDER_DARK
-			var row_style := _styled(row_bg, row_border, 1 if i == 0 else 0, 4)
-			row_style.content_margin_left = 8
-			row_style.content_margin_right = 8
-			row_style.content_margin_top = 8
-			row_style.content_margin_bottom = 8
-			row_wrap.add_theme_stylebox_override("panel", row_style)
-			row_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			col.add_child(row_wrap)
+		row.add_child(_hs_rank_badge(rank))
 
-			var row := HBoxContainer.new()
-			row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			row.add_theme_constant_override("separation", 6)
-			row_wrap.add_child(row)
+		var t_count := int(entry.get("trophies", 0))
+		row.add_child(_hs_stat_block(ICON_TROPHY_SOLID, "%d" % t_count, GOLD, 96))
 
-			var rank_color := GOLD if i == 0 else (CYAN if i < 3 else TEXT_MUTED)
-			var rank_lbl := _label("%d" % (i + 1), FONT_BODY, rank_color)
-			rank_lbl.custom_minimum_size = Vector2(28, 0)
-			row.add_child(rank_lbl)
+		var money_val := int(entry.get("money", 0))
+		var money_color := GREEN.lightened(0.08) if is_top else TEXT_PRIMARY
+		row.add_child(_hs_stat_block(ICON_FUNDS_TEXTURE, "$%d" % money_val, money_color, 150))
 
-			var t_count := int(entry.get("trophies", 0))
-			var t_lbl := _label("%d" % t_count, FONT_BODY, GOLD if t_count >= 5 else TEXT_MUTED)
-			t_lbl.custom_minimum_size = Vector2(32, 0)
-			row.add_child(t_lbl)
+		row.add_child(_hs_mini_stat("UPG", "%d" % int(entry.get("upgrade_total", 0)), CYAN if is_top else TEXT_MUTED))
+		row.add_child(_hs_mini_stat("FISH", "%d" % _entry_fish_count(entry), TEXT_PRIMARY if is_top else TEXT_MUTED))
+		row.add_child(_hs_mini_stat("DAY", "%d" % int(entry.get("day", 0)), TEXT_MUTED))
 
-			var m_lbl := _label("$%d" % int(entry.get("money", 0)), FONT_BODY, GOLD if is_top else TEXT_PRIMARY)
-			m_lbl.custom_minimum_size = Vector2(78, 0)
-			row.add_child(m_lbl)
+		var spacer := Control.new()
+		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(spacer)
 
-			var u_lbl := _label("%d" % int(entry.get("upgrade_total", 0)), FONT_BODY, CYAN if is_top else TEXT_MUTED)
-			u_lbl.custom_minimum_size = Vector2(38, 0)
-			row.add_child(u_lbl)
-
-			var f_lbl := _label("%d" % _entry_fish_count(entry), FONT_BODY, TEXT_MUTED)
-			f_lbl.custom_minimum_size = Vector2(46, 0)
-			row.add_child(f_lbl)
-
-			var d_lbl := _label("%d" % int(entry.get("day", 0)), FONT_BODY, TEXT_MUTED)
-			d_lbl.custom_minimum_size = Vector2(40, 0)
-			row.add_child(d_lbl)
-
-			var mode_text := "VS" if str(entry.get("mode", MODE_SOLO)) == MODE_VERSUS else "Solo"
-			var mode_lbl := _label(mode_text, FONT_SMALL, TEXT_DIM)
-			mode_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			row.add_child(mode_lbl)
-
-			var outcome_text := str(entry.get("outcome", ""))
-			var oc_color := GOLD if outcome_text == "CHAMPION!" else (RED if outcome_text == "SUNK!" or outcome_text == "DEFEATED" else TEXT_MUTED)
-			row.add_child(_label(outcome_text, FONT_SMALL, oc_color, HORIZONTAL_ALIGNMENT_RIGHT))
+		var is_vs := str(entry.get("mode", MODE_SOLO)) == MODE_VERSUS
+		row.add_child(_hs_result_chip(str(entry.get("outcome", "")), is_vs))
 
 
 func _return_from_high_scores() -> void:
