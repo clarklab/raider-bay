@@ -16,7 +16,7 @@ const DOCK_ACCESS_START_COL := DOCK_START_COL - 1
 const DOCK_ACCESS_END_COL := DOCK_END_COL + 1
 const BOARD_CARD_GAP := 4
 const BOARD_CELL_WIDTH := 68
-const BOARD_CELL_HEIGHT := 87
+const BOARD_CELL_HEIGHT := 94
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
 const BOARD_WRAP_WIDTH := BOARD_GRID_WIDTH + 54
@@ -352,6 +352,7 @@ var sold_totals: Dictionary = {}
 var trophies: Dictionary = {}
 var sale_selection: Dictionary = {}
 var pending_haggle: Dictionary = {}
+var _pixel_die_tex: Texture2D = null
 var extra_nights := 0
 var upgrade_cart: Dictionary = {}
 var extra_night_cart := 0
@@ -642,9 +643,9 @@ func _apply_safe_area_inset() -> void:
 	bottom_inset = clampi(bottom_inset, 0, int(viewport_size.y * 0.20))
 	if ui.has("root_margin"):
 		var root: MarginContainer = ui["root_margin"]
-		root.add_theme_constant_override("margin_left", 14 + left_inset)
+		root.add_theme_constant_override("margin_left", 10 + left_inset)
 		root.add_theme_constant_override("margin_top", top_inset)
-		root.add_theme_constant_override("margin_right", 14 + right_inset)
+		root.add_theme_constant_override("margin_right", 10 + right_inset)
 		root.add_theme_constant_override("margin_bottom", 12 + bottom_inset)
 	if ui.has("top_safe_fill"):
 		var fill: ColorRect = ui["top_safe_fill"]
@@ -875,9 +876,9 @@ func _build_ui() -> void:
 	var root := MarginContainer.new()
 	root.anchor_right = 1.0
 	root.anchor_bottom = 1.0
-	root.add_theme_constant_override("margin_left", 14)
+	root.add_theme_constant_override("margin_left", 10)
 	root.add_theme_constant_override("margin_top", 0)
-	root.add_theme_constant_override("margin_right", 14)
+	root.add_theme_constant_override("margin_right", 10)
 	root.add_theme_constant_override("margin_bottom", 12)
 	add_child(root)
 	ui["root_margin"] = root
@@ -906,7 +907,7 @@ func _build_table_layout(parent: Container) -> void:
 	var main := HBoxContainer.new()
 	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	main.add_theme_constant_override("separation", 24)
+	main.add_theme_constant_override("separation", 14)
 	parent.add_child(main)
 
 	_build_left_table_rail(main)
@@ -7732,19 +7733,60 @@ func _weather_meta(weather_name: String) -> Dictionary:
 			return {"label": "CALM", "short": "CALM", "accent": CYAN, "card": CARD_WEATHER_CALM}
 
 
-# One-line effect description for the full-size weather card (uses tonight's strength).
+# A tiny pixel-art d6 (2D, not the 3D roller) for inline use in text. Cached.
+func _pixel_die_texture() -> Texture2D:
+	if _pixel_die_tex != null:
+		return _pixel_die_tex
+	var n := 16
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var body := Color("#f4f1e6")
+	var ink := Color("#161616")
+	# Ivory body with pixel-rounded corners.
+	img.fill_rect(Rect2i(1, 0, n - 2, n), body)
+	img.fill_rect(Rect2i(0, 1, n, n - 2), body)
+	# Dark 1px outline.
+	for x in range(1, n - 1):
+		img.set_pixel(x, 0, ink)
+		img.set_pixel(x, n - 1, ink)
+	for y in range(1, n - 1):
+		img.set_pixel(0, y, ink)
+		img.set_pixel(n - 1, y, ink)
+	img.set_pixel(1, 1, ink)
+	img.set_pixel(n - 2, 1, ink)
+	img.set_pixel(1, n - 2, ink)
+	img.set_pixel(n - 2, n - 2, ink)
+	# Five pips (classic die face), 2x2 each.
+	for p in [Vector2i(3, 3), Vector2i(11, 3), Vector2i(3, 11), Vector2i(11, 11), Vector2i(7, 7)]:
+		img.fill_rect(Rect2i(p.x, p.y, 2, 2), ink)
+	_pixel_die_tex = ImageTexture.create_from_image(img)
+	return _pixel_die_tex
+
+
+# BBCode effect blurb for the full-size weather card (uses tonight's strength).
+# {DIE} marks where the inline pixel d6 is dropped in by _set_weather_desc.
 func _weather_effect_desc(weather: Dictionary) -> String:
 	var name := str(weather.get("name", "Calm"))
-	var strength := int(weather.get("strength", 0))
+	var s := int(weather.get("strength", 0))
 	match name:
 		"Rain":
-			return "Fish bite in the rain — a richer haul. But roll a d6: below %d and rough water damages random systems. Safe at the docks." % strength
+			return "Fish bite in the rain — a [color=#84ed72]richer haul[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and rough water [color=#fc6060]damages[/color] random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
 		"Squall":
-			return "Choppy seas scatter the fish — a leaner haul. Roll a d6: below %d and you take damage to random systems. Safe at the docks." % strength
+			return "Choppy seas scatter the fish — a [color=#fc6060]leaner haul[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and you take [color=#fc6060]damage[/color] to random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
 		"Hurricane":
-			return "The worst of the season — a poor catch and heavy damage. Roll a d6: below %d and it wrecks random systems. Safe at the docks." % strength
+			return "The worst of the season — a [color=#fc6060]poor catch[/color] and [color=#fc6060]heavy damage[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and it wrecks random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
 		_:
-			return "Flat, quiet water — a safe night. No storm damage, and your catch pays the usual rate."
+			return "Flat, quiet water — a [color=#8ad2f0]safe night[/color].\nNo storm damage, and your catch pays the usual rate."
+
+
+# Populate a RichTextLabel with the weather blurb, inlining the pixel die at {DIE}.
+func _set_weather_desc(rt: RichTextLabel, weather: Dictionary) -> void:
+	rt.clear()
+	var segs := _weather_effect_desc(weather).split("{DIE}")
+	for i in range(segs.size()):
+		rt.append_text(segs[i])
+		if i < segs.size() - 1:
+			rt.add_image(_pixel_die_texture(), 26, 26)
 
 
 func _cell_text(pos: Vector2i, tile: Dictionary) -> String:
@@ -10050,10 +10092,21 @@ func _build_weather_card_preview_overlay() -> void:
 	ui["weather_preview_title"].add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.7))
 	info.add_child(ui["weather_preview_title"])
 
-	ui["weather_preview_desc"] = _label("", FONT_CELL, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_LEFT)
-	ui["weather_preview_desc"].autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	ui["weather_preview_desc"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	info.add_child(ui["weather_preview_desc"])
+	var desc := RichTextLabel.new()
+	desc.bbcode_enabled = true
+	desc.fit_content = true
+	desc.scroll_active = false
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.add_theme_font_override("normal_font", FONT_BALATRO)
+	desc.add_theme_font_override("bold_font", FONT_BALATRO)
+	desc.add_theme_font_size_override("normal_font_size", FONT_CELL)
+	desc.add_theme_font_size_override("bold_font_size", FONT_CELL)
+	desc.add_theme_color_override("default_color", TEXT_PRIMARY)
+	desc.add_theme_constant_override("line_separation", 4)
+	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info.add_child(desc)
+	ui["weather_preview_desc"] = desc
 
 	var close_btn := _close_x_button()
 	close_btn.anchor_left = 1.0
@@ -10078,7 +10131,7 @@ func _open_weather_card_preview(weather: Dictionary) -> void:
 	var title: Label = ui["weather_preview_title"]
 	title.text = str(meta["label"])
 	title.add_theme_color_override("font_color", meta["accent"])
-	(ui["weather_preview_desc"] as Label).text = _weather_effect_desc(weather)
+	_set_weather_desc(ui["weather_preview_desc"] as RichTextLabel, weather)
 
 	var slot: Control = ui["weather_preview_slot"]
 	for c in slot.get_children():
@@ -10092,16 +10145,20 @@ func _open_weather_card_preview(weather: Dictionary) -> void:
 	card.size = Vector2(cw, ch)
 	card.custom_minimum_size = Vector2(cw, ch)
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var inner := _add_squarestep_card_shell(card, Vector2(cw, ch), Color("#0a1024"), {
+	var border_px := 9.0
+	_add_squarestep_card_shell(card, Vector2(cw, ch), Color("#0a1024"), {
 		"show_shadow": true,
 		"shadow_offset": Vector2(10, 14),
-		"card_border_px": 9,
+		"card_border_px": int(border_px),
 		"card_step_px": 5,
 	})
+	# Seat the art right against the white border so the dark inner step ring is
+	# fully covered (no black ring between the border and the illustration).
+	var frame := 2.0 + border_px
 	var face := _gallery_face(meta["card"])
 	face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	face.position = Vector2(inner, inner)
-	face.size = Vector2(cw - inner * 2.0, ch - inner * 2.0)
+	face.position = Vector2(frame, frame)
+	face.size = Vector2(cw - frame * 2.0, ch - frame * 2.0)
 	card.add_child(face)
 	slot.add_child(card)
 
@@ -11676,6 +11733,7 @@ func _refresh_boat_carousel() -> void:
 
 func _show_boat_setup(versus: bool) -> void:
 	pending_versus = versus
+	_hide_solo_save_chooser()  # don't let the New Trip / Continue chooser sit over it
 	boat_choice = rng.randi_range(0, BOAT_TEXTURES.size() - 1)
 	if ui.has("boat_setup_captain"):
 		(ui["boat_setup_captain"] as LineEdit).text = _random_captain_name()
