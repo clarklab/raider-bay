@@ -18,6 +18,12 @@ func _init() -> void:
 	failures += _expect("money clamps below 1e6", Leaderboards.run_score(0, 5_000_000), 999_999)
 	# Negative money floors at 0 (no negative scores).
 	failures += _expect("negative money floors", Leaderboards.run_score(2, -50), 2_000_000)
+	# With no plugin installed and empty IDs, native is unavailable and calls no-op.
+	failures += _expect("native unavailable in editor/headless", int(Leaderboards.native_available()), 0)
+	# These must be safe to call and simply do nothing (no crash) when unavailable.
+	Leaderboards.submit_solo_run(5, 200)
+	Leaderboards.show_leaderboard()
+	failures += _expect("no-op calls survived", 1, 1)
 	if failures == 0:
 		print("ALL PASS")
 		quit(0)
