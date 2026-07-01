@@ -52,6 +52,7 @@ const TABLE_HEADER_HEIGHT := 118
 const SAVE_PATH := "user://raider_bay_save.json"
 const HIGH_SCORES_PATH := "user://raider_bay_high_scores.json"
 const GLOBAL_SCORES_API := "https://raiderbay.netlify.app/api/scores"
+const Leaderboards := preload("res://scripts/leaderboards.gd")
 const GLOBAL_SCORES_TIMEOUT := 8.0
 const MAX_HIGH_SCORES := 50
 const SAVE_VERSION := 1
@@ -10354,6 +10355,10 @@ func _record_high_score() -> int:
 		scores.pop_back()
 	_save_high_scores(scores)
 	_submit_global_high_score(entry)
+	# Native leaderboard (Google Play Games / Game Center) — solo runs only, and a
+	# safe no-op unless the plugin + a real leaderboard ID are present (Phase 2+).
+	if not versus_mode:
+		Leaderboards.submit_solo_run(_trophy_count(), money)
 	return last_high_score_rank
 
 
