@@ -200,6 +200,8 @@ const ICON_WELL_SMALL: Array[Texture2D] = [
 const BG_CALM_STREAM: AudioStream = preload("res://assets/bg-calm.mp3")
 const BG_BIRDS_STREAM: AudioStream = preload("res://assets/bg-birds.mp3")
 const BG_WAVES_STREAM: AudioStream = preload("res://assets/bg-waves.mp3")
+const MUSIC_HIGH_SCORES_STREAM: AudioStream = preload("res://assets/music/high-scores.mp3")
+const MUSIC_SHOP_STREAM: AudioStream = preload("res://assets/music/shop-upgrade.mp3")
 const SOUND_REEL_STREAM: AudioStream = preload("res://assets/sound-reel.mp3")
 const SOUND_BONK_STREAM: AudioStream = preload("res://assets/sound-bonk.mp3")
 const SOUND_CATCH_STREAM: AudioStream = preload("res://assets/sound-catch.mp3")
@@ -211,6 +213,7 @@ const BIRDS_VOLUME_PHASES: Array[float] = [0.20, 0.60, 0.80, 0.0]
 const BIRDS_PHASE_SECONDS := 22.0
 const BIRDS_TRANSITION_SECONDS := 7.0
 const WEATHER_AUDIO_CROSSFADE_SECONDS := 1.8
+const MUSIC_CROSSFADE_SECONDS := 0.9
 const AUDIO_SILENT_DB := -80.0
 const BOT_STEP_SECONDS := 0.5
 const CATCH_CARD_MAX_DRAW := 12
@@ -401,6 +404,12 @@ var repair_tray_rows: Dictionary = {}
 var audio_calm: AudioStreamPlayer
 var audio_waves: AudioStreamPlayer
 var audio_birds: AudioStreamPlayer
+var audio_high_scores: AudioStreamPlayer
+var audio_shop: AudioStreamPlayer
+var high_scores_music_volume: float = 0.0
+var shop_music_volume: float = 0.0
+var _hs_music_was_open: bool = false
+var _shop_music_was_open: bool = false
 var audio_reel: AudioStreamPlayer
 var audio_bonk: AudioStreamPlayer
 var audio_catch: AudioStreamPlayer
@@ -685,6 +694,8 @@ func _build_audio() -> void:
 	audio_calm = _make_loop_player(BG_CALM_STREAM, 0.0)
 	audio_waves = _make_loop_player(BG_WAVES_STREAM, AUDIO_SILENT_DB)
 	audio_birds = _make_loop_player(BG_BIRDS_STREAM, AUDIO_SILENT_DB)
+	audio_high_scores = _make_loop_player(MUSIC_HIGH_SCORES_STREAM, AUDIO_SILENT_DB)
+	audio_shop = _make_loop_player(MUSIC_SHOP_STREAM, AUDIO_SILENT_DB)
 	audio_reel = _make_one_shot_player(SOUND_REEL_STREAM)
 	audio_bonk = _make_one_shot_player(SOUND_BONK_STREAM)
 	audio_catch = _make_one_shot_player(SOUND_CATCH_STREAM)
@@ -799,13 +810,35 @@ func _update_audio(delta: float) -> void:
 	var weather_name := str(current_weather.get("name", "Calm")) if not current_weather.is_empty() else "Calm"
 	var want_calm := on_start_screen or weather_name == "Calm"
 
+	# Screen music: high scores + shop (upgrade/repair). Fades in over the ambient
+	# bed, which ducks out while a track plays.
+	var hs_open := ui.has("high_scores_overlay") and (ui["high_scores_overlay"] as Control).visible
+	var shop_open := active_tray == "upgrade" or active_tray == "repair"
+	# Restart each theme from the top when its screen is first opened.
+	if hs_open and not _hs_music_was_open and audio_high_scores != null:
+		audio_high_scores.seek(0.0)
+	if shop_open and not _shop_music_was_open and audio_shop != null:
+		audio_shop.seek(0.0)
+	_hs_music_was_open = hs_open
+	_shop_music_was_open = shop_open
+	var music_step := delta / MUSIC_CROSSFADE_SECONDS
+	high_scores_music_volume = move_toward(high_scores_music_volume, 1.0 if hs_open else 0.0, music_step)
+	shop_music_volume = move_toward(shop_music_volume, 1.0 if shop_open else 0.0, music_step)
+	if audio_high_scores != null:
+		audio_high_scores.volume_db = AUDIO_SILENT_DB if high_scores_music_volume <= 0.001 else linear_to_db(high_scores_music_volume)
+	if audio_shop != null:
+		audio_shop.volume_db = AUDIO_SILENT_DB if shop_music_volume <= 0.001 else linear_to_db(shop_music_volume)
+	var duck := 1.0 - maxf(high_scores_music_volume, shop_music_volume)
+
 	var calm_target := 1.0 if want_calm else 0.0
 	var waves_target := 0.0 if want_calm else 1.0
 	var step := delta / WEATHER_AUDIO_CROSSFADE_SECONDS
 	calm_current_volume = move_toward(calm_current_volume, calm_target, step)
 	waves_current_volume = move_toward(waves_current_volume, waves_target, step)
-	audio_calm.volume_db = AUDIO_SILENT_DB if calm_current_volume <= 0.001 else linear_to_db(calm_current_volume)
-	audio_waves.volume_db = AUDIO_SILENT_DB if waves_current_volume <= 0.001 else linear_to_db(waves_current_volume)
+	var calm_v := calm_current_volume * duck
+	var waves_v := waves_current_volume * duck
+	audio_calm.volume_db = AUDIO_SILENT_DB if calm_v <= 0.001 else linear_to_db(calm_v)
+	audio_waves.volume_db = AUDIO_SILENT_DB if waves_v <= 0.001 else linear_to_db(waves_v)
 
 	birds_phase_time += delta
 	if birds_phase_time >= BIRDS_PHASE_SECONDS:
@@ -815,7 +848,7 @@ func _update_audio(delta: float) -> void:
 	var birds_target: float = BIRDS_VOLUME_PHASES[birds_phase_index]
 	var fade_t := clampf(birds_phase_time / BIRDS_TRANSITION_SECONDS, 0.0, 1.0)
 	var eased := smoothstep(0.0, 1.0, fade_t)
-	var birds_v := lerpf(birds_previous_volume, birds_target, eased)
+	var birds_v := lerpf(birds_previous_volume, birds_target, eased) * duck
 	audio_birds.volume_db = AUDIO_SILENT_DB if birds_v <= 0.001 else linear_to_db(birds_v)
 
 
