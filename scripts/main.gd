@@ -133,6 +133,8 @@ const CARD_TREASURE_200_TEXTURE: Texture2D = preload("res://assets/cards/card-tr
 const CARD_TREASURE_NIGHT_TEXTURE: Texture2D = preload("res://assets/cards/card-night-1.png")
 const CARD_BACK_TEXTURE: Texture2D = preload("res://assets/cards/card-back.png")
 const CATCH_WAVES_VIDEO: VideoStream = preload("res://assets/cutscenes/catch-waves-1.ogv")
+const CATCH_CALM_VIDEO: VideoStream = preload("res://assets/cutscenes/catch-calm.ogv")
+const CATCH_STORM_VIDEO: VideoStream = preload("res://assets/cutscenes/catch-storm-squall.ogv")
 const CARD_MOTOR_TEXTURES: Array[Texture2D] = [
 	preload("res://assets/cards/card-motor-1.png"),
 	preload("res://assets/cards/card-motor-2.png"),
@@ -1003,7 +1005,7 @@ func _build_left_table_rail(parent: Container) -> void:
 	col.add_child(_counter_button("stat_day", ICON_DAY_TEXTURE, "DAY", Color("#8ad2f0"), Color("#12548a"), Callable()))
 	col.add_child(_counter_button("stat_funds", ICON_FUNDS_TEXTURE, "FUNDS", Color("#fcba00"), Color("#723c00"), _on_funds_pressed))
 	col.add_child(_counter_button("stat_moves", ICON_MOVES_TEXTURE, "MOVES", Color("#fc6060"), Color("#781818"), _request_end_day))
-	col.add_child(_counter_button("stat_finds", ICON_FIND_FISH_TEXTURE, "FIND FISH", Color("#c684fc"), Color("#381098"), _on_finds_counter_pressed))
+	col.add_child(_counter_button("stat_finds", ICON_FIND_FISH_TEXTURE, "FIND FISH", Color("#c889ff"), Color("#3e1799"), _on_finds_counter_pressed))
 	col.add_child(_counter_button("stat_casts", ICON_CAST_TEXTURE, "CAST", Color("#84ea72"), Color("#005860"), _cast))
 
 
@@ -1222,8 +1224,8 @@ func _build_boat_status_panel(parent: Container) -> void:
 	for i in range(3):
 		var c := VBoxContainer.new()
 		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		c.add_theme_constant_override("separation", 6)
+		c.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		c.add_theme_constant_override("separation", 9)
 		cols.add_child(c)
 		col_nodes.append(c)
 	ui["boat_status_cols"] = col_nodes
@@ -3185,23 +3187,6 @@ func _build_catch_card_overlay() -> void:
 	overlay.add_child(shade)
 	ui["catch_card_shade"] = shade
 
-	var streaks := Control.new()
-	streaks.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_anchor_fill(streaks)
-	overlay.add_child(streaks)
-	for i in range(9):
-		var stripe := ColorRect.new()
-		stripe.color = _with_alpha(CYAN if i % 2 == 0 else GOLD, 0.05)
-		stripe.anchor_left = 0.56 + float(i) * 0.045
-		stripe.anchor_right = stripe.anchor_left
-		stripe.anchor_top = 0.0
-		stripe.anchor_bottom = 1.0
-		stripe.offset_left = -4
-		stripe.offset_right = 4
-		stripe.rotation = deg_to_rad(-16)
-		stripe.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		streaks.add_child(stripe)
-
 	var layer := Control.new()
 	layer.anchor_right = 1.0
 	layer.anchor_bottom = 1.0
@@ -4039,11 +4024,22 @@ func _open_upgrade_card_preview(key: String) -> void:
 
 func _close_upgrade_card_preview() -> void:
 	_hide_card_tooltip()
+	_kill_upgrade_reveal_tween()
 	selected_upgrade_card_key = ""
 	selected_upgrade_card_level = 0
 	upgrade_card_purchase_locked = false
 	if ui.has("upgrade_card_preview_overlay"):
 		(ui["upgrade_card_preview_overlay"] as Control).visible = false
+
+
+# The flip-reveal tween is bound to `self` (so it survives freeing the back
+# mid-flip). Kill it before we free the slot's cards on rebuild/close so it can
+# never animate a freed node.
+func _kill_upgrade_reveal_tween() -> void:
+	var tw = ui.get("upgrade_reveal_tween", null)
+	if tw is Tween and tw.is_valid():
+		tw.kill()
+	ui["upgrade_reveal_tween"] = null
 
 
 func _on_upgrade_preview_backdrop_input(event: InputEvent) -> void:
@@ -4107,6 +4103,7 @@ func _rebuild_upgrade_preview_cards() -> void:
 	if selected_upgrade_card_key == "" or not ui.has("upgrade_card_preview_slot"):
 		return
 	var slot: Control = ui["upgrade_card_preview_slot"]
+	_kill_upgrade_reveal_tween()
 	for child in slot.get_children():
 		slot.remove_child(child)
 		child.queue_free()
@@ -4124,13 +4121,17 @@ func _rebuild_upgrade_preview_cards() -> void:
 		"card_step_px": 4,
 	}
 
-	# Full screen always shows the real card image (front), zooming up as it opens.
-	var front := _build_store_card_visual(key, level, true, card_size, options)
+	# A card you're about to buy stays face-DOWN until you pay; an already-owned
+	# (maxed) card you're just viewing shows its face right away.
+	var current := int(upgrades.get(key, 0))
+	var reveal := current >= UPGRADE_MAX_LEVEL
+	var front := _build_store_card_visual(key, level, reveal, card_size, options)
 	front.position = pos
 	front.pivot_offset = card_size * 0.5
 	front.scale = Vector2(0.58, 0.58)
 	front.rotation = deg_to_rad(-8.0)
 	front.modulate = Color(1, 1, 1, 0)
+	front.set_meta("is_face_up", reveal)
 	slot.add_child(front)
 	ui["upgrade_card_preview_front"] = front
 
@@ -4167,6 +4168,14 @@ func _purchase_selected_upgrade() -> void:
 		_finish_upgrade_card_purchase(level, cost)
 		return
 
+	if bool(front.get_meta("is_face_up", true)):
+		_pop_upgrade_card(front, level, cost)
+	else:
+		_reveal_upgrade_card(front, key, level, cost)
+
+
+# Celebratory pop for a card that is already face-up.
+func _pop_upgrade_card(front: Control, level: int, cost: int) -> void:
 	_play_catch_plonk(1)
 	front.pivot_offset = front.size * 0.5
 	var pop := front.create_tween()
@@ -4174,6 +4183,40 @@ func _purchase_selected_upgrade() -> void:
 	pop.tween_callback(_play_catch_plonk.bind(3))
 	pop.tween_property(front, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	pop.tween_callback(_finish_upgrade_card_purchase.bind(level, cost))
+
+
+# Flip a face-down card to reveal the real art, then pop. The tween is bound to
+# `self` (not the card) so it survives freeing the back mid-flip.
+func _reveal_upgrade_card(back: Control, key: String, level: int, cost: int) -> void:
+	var slot: Control = ui["upgrade_card_preview_slot"]
+	var card_size := _store_preview_card_size()
+	var options := {
+		"show_shadow": true,
+		"shadow_offset": Vector2(12, 16),
+		"card_border_px": 8,
+		"card_step_px": 4,
+	}
+	var front := _build_store_card_visual(key, level, true, card_size, options)
+	front.position = back.position
+	front.pivot_offset = card_size * 0.5
+	front.scale = Vector2(0.0, 1.0)  # start edge-on (invisible)
+	front.set_meta("is_face_up", true)
+	slot.add_child(front)
+	back.pivot_offset = back.size * 0.5
+
+	_play_catch_plonk(1)
+	var t := create_tween()
+	ui["upgrade_reveal_tween"] = t
+	t.tween_property(back, "scale:x", 0.0, 0.13).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(back):
+			back.queue_free()
+		ui["upgrade_card_preview_front"] = front)
+	t.tween_callback(_play_catch_plonk.bind(3))
+	t.tween_property(front, "scale:x", 1.0, 0.13).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.tween_property(front, "scale", Vector2(1.12, 1.12), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(front, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_callback(_finish_upgrade_card_purchase.bind(level, cost))
 
 
 func _finish_upgrade_card_purchase(_level: int, _cost: int) -> void:
@@ -7366,7 +7409,7 @@ func _boat_status_meter(label_text: String, value: int, max_v: int, segs: int, a
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(row)
 
-	var lbl := _label(label_text, 15, TEXT_PRIMARY)
+	var lbl := _label(label_text, 20, TEXT_PRIMARY)
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -7390,22 +7433,31 @@ func _boat_status_meter(label_text: String, value: int, max_v: int, segs: int, a
 
 
 func _meter_bar(value: float, max_v: float, segs: int, accent: Color) -> Control:
-	var box := HBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
-	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# A row of overlapping little "cards" that reads as a stacked progress/health
+	# meter: lit cards are bright with a thick white border and sit in front (left),
+	# unlit cards are dark navy and recede to the right.
+	var card_w := 23.0
+	var card_h := 36.0
+	var overlap := 9.0
+	var stride := card_w - overlap
 	var step: float = max_v / float(segs)
-	for i in range(segs):
+	var box := Control.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.custom_minimum_size = Vector2(card_w + stride * float(segs - 1), card_h)
+	# Add right-to-left so the leftmost (lit) cards draw on top of the ones behind them.
+	for i in range(segs - 1, -1, -1):
 		var frac := clampf((value - float(i) * step) / step, 0.0, 1.0)
 		var lit := frac > 0.5
 		var seg := Panel.new()
-		seg.custom_minimum_size = Vector2(12, 18)
 		seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		seg.size = Vector2(card_w, card_h)
+		seg.position = Vector2(stride * float(i), 0.0)
 		var s: StyleBoxFlat
 		if lit:
-			# Lit segments are bright with a thick white border — little cards.
-			s = _styled_shadow(accent, REF_BORDER, 2, 4, 1)
+			s = _styled_shadow(accent, REF_BORDER, 3, 6, 2)
+			s.shadow_offset = Vector2(2, 2)
 		else:
-			s = _styled(REF_BG_NAVY, REF_BG_NAVY.lightened(0.22), 1, 4)
+			s = _styled(REF_BG_NAVY, Color("#5a74a0"), 2, 6)
 		seg.add_theme_stylebox_override("panel", s)
 		box.add_child(seg)
 	return box
@@ -8257,11 +8309,24 @@ func _show_treasure_card_fan(tile: Dictionary, origin_center: Vector2 = Vector2(
 # Comic-book "anime cut": a diagonal strike rips across, then the screen splits open
 # along it in both directions to reveal the background video. Returns the time after
 # which the screen is clear and the card fan should fire.
+# The catch cutscene shown behind the card fan, chosen by tonight's weather:
+# calm seas when Clear, a squall when Storm, big waves in a Hurricane.
+func _weather_catch_video() -> VideoStream:
+	match str(current_weather.get("name", "Clear")):
+		"Storm":
+			return CATCH_STORM_VIDEO
+		"Hurricane":
+			return CATCH_WAVES_VIDEO
+		_:
+			return CATCH_CALM_VIDEO
+
+
 func _play_catch_video_entrance(token: int) -> float:
 	if not ui.has("catch_video") or not ui.has("catch_slash"):
 		return 0.0
 	var vp := get_viewport().get_visible_rect().size
 	var video: VideoStreamPlayer = ui["catch_video"]
+	video.stream = _weather_catch_video()
 	video.visible = true
 	video.stop()
 	video.play()
