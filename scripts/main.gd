@@ -11130,6 +11130,11 @@ func _build_high_scores_screen() -> void:
 
 
 func _show_high_scores_screen() -> void:
+	# On mobile with a configured native leaderboard, open the platform UI instead
+	# of the in-game global screen. No-ops elsewhere (falls through to the screen).
+	if Leaderboards.native_available():
+		Leaderboards.show_leaderboard()
+		return
 	if not ui.has("high_scores_overlay") or not ui.has("high_scores_col"):
 		return
 
