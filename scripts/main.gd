@@ -81,6 +81,36 @@ const ICON_STORM_TEXTURE: Texture2D = preload("res://assets/icons/material-thund
 const ICON_HURRICANE_TEXTURE: Texture2D = preload("res://assets/icons/material-cyclone.png")
 const ICON_CARD_SHIP_TEXTURE: Texture2D = preload("res://assets/icons/icon-card-ship.svg")
 const ICON_ROCKET_FISH_TEXTURE: Texture2D = preload("res://assets/icons/icon-rocket-fish.svg")
+const BOAT_TEXTURES: Array[Texture2D] = [
+	preload("res://assets/boats/boat-1.png"),
+	preload("res://assets/boats/boat-2.png"),
+	preload("res://assets/boats/boat-3.png"),
+	preload("res://assets/boats/boat-4.png"),
+]
+
+# Mix-and-match phrasebook for the Boat Setup shuffle. Boat = "The {adj} {noun}",
+# captain = "{first} {last}".
+const BOAT_ADJ := [
+	"Rusty", "Wild", "Rocky", "Salty", "Frozen", "Lucky", "Grumpy", "Mighty", "Crooked",
+	"Drunken", "Wicked", "Foggy", "Slippery", "Ragged", "Howling", "Restless", "Battered",
+	"Bristly", "Lonesome", "Stubborn",
+]
+const BOAT_NOUN := [
+	"Shark", "Point", "Halibut", "Kodiak", "Otter", "Ptarmigan", "Sockeye", "Walrus",
+	"Puffin", "Glacier", "Grizzly", "Barnacle", "King Crab", "Sea Dog", "Bering", "Tundra",
+	"Moose", "Sourdough", "Chinook", "Mudflat",
+]
+const CAPTAIN_FIRST := [
+	"Barnaby", "Elias", "Cornelius", "Silas", "Amos", "Ezekiel", "Jebediah", "Mortimer",
+	"Thaddeus", "Bartholomew", "Horace", "Ingmar", "Sven", "Knut", "Magnus", "Percival",
+	"Gus", "Alistair", "Ebenezer", "Fitzgerald",
+]
+const CAPTAIN_LAST := [
+	"McGraw", "Frostbeard", "Salteye", "Codd", "Barnacle", "Grimsby", "Tarbuckle",
+	"Coldwater", "Blackfin", "Stormcrow", "Bilgewater", "Northwind", "Driftwood",
+	"Whalebone", "Ironhook", "Sourdough", "Halibutton", "Kettleford", "Frosthook",
+	"Bergstrom",
+]
 const ICON_TROPHY_OUTLINE: Texture2D = preload("res://assets/icons/trophy-outline.svg")
 const ICON_TROPHY_SOLID: Texture2D = preload("res://assets/icons/trophy-solid.svg")
 const ICON_DAY_TEXTURE: Texture2D = preload("res://assets/icons/icon-day.svg")
@@ -286,6 +316,12 @@ var rng := RandomNumberGenerator.new()
 
 var game_started := false
 var versus_mode := false
+
+# Boat Setup screen (chosen fresh each new game; flavor only for now).
+var pending_versus := false
+var boat_choice := 0
+var boat_name := ""
+var captain_name := ""
 
 var board: Array[Dictionary] = []
 var boat_pos := Vector2i(DOCK_COL, GRID_ROWS)
@@ -854,6 +890,7 @@ func _build_ui() -> void:
 	_build_game_over_screen()
 	_build_high_scores_screen()
 	_build_deck_training_screen()
+	_build_boat_setup_screen()
 
 
 func _build_table_layout(parent: Container) -> void:
@@ -4827,7 +4864,12 @@ func _on_buy_repair_segment(key: String, _index: int) -> void:
 # Game start / reset
 # ────────────────────────────────────────────────────────────────────────
 
-func _new_game(enable_versus: bool = false) -> void:
+func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
+	# Every new game first passes through the Boat Setup screen; Set Sail then
+	# re-enters here with skip_setup = true to actually build the game.
+	if not skip_setup:
+		_show_boat_setup(enable_versus)
+		return
 	game_started = true
 	versus_mode = enable_versus
 	day = 1
@@ -4877,6 +4919,8 @@ func _new_game(enable_versus: bool = false) -> void:
 	_close_tray()
 	_hide_start_screen()
 	_hide_game_over_screen()
+	if captain_name != "" and boat_name != "":
+		_log("Captain %s sets sail aboard %s!" % [captain_name, boat_name])
 	if versus_mode:
 		_log("%s joins the contest. It will fish, sell, and raid if you get close." % BOT_NAME)
 		_log("Leave the docks, fish deep, and watch the other captain.")
@@ -11075,6 +11119,408 @@ func _show_deck_training() -> void:
 func _hide_deck_training() -> void:
 	if ui.has("deck_training_overlay"):
 		(ui["deck_training_overlay"] as Control).visible = false
+
+
+# ---------------------------------------------------------------------------
+# Boat Setup screen (shown before every new game)
+# ---------------------------------------------------------------------------
+
+func _pick_phrase(arr: Array) -> String:
+	return str(arr[rng.randi_range(0, arr.size() - 1)])
+
+
+func _random_boat_name() -> String:
+	return "The %s %s" % [_pick_phrase(BOAT_ADJ), _pick_phrase(BOAT_NOUN)]
+
+
+func _random_captain_name() -> String:
+	return "%s %s" % [_pick_phrase(CAPTAIN_FIRST), _pick_phrase(CAPTAIN_LAST)]
+
+
+# The codebase's first text input — a themed LineEdit that matches the design system.
+func _line_edit(placeholder_text: String, max_len: int) -> LineEdit:
+	var le := LineEdit.new()
+	le.placeholder_text = placeholder_text
+	le.max_length = max_len
+	le.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	le.add_theme_font_override("font", FONT_BALATRO)
+	le.add_theme_font_size_override("font_size", FONT_CELL)
+	le.add_theme_color_override("font_color", TEXT_PRIMARY)
+	le.add_theme_color_override("font_placeholder_color", TEXT_DIM)
+	le.add_theme_color_override("caret_color", CYAN)
+	le.add_theme_color_override("selection_color", Color(CYAN.r, CYAN.g, CYAN.b, 0.35))
+	var normal := _styled(REF_INSET, BORDER_FRAME, 2, 8)
+	normal.content_margin_left = 14
+	normal.content_margin_right = 14
+	normal.content_margin_top = 11
+	normal.content_margin_bottom = 11
+	le.add_theme_stylebox_override("normal", normal)
+	var focus := _styled(REF_INSET.lightened(0.05), BORDER_HI, 2, 8)
+	focus.content_margin_left = 14
+	focus.content_margin_right = 14
+	focus.content_margin_top = 11
+	focus.content_margin_bottom = 11
+	le.add_theme_stylebox_override("focus", focus)
+	le.custom_minimum_size = Vector2(0, 54)
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return le
+
+
+func _build_boat_setup_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 205
+	add_child(overlay)
+	ui["boat_setup_overlay"] = overlay
+
+	var bg := ColorRect.new()
+	bg.color = REF_BG_NAVY
+	_anchor_fill(bg)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(bg)
+
+	var center := CenterContainer.new()
+	_anchor_fill(center)
+	overlay.add_child(center)
+
+	var col := VBoxContainer.new()
+	col.custom_minimum_size = Vector2(720, 0)
+	col.add_theme_constant_override("separation", 16)
+	center.add_child(col)
+
+	var title := _label("OUTFIT YOUR BOAT", FONT_TITLE + 6, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	title.add_theme_constant_override("outline_size", 3)
+	title.add_theme_color_override("font_outline_color", Color("#3a2a00"))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title)
+
+	# Carousel: [◀]  boat card  [▶]
+	var carousel := HBoxContainer.new()
+	carousel.add_theme_constant_override("separation", 16)
+	carousel.alignment = BoxContainer.ALIGNMENT_CENTER
+	carousel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(carousel)
+
+	var left_arrow := _tactile_button("<", 74, 150, BG_PANEL_LIGHT, CYAN_DEEP, CYAN)
+	left_arrow.add_theme_font_size_override("font_size", 42)
+	left_arrow.pressed.connect(func(): _boat_setup_cycle(-1))
+	carousel.add_child(left_arrow)
+
+	var card := PanelContainer.new()
+	card.custom_minimum_size = Vector2(340, 340)
+	var cs := _styled_shadow(REF_CARD_NAVY, REF_BORDER, 4, 16, 4)
+	cs.content_margin_left = 10
+	cs.content_margin_right = 10
+	cs.content_margin_top = 10
+	cs.content_margin_bottom = 10
+	card.add_theme_stylebox_override("panel", cs)
+	carousel.add_child(card)
+
+	var boat_img := TextureRect.new()
+	boat_img.texture = BOAT_TEXTURES[0]
+	boat_img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boat_img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boat_img.custom_minimum_size = Vector2(320, 320)
+	card.add_child(boat_img)
+	ui["boat_setup_image"] = boat_img
+
+	var right_arrow := _tactile_button(">", 74, 150, BG_PANEL_LIGHT, CYAN_DEEP, CYAN)
+	right_arrow.add_theme_font_size_override("font_size", 42)
+	right_arrow.pressed.connect(func(): _boat_setup_cycle(1))
+	carousel.add_child(right_arrow)
+
+	# Position dots
+	var dots := HBoxContainer.new()
+	dots.alignment = BoxContainer.ALIGNMENT_CENTER
+	dots.add_theme_constant_override("separation", 12)
+	dots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(dots)
+	ui["boat_setup_dots"] = dots
+	for i in range(BOAT_TEXTURES.size()):
+		var dot := PanelContainer.new()
+		dot.custom_minimum_size = Vector2(16, 16)
+		dot.add_theme_stylebox_override("panel", _styled(TEXT_DIM, Color(0, 0, 0, 0), 0, 8))
+		dots.add_child(dot)
+
+	# Captain + boat name fields
+	var cap_label := _label("CAPTAIN", FONT_HEADER, CYAN, HORIZONTAL_ALIGNMENT_LEFT)
+	col.add_child(cap_label)
+	var cap_edit := _line_edit("Captain's name", 22)
+	col.add_child(cap_edit)
+	ui["boat_setup_captain"] = cap_edit
+
+	var boat_label := _label("BOAT NAME", FONT_HEADER, CYAN, HORIZONTAL_ALIGNMENT_LEFT)
+	col.add_child(boat_label)
+	var boat_edit := _line_edit("Boat name", 24)
+	col.add_child(boat_edit)
+	ui["boat_setup_boat"] = boat_edit
+
+	# Buttons: SHUFFLE + SET SAIL
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 16)
+	btn_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(btn_row)
+
+	var shuffle_btn := _tactile_button("SHUFFLE", 220, 62, GOLD, GOLD_DEEP, Color("#3a2a00"))
+	shuffle_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shuffle_btn.pressed.connect(_boat_setup_shuffle)
+	btn_row.add_child(shuffle_btn)
+
+	var sail_btn := _tactile_button("SET SAIL", 300, 62, GREEN_DEEP, GREEN, TEXT_PRIMARY)
+	sail_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sail_btn.pressed.connect(_boat_setup_set_sail)
+	btn_row.add_child(sail_btn)
+
+	# Close X (top-right) returns to the title screen
+	var close_btn := _close_x_button()
+	close_btn.anchor_left = 1.0
+	close_btn.anchor_right = 1.0
+	close_btn.offset_left = -86
+	close_btn.offset_right = -26
+	close_btn.offset_top = 26
+	close_btn.offset_bottom = 86
+	close_btn.pressed.connect(_boat_setup_back)
+	overlay.add_child(close_btn)
+
+
+func _refresh_boat_carousel() -> void:
+	if ui.has("boat_setup_image"):
+		(ui["boat_setup_image"] as TextureRect).texture = BOAT_TEXTURES[boat_choice]
+	if ui.has("boat_setup_dots"):
+		var dots: HBoxContainer = ui["boat_setup_dots"]
+		for i in range(dots.get_child_count()):
+			var dot := dots.get_child(i) as PanelContainer
+			var sb := dot.get_theme_stylebox("panel") as StyleBoxFlat
+			if sb != null:
+				sb.bg_color = GOLD if i == boat_choice else TEXT_DIM
+
+
+func _show_boat_setup(versus: bool) -> void:
+	pending_versus = versus
+	boat_choice = rng.randi_range(0, BOAT_TEXTURES.size() - 1)
+	if ui.has("boat_setup_captain"):
+		(ui["boat_setup_captain"] as LineEdit).text = _random_captain_name()
+	if ui.has("boat_setup_boat"):
+		(ui["boat_setup_boat"] as LineEdit).text = _random_boat_name()
+	_refresh_boat_carousel()
+	if ui.has("boat_setup_overlay"):
+		var ov := ui["boat_setup_overlay"] as Control
+		ov.move_to_front()  # top-most sibling so input reaches this screen
+		ov.visible = true
+
+
+func _hide_boat_setup() -> void:
+	if ui.has("boat_setup_overlay"):
+		(ui["boat_setup_overlay"] as Control).visible = false
+
+
+func _boat_setup_back() -> void:
+	_stop_dice_roll()
+	_hide_boat_setup()
+	_show_start_screen()
+
+
+func _boat_setup_cycle(dir: int) -> void:
+	boat_choice = wrapi(boat_choice + dir, 0, BOAT_TEXTURES.size())
+	_refresh_boat_carousel()
+
+
+func _boat_setup_shuffle() -> void:
+	boat_choice = rng.randi_range(0, BOAT_TEXTURES.size() - 1)
+	if ui.has("boat_setup_captain"):
+		(ui["boat_setup_captain"] as LineEdit).text = _random_captain_name()
+	if ui.has("boat_setup_boat"):
+		(ui["boat_setup_boat"] as LineEdit).text = _random_boat_name()
+	_refresh_boat_carousel()
+	_play_dice_roll()
+
+
+func _boat_setup_set_sail() -> void:
+	captain_name = (ui["boat_setup_captain"] as LineEdit).text.strip_edges()
+	boat_name = (ui["boat_setup_boat"] as LineEdit).text.strip_edges()
+	if captain_name == "":
+		captain_name = _random_captain_name()
+	if boat_name == "":
+		boat_name = _random_boat_name()
+	_stop_dice_roll()  # don't let a mid-shuffle die tumble onto the board
+	_hide_boat_setup()
+	_new_game(pending_versus, true)
+
+
+# ---------------------------------------------------------------------------
+# Reusable 3D dice roll — a real tumbling die composited over the 2D UI via a
+# transparent 3D SubViewport. Built lazily and reused. The shuffle roll is
+# cosmetic (doesn't settle on a face); gameplay callers can wait on on_done.
+# ---------------------------------------------------------------------------
+
+func _ensure_dice_rig() -> void:
+	if ui.has("dice_overlay"):
+		return
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	# Purely cosmetic effect layer: it move_to_front()s on every roll, so it MUST
+	# stay MOUSE_FILTER_IGNORE (and all its children too) or it would swallow input
+	# from whatever screen it rolled over (Godot input picking is sibling-order).
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.visible = false
+	overlay.z_index = 600
+	add_child(overlay)
+	ui["dice_overlay"] = overlay
+
+	var svc := SubViewportContainer.new()
+	svc.stretch = true
+	svc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(svc)
+	overlay.add_child(svc)
+
+	var sv := SubViewport.new()
+	sv.own_world_3d = true
+	sv.transparent_bg = true
+	sv.msaa_3d = Viewport.MSAA_2X
+	# Idle until a roll starts; _play_dice_roll flips this to ALWAYS so the 3D die
+	# only costs render time while it's on-screen.
+	sv.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	svc.add_child(sv)
+	ui["dice_viewport"] = sv
+
+	var cam := Camera3D.new()
+	cam.projection = Camera3D.PROJECTION_PERSPECTIVE
+	cam.fov = 42.0
+	cam.position = Vector3(0, 0, 11)
+	sv.add_child(cam)
+
+	var key := DirectionalLight3D.new()
+	key.rotation_degrees = Vector3(-42, -28, 0)
+	key.light_energy = 1.5
+	sv.add_child(key)
+
+	var fill := DirectionalLight3D.new()
+	fill.rotation_degrees = Vector3(24, 140, 0)
+	fill.light_energy = 0.55
+	sv.add_child(fill)
+
+	var die := _build_die_node()
+	sv.add_child(die)
+	ui["dice_node"] = die
+
+
+# A white cube with correctly-laid-out black pips (opposite faces sum to 7).
+func _build_die_node() -> Node3D:
+	var root := Node3D.new()
+
+	var body := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(1.8, 1.8, 1.8)
+	body.mesh = box
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color("#f4f1e6")
+	mat.roughness = 0.5
+	mat.metallic = 0.0
+	body.material_override = mat
+	root.add_child(body)
+
+	var pip_mat := StandardMaterial3D.new()
+	pip_mat.albedo_color = Color("#161616")
+	pip_mat.roughness = 0.6
+
+	var half := 0.9
+	var o := 0.48
+	var layouts := {
+		1: [Vector2(0, 0)],
+		2: [Vector2(-o, o), Vector2(o, -o)],
+		3: [Vector2(-o, o), Vector2(0, 0), Vector2(o, -o)],
+		4: [Vector2(-o, o), Vector2(o, o), Vector2(-o, -o), Vector2(o, -o)],
+		5: [Vector2(-o, o), Vector2(o, o), Vector2(0, 0), Vector2(-o, -o), Vector2(o, -o)],
+		6: [Vector2(-o, o), Vector2(o, o), Vector2(-o, 0), Vector2(o, 0), Vector2(-o, -o), Vector2(o, -o)],
+	}
+	var faces := [
+		{"n": Vector3(0, 0, 1), "u": Vector3(1, 0, 0), "v": Vector3(0, 1, 0), "count": 1},
+		{"n": Vector3(0, 0, -1), "u": Vector3(-1, 0, 0), "v": Vector3(0, 1, 0), "count": 6},
+		{"n": Vector3(1, 0, 0), "u": Vector3(0, 0, -1), "v": Vector3(0, 1, 0), "count": 2},
+		{"n": Vector3(-1, 0, 0), "u": Vector3(0, 0, 1), "v": Vector3(0, 1, 0), "count": 5},
+		{"n": Vector3(0, 1, 0), "u": Vector3(1, 0, 0), "v": Vector3(0, 0, -1), "count": 3},
+		{"n": Vector3(0, -1, 0), "u": Vector3(1, 0, 0), "v": Vector3(0, 0, 1), "count": 4},
+	]
+	for face in faces:
+		var pips: Array = layouts[int(face["count"])]
+		var n: Vector3 = face["n"]
+		var u: Vector3 = face["u"]
+		var v: Vector3 = face["v"]
+		for p in pips:
+			var pip := MeshInstance3D.new()
+			var sph := SphereMesh.new()
+			sph.radius = 0.15
+			sph.height = 0.30
+			pip.mesh = sph
+			pip.material_override = pip_mat
+			pip.position = n * (half + 0.02) + u * p.x + v * p.y
+			pip.scale = Vector3.ONE - n.abs() * 0.65
+			root.add_child(pip)
+	return root
+
+
+func _play_dice_roll(on_done: Callable = Callable()) -> void:
+	_ensure_dice_rig()
+	var overlay := ui["dice_overlay"] as Control
+	var die := ui["dice_node"] as Node3D
+
+	# Kill any in-flight roll so rapid presses don't fight.
+	if overlay.has_meta("dice_tweens"):
+		for old in overlay.get_meta("dice_tweens"):
+			if old is Tween and old.is_valid():
+				old.kill()
+
+	overlay.move_to_front()
+	overlay.visible = true
+	(ui["dice_viewport"] as SubViewport).render_target_update_mode = SubViewport.UPDATE_ALWAYS
+
+	die.position = Vector3(-7.5, -0.3, 0.0)
+	die.rotation = Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU)
+	die.scale = Vector3.ONE
+
+	var dur := 0.95
+	var target_rot := die.rotation + Vector3(
+		TAU * rng.randf_range(2.0, 3.0),
+		TAU * rng.randf_range(2.5, 3.5),
+		TAU * rng.randf_range(1.5, 2.5))
+
+	var t := overlay.create_tween()
+	t.set_parallel(true)
+	t.tween_property(die, "position:x", 7.5, dur)
+	t.tween_property(die, "rotation", target_rot, dur)
+	t.chain().tween_callback(_on_dice_roll_done.bind(overlay, on_done))
+
+	var ty := overlay.create_tween()
+	ty.tween_property(die, "position:y", 1.1, dur * 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	ty.tween_property(die, "position:y", -0.6, dur * 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+	overlay.set_meta("dice_tweens", [t, ty])
+
+
+func _on_dice_roll_done(overlay: Control, on_done: Callable) -> void:
+	overlay.visible = false
+	if ui.has("dice_viewport"):
+		(ui["dice_viewport"] as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
+	if on_done.is_valid():
+		on_done.call()
+
+
+# Abort an in-flight cosmetic roll (e.g. leaving the setup screen mid-shuffle).
+func _stop_dice_roll() -> void:
+	if not ui.has("dice_overlay"):
+		return
+	var overlay := ui["dice_overlay"] as Control
+	if overlay.has_meta("dice_tweens"):
+		for old in overlay.get_meta("dice_tweens"):
+			if old is Tween and old.is_valid():
+				old.kill()
+	overlay.visible = false
+	if ui.has("dice_viewport"):
+		(ui["dice_viewport"] as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
 
 
 func _build_high_scores_screen() -> void:
