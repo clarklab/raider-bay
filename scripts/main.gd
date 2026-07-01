@@ -363,6 +363,17 @@ var extra_night_cart := 0
 var weather_deck: Array[Dictionary] = []
 var forecast: Array[Dictionary] = []
 var current_weather: Dictionary = {"name": "Calm", "strength": 0}
+# Full-size weather card popup: fly-up flip from the tapped forecast chip.
+var weather_preview_source_rect := Rect2()
+var weather_preview_source: Control = null
+var weather_preview_opening := false
+var weather_preview_weather: Dictionary = {}
+var weather_preview_tween: Tween = null
+var weather_preview_fly: Control = null
+var weather_preview_fly_front: Control = null
+var weather_preview_fly_back: Control = null
+var weather_preview_closing := false
+var weather_preview_seq := 0
 var log_lines: Array[String] = []
 var cast_holes_today: Dictionary = {}
 
@@ -1631,9 +1642,11 @@ func _play_title_intro() -> void:
 			continue
 		var base_rot: float = e["base_rot"]
 		var dir := 1.0 if i % 2 == 0 else -1.0
-		var old: Tween = g.get_meta("intro_tween", null) as Tween
-		if old:
-			old.kill()
+		# has_meta first: get_meta with a null default still raises a console error.
+		if g.has_meta("intro_tween"):
+			var old: Tween = g.get_meta("intro_tween") as Tween
+			if old:
+				old.kill()
 		g.position.y = float(e["base_y"])
 		g.scale = Vector2(0.04, 0.04)
 		g.rotation_degrees = base_rot + dir * randf_range(30.0, 60.0)
@@ -10064,7 +10077,7 @@ func _weather_day_card(weather: Dictionary, day_offset: int, is_tonight: bool) -
 	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
 		btn.add_theme_stylebox_override(st, _transparent_style())
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	btn.pressed.connect(_open_weather_card_preview.bind(weather.duplicate(true)))
+	btn.pressed.connect(_open_weather_card_preview.bind(weather.duplicate(true), card))
 	card.add_child(btn)
 	return card
 
@@ -10087,6 +10100,7 @@ func _build_weather_card_preview_overlay() -> void:
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	backdrop.gui_input.connect(_on_weather_preview_backdrop_input)
 	overlay.add_child(backdrop)
+	ui["weather_preview_backdrop"] = backdrop
 
 	# Centered stage: illustrated card on the left, title + effect on the right.
 	var stage := HBoxContainer.new()
@@ -10119,6 +10133,7 @@ func _build_weather_card_preview_overlay() -> void:
 	info.add_theme_constant_override("separation", 18)
 	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(info)
+	ui["weather_preview_info"] = info
 
 	ui["weather_preview_title"] = _label("", FONT_TITLE + 10, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
 	ui["weather_preview_title"].add_theme_constant_override("outline_size", 3)
@@ -10157,29 +10172,16 @@ func _on_weather_preview_backdrop_input(event: InputEvent) -> void:
 		_close_weather_card_preview()
 
 
-func _open_weather_card_preview(weather: Dictionary) -> void:
-	if not ui.has("weather_preview_overlay"):
-		return
+# Build a full-size weather card visual (chunky shell + illustration + mult chip)
+# inside a fixed-size holder so it can travel/scale/flip as one unit.
+func _weather_preview_front_card(weather: Dictionary, cw: float, ch: float) -> Control:
 	var meta := _weather_meta(str(weather.get("name", "Calm")))
-	var title: Label = ui["weather_preview_title"]
-	title.text = str(meta["label"])
-	title.add_theme_color_override("font_color", meta["accent"])
-	_set_weather_desc(ui["weather_preview_desc"] as RichTextLabel, weather)
-
-	var slot: Control = ui["weather_preview_slot"]
-	for c in slot.get_children():
-		c.queue_free()
-	var cw := slot.custom_minimum_size.x
-	var ch := slot.custom_minimum_size.y
-
-	# Chunky white stepped-border card shell (matches the fish/upgrade cards),
-	# with the weather illustration seated inside it.
-	var card := Control.new()
-	card.size = Vector2(cw, ch)
-	card.custom_minimum_size = Vector2(cw, ch)
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var holder := Control.new()
+	holder.size = Vector2(cw, ch)
+	holder.pivot_offset = Vector2(cw, ch) * 0.5
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var border_px := 9.0
-	_add_squarestep_card_shell(card, Vector2(cw, ch), Color("#0a1024"), {
+	_add_squarestep_card_shell(holder, Vector2(cw, ch), Color("#0a1024"), {
 		"show_shadow": true,
 		"shadow_offset": Vector2(10, 14),
 		"card_border_px": int(border_px),
@@ -10192,8 +10194,7 @@ func _open_weather_card_preview(weather: Dictionary) -> void:
 	face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	face.position = Vector2(frame, frame)
 	face.size = Vector2(cw - frame * 2.0, ch - frame * 2.0)
-	card.add_child(face)
-	slot.add_child(card)
+	holder.add_child(face)
 
 	# Mult chip pinned to the card's bottom-right, when it has one.
 	var mult := float(weather.get("mult", 1.0))
@@ -10217,28 +10218,263 @@ func _open_weather_card_preview(weather: Dictionary) -> void:
 		chip.offset_right = -28
 		chip.offset_bottom = -28
 		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		slot.add_child(chip)
+		holder.add_child(chip)
 		var chip_lbl := _label("%.1fx" % mult, FONT_CELL_BIG, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
 		chip.add_child(chip_lbl)
+	return holder
 
+
+# The face-down side of the weather card: same chunky shell, shared card-back art.
+func _weather_preview_back_card(cw: float, ch: float) -> Control:
+	var holder := Control.new()
+	holder.size = Vector2(cw, ch)
+	holder.pivot_offset = Vector2(cw, ch) * 0.5
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var border_px := 9.0
+	_add_squarestep_card_shell(holder, Vector2(cw, ch), Color("#0a1024"), {
+		"show_shadow": true,
+		"shadow_offset": Vector2(10, 14),
+		"card_border_px": int(border_px),
+		"card_step_px": 5,
+	})
+	var frame := 2.0 + border_px
+	var back := _gallery_face(CARD_BACK_TEXTURE)
+	back.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	back.position = Vector2(frame, frame)
+	back.size = Vector2(cw - frame * 2.0, ch - frame * 2.0)
+	holder.add_child(back)
+	return holder
+
+
+# Stop any in-flight open/close animation and drop its fly card.
+func _kill_weather_preview_anim() -> void:
+	if weather_preview_tween != null and weather_preview_tween.is_valid():
+		weather_preview_tween.kill()
+	weather_preview_tween = null
+	if weather_preview_fly != null and is_instance_valid(weather_preview_fly):
+		weather_preview_fly.queue_free()
+	weather_preview_fly = null
+	weather_preview_fly_front = null
+	weather_preview_fly_back = null
+	weather_preview_closing = false
+
+
+func _open_weather_card_preview(weather: Dictionary, source: Control = null) -> void:
+	if not ui.has("weather_preview_overlay"):
+		return
+	weather_preview_seq += 1
+	var seq := weather_preview_seq
+	_kill_weather_preview_anim()
+	weather_preview_weather = weather.duplicate(true)
+	weather_preview_source_rect = Rect2()
+	weather_preview_source = source
+	if source != null and is_instance_valid(source):
+		weather_preview_source_rect = source.get_global_rect()
+
+	var meta := _weather_meta(str(weather.get("name", "Calm")))
+	var title: Label = ui["weather_preview_title"]
+	title.text = str(meta["label"])
+	title.add_theme_color_override("font_color", meta["accent"])
+	_set_weather_desc(ui["weather_preview_desc"] as RichTextLabel, weather)
+
+	# Seat the real card in the slot now (hidden) — the fly card animates on top,
+	# then hands off to it so resizes keep the layout correct afterwards.
+	var slot: Control = ui["weather_preview_slot"]
+	for c in slot.get_children():
+		c.queue_free()
+	var cw := slot.custom_minimum_size.x
+	var ch := slot.custom_minimum_size.y
 	slot.pivot_offset = Vector2(cw, ch) * 0.5
-	slot.scale = Vector2(0.5, 0.5)
-	slot.rotation = deg_to_rad(-6.0)
+	slot.scale = Vector2.ONE
+	slot.rotation = 0.0
 	slot.modulate = Color(1, 1, 1, 0)
+	slot.add_child(_weather_preview_front_card(weather, cw, ch))
+
 	var overlay := ui["weather_preview_overlay"] as Control
+	var backdrop := ui["weather_preview_backdrop"] as Control
+	var info := ui["weather_preview_info"] as Control
+	backdrop.modulate = Color(1, 1, 1, 0)
+	info.modulate = Color(1, 1, 1, 0)
 	overlay.move_to_front()
 	overlay.visible = true
-	var t := slot.create_tween()
-	t.set_parallel(true)
-	t.tween_property(slot, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_property(slot, "rotation", 0.0, 0.26).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	t.tween_property(slot, "modulate:a", 1.0, 0.16)
 	_play_catch_plonk(0)
+
+	# Let the (previously hidden) centered stage lay out so the slot rect is real.
+	weather_preview_opening = true
+	await get_tree().process_frame
+	weather_preview_opening = false
+	if seq != weather_preview_seq or not overlay.visible:
+		return
+
+	var dest := slot.get_global_rect()
+	var dest_center := dest.position + dest.size * 0.5
+	if weather_preview_source_rect.size.x <= 1.0:
+		# No chip to fly from — plain center pop.
+		slot.scale = Vector2(0.5, 0.5)
+		slot.rotation = deg_to_rad(-6.0)
+		var pt := create_tween()
+		weather_preview_tween = pt
+		pt.set_parallel(true)
+		pt.tween_property(backdrop, "modulate:a", 1.0, 0.16)
+		pt.tween_property(slot, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		pt.tween_property(slot, "rotation", 0.0, 0.26).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		pt.tween_property(slot, "modulate:a", 1.0, 0.16)
+		pt.tween_property(info, "modulate:a", 1.0, 0.2).set_delay(0.1)
+		return
+
+	# Fly-up flip: the card lifts off the tapped forecast chip face-down, flips
+	# to the illustration mid-flight, and lands in the slot with a little pop.
+	var src_center := weather_preview_source_rect.position + weather_preview_source_rect.size * 0.5
+	var start_scale := clampf(weather_preview_source_rect.size.x / cw, 0.12, 0.6)
+	var fly := Control.new()
+	fly.size = Vector2(cw, ch)
+	fly.pivot_offset = Vector2(cw, ch) * 0.5
+	fly.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(fly)
+	var fly_back := _weather_preview_back_card(cw, ch)
+	fly.add_child(fly_back)
+	var fly_front := _weather_preview_front_card(weather, cw, ch)
+	fly_front.scale = Vector2(0.0, 1.0)  # edge-on until the flip
+	fly.add_child(fly_front)
+	fly.position = src_center - fly.pivot_offset
+	fly.scale = Vector2(start_scale, start_scale)
+	fly.rotation = deg_to_rad(-9.0)
+	weather_preview_fly = fly
+	weather_preview_fly_front = fly_front
+	weather_preview_fly_back = fly_back
+
+	var t := create_tween()
+	weather_preview_tween = t
+	t.set_parallel(true)
+	t.tween_property(backdrop, "modulate:a", 1.0, 0.2)
+	t.tween_property(fly, "position", dest_center - fly.pivot_offset, 0.44).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(fly, "scale", Vector2.ONE, 0.44).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(fly, "rotation", 0.0, 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	# The "3D" flip: collapse the back edge-on, then sweep the front open.
+	t.tween_property(fly_back, "scale:x", 0.0, 0.14).set_delay(0.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.tween_property(fly_front, "scale:x", 1.0, 0.16).set_delay(0.24).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.tween_property(info, "modulate:a", 1.0, 0.18).set_delay(0.26)
+	t.set_parallel(false)
+	t.tween_callback(_play_catch_plonk.bind(3))
+	t.tween_property(fly, "scale", Vector2(1.06, 1.06), 0.09).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(fly, "scale", Vector2.ONE, 0.08).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_callback(func() -> void:
+		slot.modulate = Color(1, 1, 1, 1)
+		if is_instance_valid(fly):
+			fly.queue_free()
+		if weather_preview_fly == fly:
+			weather_preview_fly = null
+			weather_preview_fly_front = null
+			weather_preview_fly_back = null
+			weather_preview_tween = null)
 
 
 func _close_weather_card_preview() -> void:
-	if ui.has("weather_preview_overlay"):
-		(ui["weather_preview_overlay"] as Control).visible = false
+	if not ui.has("weather_preview_overlay"):
+		return
+	var overlay := ui["weather_preview_overlay"] as Control
+	if not overlay.visible or weather_preview_closing:
+		return
+	weather_preview_seq += 1  # abort any open still waiting on layout
+	if weather_preview_opening:
+		# The open is still waiting on layout — nothing is visible yet (backdrop
+		# and slot are at alpha 0), so just hide instantly instead of animating
+		# a return flight from a rect that hasn't been laid out.
+		weather_preview_opening = false
+		_kill_weather_preview_anim()
+		overlay.visible = false
+		return
+	if weather_preview_tween != null and weather_preview_tween.is_valid():
+		weather_preview_tween.kill()
+	weather_preview_tween = null
+	# Re-read the chip's rect — layout may have shifted since open (e.g. resize).
+	if weather_preview_source != null and is_instance_valid(weather_preview_source) \
+			and weather_preview_source.is_inside_tree():
+		weather_preview_source_rect = weather_preview_source.get_global_rect()
+
+	var slot: Control = ui["weather_preview_slot"]
+	var backdrop := ui["weather_preview_backdrop"] as Control
+	var info := ui["weather_preview_info"] as Control
+	var cw := slot.custom_minimum_size.x
+	var ch := slot.custom_minimum_size.y
+
+	if weather_preview_source_rect.size.x <= 1.0:
+		# No chip to shrink back into — plain fade out.
+		weather_preview_closing = true
+		var pt := create_tween()
+		weather_preview_tween = pt
+		pt.set_parallel(true)
+		pt.tween_property(info, "modulate:a", 0.0, 0.12)
+		pt.tween_property(slot, "modulate:a", 0.0, 0.16)
+		pt.tween_property(slot, "scale", Vector2(0.7, 0.7), 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		pt.tween_property(backdrop, "modulate:a", 0.0, 0.2)
+		pt.set_parallel(false)
+		pt.tween_callback(func() -> void:
+			overlay.visible = false
+			weather_preview_closing = false
+			weather_preview_tween = null)
+		return
+
+	# Shrink-back flip: reuse the in-flight fly card if the open is mid-animation,
+	# otherwise lift the seated card off the slot; either way it flips face-down
+	# and shrinks home into the forecast chip.
+	var fly := weather_preview_fly
+	var fly_front := weather_preview_fly_front
+	var fly_back := weather_preview_fly_back
+	var have_fly := fly != null and is_instance_valid(fly) \
+		and fly_front != null and is_instance_valid(fly_front) \
+		and fly_back != null and is_instance_valid(fly_back)
+	if not have_fly:
+		_kill_weather_preview_anim()
+		fly = Control.new()
+		fly.size = Vector2(cw, ch)
+		fly.pivot_offset = Vector2(cw, ch) * 0.5
+		fly.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		overlay.add_child(fly)
+		fly_front = _weather_preview_front_card(weather_preview_weather, cw, ch)
+		fly.add_child(fly_front)
+		fly_back = _weather_preview_back_card(cw, ch)
+		fly_back.scale = Vector2(0.0, 1.0)
+		fly.add_child(fly_back)
+		var dest := slot.get_global_rect()
+		fly.position = dest.position + dest.size * 0.5 - fly.pivot_offset
+		weather_preview_fly = fly
+		weather_preview_fly_front = fly_front
+		weather_preview_fly_back = fly_back
+	slot.modulate = Color(1, 1, 1, 0)
+	weather_preview_closing = true
+	_play_catch_plonk(1)
+
+	var src_center := weather_preview_source_rect.position + weather_preview_source_rect.size * 0.5
+	var end_scale := clampf(weather_preview_source_rect.size.x / cw, 0.12, 0.6)
+	var t := create_tween()
+	weather_preview_tween = t
+	t.set_parallel(true)
+	t.tween_property(info, "modulate:a", 0.0, 0.14)
+	t.tween_property(backdrop, "modulate:a", 0.0, 0.26).set_delay(0.12)
+	t.tween_property(fly, "position", src_center - fly.pivot_offset, 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	t.tween_property(fly, "scale", Vector2(end_scale, end_scale), 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	t.tween_property(fly, "rotation", deg_to_rad(-7.0), 0.36).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	# Flip back face-down on the way home. If an interrupted open froze the flip
+	# mid-way (front never opened), skip the collapse and just restore the back —
+	# otherwise the card would ride home as a half-collapsed sliver.
+	if fly_front.scale.x <= 0.01:
+		fly_front.scale.x = 0.0
+		t.tween_property(fly_back, "scale:x", 1.0, 0.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	else:
+		t.tween_property(fly_front, "scale:x", 0.0, 0.13).set_delay(0.08).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		t.tween_property(fly_back, "scale:x", 1.0, 0.13).set_delay(0.21).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.set_parallel(false)
+	t.tween_callback(func() -> void:
+		overlay.visible = false
+		if is_instance_valid(fly):
+			fly.queue_free()
+		if weather_preview_fly == fly:
+			weather_preview_fly = null
+			weather_preview_fly_front = null
+			weather_preview_fly_back = null
+			weather_preview_tween = null
+		weather_preview_closing = false)
 
 
 # A stack of light-blue cards peeking off the edge — "more days ahead".
@@ -10595,8 +10831,16 @@ func _show_game_over_screen() -> void:
 	)
 	btn_row.add_child(again_btn)
 
+	# A weather-card popup may still be up (e.g. opened during the bot's turn) —
+	# hard-close it so it can't draw over or eat input meant for this screen.
+	_kill_weather_preview_anim()
+	if ui.has("weather_preview_overlay"):
+		(ui["weather_preview_overlay"] as Control).visible = false
+
 	_save_game()
-	(ui["game_over_overlay"] as Control).visible = true
+	var go_overlay := ui["game_over_overlay"] as Control
+	go_overlay.move_to_front()  # tree-order input picking: last sibling wins
+	go_overlay.visible = true
 
 
 func _hide_game_over_screen() -> void:
