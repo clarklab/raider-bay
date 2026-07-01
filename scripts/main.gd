@@ -4356,6 +4356,25 @@ func _add_generated_upgrade_card_face(card: Control, key: String, level: int, re
 	var accent := _upgrade_accent(key)
 	var mini := bool(options.get("mini", false))
 
+	# Mini shop-lane cards show just the icon — no header bar, label, or level.
+	if mini:
+		var mini_icon: Texture2D = _upgrade_small_icon_texture(key, level)
+		if mini_icon != null:
+			var s := rect.size.x * 0.88
+			var icon := _icon_texture_rect(mini_icon, Vector2(s, s), Color(1, 1, 1, 1))
+			icon.position = rect.position + (rect.size - Vector2(s, s)) * 0.5
+			icon.size = Vector2(s, s)
+			icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+			card.add_child(icon)
+		else:
+			var gs := rect.size.x * 0.62
+			var gicon := _icon_texture_rect(_upgrade_icon_texture(key), Vector2(gs, gs), accent.lightened(0.36))
+			gicon.position = rect.position + (rect.size - Vector2(gs, gs)) * 0.5
+			gicon.size = Vector2(gs, gs)
+			gicon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			card.add_child(gicon)
+		return
+
 	var header := ColorRect.new()
 	header.color = accent.darkened(0.36)
 	header.position = rect.position
