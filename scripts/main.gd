@@ -88,6 +88,10 @@ const BOAT_TEXTURES: Array[Texture2D] = [
 	preload("res://assets/boats/boat-4.png"),
 ]
 
+# Each boat comes rigged with one free starting upgrade (its first card, no
+# cost) — index-aligned with BOAT_TEXTURES.
+const BOAT_PERKS: Array[String] = ["motor", "fish_finder", "live_well", "nets"]
+
 # Mix-and-match phrasebook for the Boat Setup shuffle. Boat = "The {adj} {noun}",
 # captain = "{first} {last}".
 const BOAT_ADJ := [
@@ -395,6 +399,8 @@ var selected_upgrade_card_key := ""
 var selected_upgrade_card_level := 0
 var upgrade_card_purchase_locked := false
 var card_tooltip_token := 0
+var action_blink: Dictionary = {}  # left-rail counter key -> attention pulse on
+var action_blink_time := 0.0
 var end_day_prompt_time := 0.0
 var catch_card_token := 0
 var board_fx_time := 0.0
@@ -690,6 +696,8 @@ func _process(delta: float) -> void:
 	board_fx_time += delta
 	if ui.has("board_wrap"):
 		_update_board_presence_fx()
+	action_blink_time += delta
+	_update_action_blink()
 	_update_audio(delta)
 	_update_end_day_prompt(delta)
 	if board_press_cell.x >= 0 and not board_long_fired and not game_over and active_tray == "":
@@ -5047,6 +5055,10 @@ func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
 		"cannons": 0,
 		"defense": 0,
 	}
+	# The chosen boat's free starting perk — reads exactly like owning the
+	# first upgrade card, but costs nothing (money stays at START_MONEY).
+	var boat_perk := BOAT_PERKS[clampi(boat_choice, 0, BOAT_PERKS.size() - 1)]
+	upgrades[boat_perk] = 1
 	conditions = {
 		"hull": CONDITION_MAX,
 		"propeller": CONDITION_MAX,
@@ -5074,6 +5086,7 @@ func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
 	_hide_game_over_screen()
 	if captain_name != "" and boat_name != "":
 		_log("Captain %s sets sail aboard %s!" % [captain_name, boat_name])
+	_log("%s comes rigged with +1 %s." % [boat_name if boat_name != "" else "Your boat", _upgrade_name(boat_perk)])
 	if versus_mode:
 		_log("%s joins the contest. It will fish, sell, and raid if you get close." % BOT_NAME)
 		_log("Leave the docks, fish deep, and watch the other captain.")
@@ -7046,6 +7059,11 @@ func _update_hud() -> void:
 	else:
 		_counter_set("stat_finds", "%d" % finds_remaining, finds_remaining > 0, "FIND FISH")
 	_counter_set("stat_casts", "%d" % casts_remaining, casts_remaining > 0)
+	# Attention pulse: FIND FISH on unscanned water, CAST on a workable hole —
+	# only while the action would actually do something (uses left, valid tile).
+	var can_act := game_started and not game_over and active_tray == "" and not board.is_empty()
+	action_blink["stat_finds"] = can_act and _can_find_here()
+	action_blink["stat_casts"] = can_act and casts_remaining > 0 and _can_attempt_cast_here()
 	if ui.has("top_where"):
 		if _is_docked():
 			(ui["top_where"] as Label).text = "Docks"
@@ -9502,6 +9520,38 @@ func _tactile_button(text: String, min_w: int, min_h: int, fill: Color, border: 
 	return b
 
 
+# Flat filled button (Boat Setup style): no stroke, soft corners, big text —
+# just a solid color slab with a contact shadow and a darker pressed state.
+func _flat_button(text: String, min_w: int, min_h: int, fill: Color, label_color: Color, font_size: int = 30, radius: int = 16) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_override("font", FONT_BALATRO)
+	b.add_theme_font_size_override("font_size", font_size)
+	b.add_theme_color_override("font_color", label_color)
+	b.add_theme_color_override("font_hover_color", label_color)
+	b.add_theme_color_override("font_pressed_color", label_color)
+	b.add_theme_color_override("font_disabled_color", TEXT_DIM)
+	b.custom_minimum_size = Vector2(min_w, min_h)
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	var normal := _styled_shadow(fill, Color(0, 0, 0, 0), 0, radius, 4)
+	normal.shadow_color = Color(0, 0, 0, 0.35)
+	normal.shadow_offset = Vector2(0, 4)
+	var hover := _styled_shadow(fill.lightened(0.06), Color(0, 0, 0, 0), 0, radius, 4)
+	hover.shadow_color = Color(0, 0, 0, 0.35)
+	hover.shadow_offset = Vector2(0, 4)
+	var press := _styled(fill.darkened(0.14), Color(0, 0, 0, 0), 0, radius)
+	var disabled := _styled(fill.darkened(0.42), Color(0, 0, 0, 0), 0, radius)
+	b.add_theme_stylebox_override("normal", normal)
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", press)
+	b.add_theme_stylebox_override("disabled", disabled)
+	b.add_theme_stylebox_override("focus", _transparent_style())
+	_add_press_pop(b, b)
+	return b
+
+
 func _add_button_chrome(b: Button, border: Color) -> void:
 	var shine := ColorRect.new()
 	shine.color = Color(1, 1, 1, 0.10)
@@ -9957,6 +10007,29 @@ func _counter_button(key: String, icon: Texture2D, title: String, accent: Color,
 	card.set_meta("accent", accent)
 	ui[key] = card
 	return card
+
+
+# Gentle attention blink on actionable left-rail buttons (FIND FISH / CAST):
+# a slow brightness pulse while the action would actually accomplish something.
+func _update_action_blink() -> void:
+	var pulse := 0.925 + 0.225 * sin(action_blink_time * 5.0)  # 0.7 .. 1.15
+	# Don't pulse "act now" behind the weather-card popup (it blocks all input).
+	var covered: bool = ui.has("weather_preview_overlay") \
+		and (ui["weather_preview_overlay"] as Control).visible
+	for key in action_blink.keys():
+		if not ui.has(key):
+			continue
+		var card: Control = ui[key]
+		if not is_instance_valid(card):
+			continue
+		if bool(action_blink[key]) and game_started and not game_over and not covered:
+			card.modulate = Color(pulse, pulse, pulse, 1.0)
+			card.set_meta("blinking", true)
+		elif bool(card.get_meta("blinking", false)):
+			card.set_meta("blinking", false)
+			# Restore the lit/greyed state _counter_set manages.
+			var btn := card.get_meta("button") as Button
+			card.modulate = Color(1, 1, 1, 1) if (btn == null or not btn.disabled) else Color(0.5, 0.56, 0.64, 0.8)
 
 
 # Update a counter's value, optional title, and enabled (lit vs greyed-out) state.
@@ -11905,8 +11978,8 @@ func _build_boat_setup_screen() -> void:
 	carousel.alignment = BoxContainer.ALIGNMENT_CENTER
 	picker.add_child(carousel)
 
-	var left_arrow := _tactile_button("<", 74, 150, BG_PANEL_LIGHT, CYAN_DEEP, CYAN)
-	left_arrow.add_theme_font_size_override("font_size", 42)
+	var left_arrow := _flat_button("<", 92, 92, BG_PANEL_LIGHT, CYAN, 44, 18)
+	left_arrow.size_flags_vertical = Control.SIZE_SHRINK_CENTER  # keep it square
 	left_arrow.pressed.connect(func(): _boat_setup_cycle(-1))
 	carousel.add_child(left_arrow)
 
@@ -11928,8 +12001,8 @@ func _build_boat_setup_screen() -> void:
 	card.add_child(boat_img)
 	ui["boat_setup_image"] = boat_img
 
-	var right_arrow := _tactile_button(">", 74, 150, BG_PANEL_LIGHT, CYAN_DEEP, CYAN)
-	right_arrow.add_theme_font_size_override("font_size", 42)
+	var right_arrow := _flat_button(">", 92, 92, BG_PANEL_LIGHT, CYAN, 44, 18)
+	right_arrow.size_flags_vertical = Control.SIZE_SHRINK_CENTER  # keep it square
 	right_arrow.pressed.connect(func(): _boat_setup_cycle(1))
 	carousel.add_child(right_arrow)
 
@@ -11944,6 +12017,21 @@ func _build_boat_setup_screen() -> void:
 		dot.custom_minimum_size = Vector2(16, 16)
 		dot.add_theme_stylebox_override("panel", _styled(TEXT_DIM, Color(0, 0, 0, 0), 0, 8))
 		dots.add_child(dot)
+
+	# This boat's free starting perk — accent pill, refreshed with the carousel.
+	var perk_pill := PanelContainer.new()
+	perk_pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var perk_style := _styled(GOLD, Color(0, 0, 0, 0), 0, 12)
+	perk_style.content_margin_left = 18
+	perk_style.content_margin_right = 18
+	perk_style.content_margin_top = 5
+	perk_style.content_margin_bottom = 7
+	perk_pill.add_theme_stylebox_override("panel", perk_style)
+	picker.add_child(perk_pill)
+	var perk_label := _label("STARTS WITH +1 MOTOR", FONT_CELL + 4, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
+	perk_pill.add_child(perk_label)
+	ui["boat_setup_perk_pill"] = perk_pill
+	ui["boat_setup_perk"] = perk_label
 
 	# --- RIGHT: captain + boat name fields (2x fonts) ---
 	var names := VBoxContainer.new()
@@ -11974,12 +12062,12 @@ func _build_boat_setup_screen() -> void:
 	btn_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(btn_row)
 
-	var shuffle_btn := _tactile_button("SHUFFLE", 220, 62, GOLD, GOLD_DEEP, Color("#3a2a00"))
+	var shuffle_btn := _flat_button("SHUFFLE", 220, 74, BG_PANEL_LIGHT, TEXT_MUTED, 32, 18)
 	shuffle_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	shuffle_btn.pressed.connect(_boat_setup_shuffle)
 	btn_row.add_child(shuffle_btn)
 
-	var sail_btn := _tactile_button("SET SAIL", 300, 62, GREEN_DEEP, GREEN, TEXT_PRIMARY)
+	var sail_btn := _flat_button("SET SAIL", 300, 74, GOLD, Color("#3a2a00"), 34, 18)
 	sail_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sail_btn.pressed.connect(_boat_setup_set_sail)
 	btn_row.add_child(sail_btn)
@@ -12006,6 +12094,13 @@ func _refresh_boat_carousel() -> void:
 			var sb := dot.get_theme_stylebox("panel") as StyleBoxFlat
 			if sb != null:
 				sb.bg_color = GOLD if i == boat_choice else TEXT_DIM
+	if ui.has("boat_setup_perk"):
+		var perk_key := BOAT_PERKS[clampi(boat_choice, 0, BOAT_PERKS.size() - 1)]
+		(ui["boat_setup_perk"] as Label).text = "STARTS WITH +1 %s" % _upgrade_name(perk_key).to_upper()
+		var pill: PanelContainer = ui["boat_setup_perk_pill"]
+		var pill_sb := pill.get_theme_stylebox("panel") as StyleBoxFlat
+		if pill_sb != null:
+			pill_sb.bg_color = _upgrade_accent(perk_key)
 
 
 func _show_boat_setup(versus: bool) -> void:
