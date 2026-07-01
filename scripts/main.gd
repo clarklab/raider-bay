@@ -345,6 +345,7 @@ var market_prices: Dictionary = {}
 var sold_totals: Dictionary = {}
 var trophies: Dictionary = {}
 var sale_selection: Dictionary = {}
+var pending_haggle: Dictionary = {}
 var extra_nights := 0
 var upgrade_cart: Dictionary = {}
 var extra_night_cart := 0
@@ -2079,6 +2080,26 @@ func _build_sell_modal() -> void:
 	ui["sell_title"].add_theme_constant_override("outline_size", 3)
 	ui["sell_title"].add_theme_color_override("font_outline_color", Color("#3a2a00"))
 	title_row.add_child(ui["sell_title"])
+
+	# Big haggle-outcome banner (hidden until a haggle resolves).
+	var outcome := PanelContainer.new()
+	outcome.visible = false
+	outcome.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outcome.add_theme_stylebox_override("panel", _styled(BG_PANEL_DARK, CYAN, 3, 14))
+	col.add_child(outcome)
+	ui["sell_outcome"] = outcome
+	var outcome_col := VBoxContainer.new()
+	outcome_col.add_theme_constant_override("separation", 2)
+	outcome_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	outcome.add_child(outcome_col)
+	ui["sell_outcome_label"] = _label("", FONT_TITLE + 4, CYAN, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["sell_outcome_label"].add_theme_constant_override("outline_size", 3)
+	ui["sell_outcome_label"].add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	ui["sell_outcome_label"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outcome_col.add_child(ui["sell_outcome_label"])
+	ui["sell_outcome_sub"] = _label("", FONT_BODY, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["sell_outcome_sub"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outcome_col.add_child(ui["sell_outcome_sub"])
 
 	var sell_scroll := ScrollContainer.new()
 	sell_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -5843,6 +5864,28 @@ func _haggle_sale() -> void:
 	elif roll >= 5:
 		delta_per_fish = 2
 
+	# Lock the roll in, then roll the dice across the screen; the sale is only
+	# completed + revealed once the dice finishes (sale_selection stays intact).
+	pending_haggle = {"roll": roll, "delta": delta_per_fish}
+	var rows: VBoxContainer = ui["sell_rows"]
+	for child in rows.get_children():
+		child.queue_free()
+	(ui["sell_outcome"] as Control).visible = false
+	(ui["sell_title"] as Label).text = "HAGGLING…"
+	(ui["sell_total"] as Label).text = "ROLLING…"
+	(ui["sell_result"] as Label).text = "The dealer shakes the dice…"
+	(ui["sell_action_row"] as Control).visible = false
+	(ui["sell_ok"] as Control).visible = false
+	_play_dice_roll(_reveal_haggle_result)
+
+
+func _reveal_haggle_result() -> void:
+	if not pending_haggle.has("delta"):
+		return
+	var roll := int(pending_haggle["roll"])
+	var delta_per_fish := int(pending_haggle["delta"])
+	pending_haggle = {}
+
 	var result := _complete_sale(delta_per_fish)
 	var adjustment_text := "$0"
 	if delta_per_fish > 0:
@@ -5854,6 +5897,7 @@ func _haggle_sale() -> void:
 		haggle_text = "Roll %d: market price. Auto-accepted." % roll
 
 	_populate_sell_rows(result["quantities"], delta_per_fish)
+	_show_haggle_outcome(roll, delta_per_fish)
 	(ui["sell_title"] as Label).text = "HAGGLE RESULT"
 	(ui["sell_total"] as Label).text = "SOLD FOR $%d" % int(result["total"])
 	(ui["sell_result"] as Label).text = haggle_text
@@ -5865,9 +5909,49 @@ func _haggle_sale() -> void:
 		_show_game_over_screen()
 
 
+# Big outcome banner + juice: confetti for a good roll, a BONK stamp for a bad one.
+func _show_haggle_outcome(roll: int, delta_per_fish: int) -> void:
+	var banner := ui["sell_outcome"] as PanelContainer
+	var big := ui["sell_outcome_label"] as Label
+	var sub := ui["sell_outcome_sub"] as Label
+
+	var head := "FAIR PRICE"
+	var sub_text := "Market rate · rolled %d" % roll
+	var accent := CYAN
+	if delta_per_fish > 0:
+		head = "GREAT DEAL!"
+		sub_text = "+$%d per fish · rolled %d" % [delta_per_fish, roll]
+		accent = GREEN
+	elif delta_per_fish < 0:
+		head = "BONK! RIPPED OFF"
+		sub_text = "-$%d per fish · rolled %d" % [abs(delta_per_fish), roll]
+		accent = RED
+
+	var style := _styled_shadow(BG_PANEL_DARK.lerp(accent, 0.18), accent, 3, 14, 3)
+	style.content_margin_left = 16
+	style.content_margin_right = 16
+	style.content_margin_top = 10
+	style.content_margin_bottom = 10
+	banner.add_theme_stylebox_override("panel", style)
+	big.text = head
+	big.add_theme_color_override("font_color", accent)
+	sub.text = sub_text
+	banner.visible = true
+
+	banner.modulate = Color(1, 1, 1, 0)
+	var t := banner.create_tween()
+	t.tween_property(banner, "modulate:a", 1.0, 0.18)
+
+	if delta_per_fish > 0:
+		_burst_confetti()
+	elif delta_per_fish < 0:
+		_play_bonk()
+
+
 func _open_sell_modal() -> void:
 	_reset_sale_selection()
 	_populate_sell_selection_rows(0)
+	(ui["sell_outcome"] as Control).visible = false
 	(ui["sell_title"] as Label).text = "SELL YOUR CATCH"
 	_refresh_sell_selection_summary(0)
 	(ui["sell_result"] as Label).text = "Tap IN/KEEP to pick a batch · +/- to split it · HAGGLE rolls for a better price."
@@ -5882,6 +5966,7 @@ func _close_sell_modal() -> void:
 	if ui.has("sell_overlay"):
 		(ui["sell_overlay"] as Control).visible = false
 	sale_selection.clear()
+	pending_haggle = {}
 
 
 func _reset_sale_selection() -> void:
@@ -6079,6 +6164,8 @@ func _refresh_sell_selection_summary(delta_per_fish: int) -> void:
 
 
 func _on_sell_batch_toggled(enabled: bool, batch_index: int) -> void:
+	if not pending_haggle.is_empty():
+		return  # selection is locked once the haggle dice is rolling
 	if batch_index < 0 or batch_index >= live_well.size():
 		return
 	var batch: Dictionary = live_well[batch_index]
@@ -6088,6 +6175,8 @@ func _on_sell_batch_toggled(enabled: bool, batch_index: int) -> void:
 
 
 func _adjust_sale_batch_quantity(batch_index: int, delta: int) -> void:
+	if not pending_haggle.is_empty():
+		return  # selection is locked once the haggle dice is rolling
 	if batch_index < 0 or batch_index >= live_well.size():
 		return
 	var batch: Dictionary = live_well[batch_index]
@@ -11577,6 +11666,107 @@ func _stop_dice_roll() -> void:
 	overlay.visible = false
 	if ui.has("dice_viewport"):
 		(ui["dice_viewport"] as SubViewport).render_target_update_mode = SubViewport.UPDATE_DISABLED
+
+
+# ---------------------------------------------------------------------------
+# Celebration FX — multi-colour confetti (good luck) and a BONK stamp (bad luck)
+# ---------------------------------------------------------------------------
+
+func _ensure_confetti_rig() -> void:
+	if ui.has("confetti_overlay"):
+		return
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.z_index = 620
+	add_child(overlay)
+	ui["confetti_overlay"] = overlay
+
+	var img := Image.create(10, 14, false, Image.FORMAT_RGBA8)
+	img.fill(Color.WHITE)
+	var tex := ImageTexture.create_from_image(img)
+
+	var vp := get_viewport().get_visible_rect().size
+	var emitters: Array = []
+	for c in [GOLD, GREEN, CYAN, PURPLE, RED, INDIGO]:
+		var p := CPUParticles2D.new()
+		p.emitting = false
+		p.one_shot = true
+		p.amount = 24
+		p.lifetime = 2.1
+		p.explosiveness = 0.92
+		p.texture = tex
+		p.position = Vector2(vp.x * 0.5, -20.0)
+		p.direction = Vector2(0, 1)
+		p.spread = 42.0
+		p.gravity = Vector2(0, 640)
+		p.initial_velocity_min = 150.0
+		p.initial_velocity_max = 360.0
+		p.angular_velocity_min = -560.0
+		p.angular_velocity_max = 560.0
+		p.scale_amount_min = 0.8
+		p.scale_amount_max = 1.7
+		p.color = c
+		p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+		p.emission_rect_extents = Vector2(vp.x * 0.5, 6.0)
+		overlay.add_child(p)
+		emitters.append(p)
+	ui["confetti_emitters"] = emitters
+
+
+func _burst_confetti() -> void:
+	_ensure_confetti_rig()
+	(ui["confetti_overlay"] as Control).move_to_front()
+	for p in ui["confetti_emitters"]:
+		var emitter := p as CPUParticles2D
+		emitter.restart()
+		emitter.emitting = true
+
+
+# A comedic "BONK!" stamp that slams in with a red flash, then fades. Transient.
+func _play_bonk() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.z_index = 625
+	add_child(overlay)
+
+	var flash := ColorRect.new()
+	flash.color = Color(RED.r, RED.g, RED.b, 0.0)
+	_anchor_fill(flash)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(flash)
+
+	var stamp := _label("BONK!", 120, RED, HORIZONTAL_ALIGNMENT_CENTER)
+	stamp.add_theme_constant_override("outline_size", 8)
+	stamp.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	stamp.rotation_degrees = -9.0
+	var sz := stamp.get_minimum_size()
+	stamp.size = sz
+	stamp.pivot_offset = sz * 0.5
+	stamp.anchor_left = 0.5
+	stamp.anchor_top = 0.5
+	stamp.anchor_right = 0.5
+	stamp.anchor_bottom = 0.5
+	stamp.offset_left = -sz.x * 0.5
+	stamp.offset_top = -sz.y * 0.5
+	stamp.offset_right = sz.x * 0.5
+	stamp.offset_bottom = sz.y * 0.5
+	stamp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(stamp)
+
+	stamp.scale = Vector2(2.4, 2.4)
+	stamp.modulate = Color(1, 1, 1, 0)
+	var t := overlay.create_tween()
+	t.tween_property(stamp, "modulate:a", 1.0, 0.09)
+	t.parallel().tween_property(stamp, "scale", Vector2.ONE, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(flash, "color:a", 0.32, 0.09)
+	t.tween_property(flash, "color:a", 0.0, 0.28)
+	t.tween_interval(0.5)
+	t.tween_property(stamp, "modulate:a", 0.0, 0.32)
+	t.tween_callback(overlay.queue_free)
 
 
 func _build_high_scores_screen() -> void:
