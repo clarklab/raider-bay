@@ -333,6 +333,7 @@ var versus_mode := false
 # Boat Setup screen (chosen fresh each new game; flavor only for now).
 var pending_versus := false
 var boat_choice := 0
+var boat_perk_key := ""  # starter upgrade category — permanently one price step cheaper
 var boat_name := ""
 var captain_name := ""
 
@@ -355,6 +356,7 @@ var upgrades: Dictionary = {}
 var conditions: Dictionary = {}
 var live_well: Array[Dictionary] = []
 var market_prices: Dictionary = {}
+var market_flip: Dictionary = {}  # species -> last night's price (drives the odometer flip)
 var sold_totals: Dictionary = {}
 var trophies: Dictionary = {}
 var sale_selection: Dictionary = {}
@@ -2143,11 +2145,12 @@ func _build_sell_modal() -> void:
 	ui["sell_title"].add_theme_color_override("font_outline_color", Color("#3a2a00"))
 	title_row.add_child(ui["sell_title"])
 
-	# Big haggle-outcome banner (hidden until a haggle resolves).
+	# Big haggle-outcome banner (hidden until a haggle resolves) — solid accent
+	# slab, no stroke; _show_haggle_outcome restyles it per result.
 	var outcome := PanelContainer.new()
 	outcome.visible = false
 	outcome.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	outcome.add_theme_stylebox_override("panel", _styled(BG_PANEL_DARK, CYAN, 3, 14))
+	outcome.add_theme_stylebox_override("panel", _styled(CYAN, Color(0, 0, 0, 0), 0, 14))
 	col.add_child(outcome)
 	ui["sell_outcome"] = outcome
 	var outcome_col := VBoxContainer.new()
@@ -2163,9 +2166,11 @@ func _build_sell_modal() -> void:
 	ui["sell_outcome_sub"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	outcome_col.add_child(ui["sell_outcome_sub"])
 
+	# Min height leaves room for the haggle-outcome banner; the expand flag
+	# grows the scroll to fill the panel whenever the banner is hidden.
 	var sell_scroll := ScrollContainer.new()
 	sell_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sell_scroll.custom_minimum_size = Vector2(0, 400)
+	sell_scroll.custom_minimum_size = Vector2(0, 316)
 	sell_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sell_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(sell_scroll)
@@ -2180,17 +2185,17 @@ func _build_sell_modal() -> void:
 	ui["sell_rows"] = sell_flow
 	sell_scroll.add_child(sell_flow)
 
-	# Summary pill (chunky gold) — logic sets the inner label's text.
+	# Summary pill (solid chunky gold, no stroke) — logic sets the label's text.
 	var total_pill := PanelContainer.new()
 	total_pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var tps := _styled(GOLD.darkened(0.62), GOLD, 2, 12)
+	var tps := _styled(GOLD, Color(0, 0, 0, 0), 0, 12)
 	tps.content_margin_left = 22
 	tps.content_margin_right = 22
 	tps.content_margin_top = 8
 	tps.content_margin_bottom = 8
 	total_pill.add_theme_stylebox_override("panel", tps)
 	col.add_child(total_pill)
-	ui["sell_total"] = _label("", FONT_CELL_BIG, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	ui["sell_total"] = _label("", FONT_CELL_BIG, Color("#3a2a00"), HORIZONTAL_ALIGNMENT_CENTER)
 	total_pill.add_child(ui["sell_total"])
 
 	ui["sell_result"] = _label("", FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
@@ -2202,22 +2207,22 @@ func _build_sell_modal() -> void:
 	ui["sell_action_row"].add_theme_constant_override("separation", 12)
 	col.add_child(ui["sell_action_row"])
 
-	ui["sell_confirm"] = _tactile_button("SELL", 0, 62, GREEN_DEEP, GREEN, TEXT_PRIMARY)
+	ui["sell_confirm"] = _flat_button("SELL", 0, 64, GREEN_DEEP, TEXT_PRIMARY, 24, 16)
 	ui["sell_confirm"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["sell_confirm"].pressed.connect(_confirm_sale)
 	ui["sell_action_row"].add_child(ui["sell_confirm"])
 
-	ui["sell_haggle"] = _tactile_button("HAGGLE", 0, 62, GOLD.darkened(0.5), GOLD, GOLD)
+	ui["sell_haggle"] = _flat_button("HAGGLE", 0, 64, GOLD, Color("#3a2a00"), 24, 16)
 	ui["sell_haggle"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["sell_haggle"].pressed.connect(_haggle_sale)
 	ui["sell_action_row"].add_child(ui["sell_haggle"])
 
-	ui["sell_cancel"] = _tactile_button("CANCEL", 0, 62, BG_PANEL_LIGHT, BORDER_FRAME, TEXT_MUTED)
+	ui["sell_cancel"] = _flat_button("CANCEL", 0, 64, BG_PANEL_LIGHT, TEXT_MUTED, 24, 16)
 	ui["sell_cancel"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["sell_cancel"].pressed.connect(_close_sell_modal)
 	ui["sell_action_row"].add_child(ui["sell_cancel"])
 
-	ui["sell_ok"] = _tactile_button("OK", 0, 62, GREEN_DEEP, GREEN, TEXT_PRIMARY)
+	ui["sell_ok"] = _flat_button("OK", 0, 64, GREEN_DEEP, TEXT_PRIMARY, 24, 16)
 	ui["sell_ok"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ui["sell_ok"].visible = false
 	ui["sell_ok"].pressed.connect(_close_sell_modal)
@@ -5062,8 +5067,10 @@ func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
 	}
 	# The chosen boat's free starting perk — reads exactly like owning the
 	# first upgrade card, but costs nothing (money stays at START_MONEY).
+	# The category also stays one price step cheaper all game (see _upgrade_cost).
 	var boat_perk := BOAT_PERKS[clampi(boat_choice, 0, BOAT_PERKS.size() - 1)]
 	upgrades[boat_perk] = 1
+	boat_perk_key = boat_perk
 	conditions = {
 		"hull": CONDITION_MAX,
 		"propeller": CONDITION_MAX,
@@ -5174,6 +5181,7 @@ func _save_game() -> void:
 		"boat_pos": _serialize_pos(boat_pos),
 		"board": board,
 		"upgrades": upgrades,
+		"boat_perk_key": boat_perk_key,
 		"conditions": conditions,
 		"live_well": live_well,
 		"market_prices": market_prices,
@@ -5240,6 +5248,7 @@ func _load_game() -> bool:
 		return false
 
 	upgrades = _dict_copy(data.get("upgrades", {}))
+	boat_perk_key = str(data.get("boat_perk_key", ""))  # pre-perk saves: no discount
 	conditions = _dict_copy(data.get("conditions", {}))
 	_ensure_player_defaults()
 	live_well = _dict_array(data.get("live_well", []))
@@ -5408,8 +5417,48 @@ func _dict_array(value) -> Array[Dictionary]:
 
 func _roll_market() -> void:
 	market_prices.clear()
+	market_flip.clear()
 	for species in SPECIES:
 		market_prices[species] = max(8, int(BASE_PRICES[species]) + rng.randi_range(-5, 8))
+
+
+# Overnight the market moves: each species drifts a few dollars, banded around
+# its base price. Changed species are remembered so the HUD can flip like an
+# odometer when the new day renders.
+func _drift_market() -> void:
+	market_flip.clear()
+	for species in SPECIES:
+		var old_price := int(market_prices[species])
+		var base := int(BASE_PRICES[species])
+		var drift := rng.randi_range(-6, 7)
+		var next_price := clampi(old_price + drift, maxi(8, base - 8), base + 14)
+		if next_price != old_price:
+			market_flip[species] = old_price
+		market_prices[species] = next_price
+
+
+# Odometer flap on a market price label: up-flips flash green for a rise,
+# down-flips flash red for a drop, then settle back to gold.
+func _odometer_flip_price(label: Label, from_v: int, to_v: int, delay: float) -> void:
+	if from_v == to_v:
+		return
+	var up := to_v > from_v
+	var accent: Color = GREEN if up else RED
+	label.text = "$%d" % from_v
+	var t := label.create_tween()
+	t.tween_interval(delay)
+	t.tween_callback(func() -> void:
+		# Hinge the flap on the edge it flips away from.
+		label.pivot_offset = Vector2(label.size.x * 0.5, 0.0 if up else label.size.y))
+	t.tween_property(label, "scale:y", 0.0, 0.11).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.tween_callback(func() -> void:
+		label.text = "$%d" % to_v
+		label.add_theme_color_override("font_color", accent))
+	t.tween_property(label, "scale:y", 1.0, 0.14).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.tween_interval(1.2)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(label):
+			label.add_theme_color_override("font_color", GOLD))
 
 
 func _generate_board() -> void:
@@ -6078,15 +6127,20 @@ func _show_haggle_outcome(roll: int, delta_per_fish: int) -> void:
 		sub_text = "-$%d per fish · rolled %d" % [abs(delta_per_fish), roll]
 		accent = RED
 
-	var style := _styled_shadow(BG_PANEL_DARK.lerp(accent, 0.18), accent, 3, 14, 3)
+	# Solid accent slab, no stroke — dark ink on the bright fill (chunky system).
+	var style := _styled_shadow(accent, Color(0, 0, 0, 0), 0, 14, 4)
+	style.shadow_color = Color(0, 0, 0, 0.35)
+	style.shadow_offset = Vector2(0, 4)
 	style.content_margin_left = 16
 	style.content_margin_right = 16
 	style.content_margin_top = 10
-	style.content_margin_bottom = 10
+	style.content_margin_bottom = 12
 	banner.add_theme_stylebox_override("panel", style)
 	big.text = head
-	big.add_theme_color_override("font_color", accent)
+	big.add_theme_color_override("font_color", Color("#10131a"))
+	big.add_theme_color_override("font_outline_color", Color(1, 1, 1, 0.25))
 	sub.text = sub_text
+	sub.add_theme_color_override("font_color", accent.darkened(0.55))
 	banner.visible = true
 
 	banner.modulate = Color(1, 1, 1, 0)
@@ -6462,10 +6516,15 @@ func _apply_upgrade_to_current_turn(key: String, moves_before: int) -> void:
 			finds_remaining += 1
 
 
-func _upgrade_cost(key: String, current: int) -> int:
+func _upgrade_cost(key: String, current: int, apply_perk: bool = true) -> int:
+	var effective := current
+	if apply_perk and key == boat_perk_key:
+		# The boat's free starter card permanently discounts its category one
+		# step: level 2 sells at the level-1 price, level 3 at level-2, etc.
+		effective = maxi(0, current - 1)
 	var base: int = int(UPGRADE_BASE_COST[key])
 	var step: int = int(UPGRADE_COST_STEP[key])
-	return base + current * step
+	return base + effective * step
 
 
 func _upgrade_name(key: String) -> String:
@@ -6552,8 +6611,9 @@ func _end_day() -> void:
 
 	current_weather = forecast.pop_front()
 	forecast.append(_draw_weather())
+	_drift_market()
 	_refresh_daily_actions()
-	_log("Day %d begins." % day)
+	_log("Day %d begins. The market shifts overnight." % day)
 	_update_ui()
 	_show_day_transition()
 
@@ -6909,7 +6969,7 @@ func _bot_buy_upgrade() -> bool:
 		var current := int(bot_upgrades.get(key, 0))
 		if current >= UPGRADE_MAX_LEVEL:
 			continue
-		var cost := _upgrade_cost(key, current)
+		var cost := _upgrade_cost(key, current, false)  # bot doesn't get the player's perk discount
 		if bot_money >= cost and rng.randf() < 0.55:
 			bot_money -= cost
 			bot_upgrades[key] = current + 1
@@ -7128,6 +7188,7 @@ func _update_top_market() -> void:
 			for child in slot.get_children():
 				child.queue_free()
 			slot.add_child(_hud_market_row(SPECIES[i]))
+		market_flip.clear()
 		return
 
 	if not ui.has("top_market_rows"):
@@ -7155,20 +7216,23 @@ func _update_top_market() -> void:
 		pad.add_child(row)
 
 		# Trophy: gold filled when earned, muted outline otherwise.
-		var trophy := _icon_texture_rect(ICON_TROPHY_SOLID if earned else ICON_TROPHY_OUTLINE, Vector2(17, 17), GOLD if earned else Color("#5b6480"))
+		var trophy := _icon_texture_rect(ICON_TROPHY_SOLID if earned else ICON_TROPHY_OUTLINE, Vector2(19, 19), GOLD if earned else Color("#5b6480"))
 		trophy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(trophy)
 
-		var name := _label(species.to_upper(), 14, TEXT_PRIMARY if earned else TEXT_MUTED)
+		var name := _label(species.to_upper(), 16, TEXT_PRIMARY if earned else TEXT_MUTED)
 		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		name.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		name.clip_text = true
 		row.add_child(name)
 
-		var price := _label("$%d" % int(market_prices[species]), 16, GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
-		price.custom_minimum_size = Vector2(50, 0)
+		var price := _label("$%d" % int(market_prices[species]), 18, GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
+		price.custom_minimum_size = Vector2(56, 0)
 		price.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(price)
+		if market_flip.has(species):
+			_odometer_flip_price(price, int(market_flip[species]), int(market_prices[species]), 0.9 + 0.12 * float(SPECIES.find(species)))
+	market_flip.clear()
 
 
 func _update_board() -> void:
@@ -7420,8 +7484,8 @@ func _update_live_well_tab() -> void:
 			age_tag = "SPOILS"
 		elif age >= cap - 1 and cap > 1:
 			age_color = CYAN
-		var age_lbl := _label(age_tag, 13, age_color)
-		age_lbl.custom_minimum_size = Vector2(66, 0)
+		var age_lbl := _label(age_tag, 15, age_color)
+		age_lbl.custom_minimum_size = Vector2(74, 0)
 		age_lbl.clip_text = true
 		row.add_child(age_lbl)
 
@@ -7434,13 +7498,13 @@ func _update_live_well_tab() -> void:
 
 		var fish_text := ", ".join(batch_parts) if not batch_parts.is_empty() else "—"
 		var fish_color := TEXT_PRIMARY if not batch_parts.is_empty() else TEXT_DIM
-		var fish_lbl := _label(fish_text, 13, fish_color)
+		var fish_lbl := _label(fish_text, 15, fish_color)
 		fish_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		fish_lbl.clip_text = true
 		row.add_child(fish_lbl)
 
-		var count_lbl := _label("%d" % count_today, 14, age_color if count_today > 0 else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
-		count_lbl.custom_minimum_size = Vector2(28, 0)
+		var count_lbl := _label("%d" % count_today, 16, age_color if count_today > 0 else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
+		count_lbl.custom_minimum_size = Vector2(30, 0)
 		row.add_child(count_lbl)
 
 	(ui["live_well_status"] as Label).text = "%d ABOARD" % total_fish if total_fish > 0 else "EMPTY"
@@ -9554,7 +9618,9 @@ func _flat_button(text: String, min_w: int, min_h: int, fill: Color, label_color
 	hover.shadow_color = Color(0, 0, 0, 0.35)
 	hover.shadow_offset = Vector2(0, 4)
 	var press := _styled(fill.darkened(0.14), Color(0, 0, 0, 0), 0, radius)
-	var disabled := _styled(fill.darkened(0.42), Color(0, 0, 0, 0), 0, radius)
+	# Deep darken so the TEXT_DIM disabled label stays readable on bright fills
+	# (a 0.42 darken of GOLD is equiluminant with TEXT_DIM — invisible text).
+	var disabled := _styled(fill.darkened(0.62), Color(0, 0, 0, 0), 0, radius)
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
 	b.add_theme_stylebox_override("pressed", press)
@@ -12566,15 +12632,22 @@ func _ensure_dice_rig() -> void:
 func _build_die_node() -> Node3D:
 	var root := Node3D.new()
 
-	var body := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = Vector3(1.8, 1.8, 1.8)
-	body.mesh = box
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color("#f4f1e6")
 	mat.roughness = 0.5
 	mat.metallic = 0.0
-	body.material_override = mat
+	# Rounded die: a cube intersected with a sphere shaves the corners and
+	# softens the edges while the pip faces stay flat (classic casino die).
+	var body := CSGBox3D.new()
+	body.size = Vector3(1.8, 1.8, 1.8)
+	body.material = mat
+	var rounder := CSGSphere3D.new()
+	rounder.operation = CSGShape3D.OPERATION_INTERSECTION
+	rounder.radius = 1.22
+	rounder.radial_segments = 48
+	rounder.rings = 24
+	rounder.material = mat
+	body.add_child(rounder)
 	root.add_child(body)
 
 	var pip_mat := StandardMaterial3D.new()
