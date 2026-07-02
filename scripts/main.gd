@@ -10792,31 +10792,100 @@ func _build_game_over_screen() -> void:
 	ui["game_over_overlay"] = overlay
 
 	var shade := ColorRect.new()
-	shade.color = Color(0, 0, 0, 0.82)
+	shade.color = Color(0.008, 0.03, 0.1, 0.92)
 	shade.anchor_right = 1.0
 	shade.anchor_bottom = 1.0
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.add_child(shade)
 
-	var scroll := ScrollContainer.new()
-	scroll.anchor_right = 1.0
-	scroll.anchor_bottom = 1.0
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	overlay.add_child(scroll)
-
-	var pad := MarginContainer.new()
-	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	pad.add_theme_constant_override("margin_left", 14)
-	pad.add_theme_constant_override("margin_right", 14)
-	pad.add_theme_constant_override("margin_top", 20)
-	pad.add_theme_constant_override("margin_bottom", 18)
-	scroll.add_child(pad)
+	# One centered column — the whole ending fits on a single screen.
+	var center := CenterContainer.new()
+	_anchor_fill(center)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
 
 	var col := VBoxContainer.new()
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 8)
-	pad.add_child(col)
+	col.custom_minimum_size = Vector2(660, 0)
+	col.add_theme_constant_override("separation", 10)
+	center.add_child(col)
 	ui["game_over_col"] = col
+
+
+# The whole season distilled into one bragging number: every banked dollar,
+# plus $300 a trophy, $40 a ship level, and $2 a fish sold.
+func _season_score() -> int:
+	return money + _trophy_count() * 300 + _upgrade_total(upgrades) * 40 + _total_fish_sold() * 2
+
+
+func _format_thousands(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	while s.length() > 3:
+		out = "," + s.substr(s.length() - 3, 3) + out
+		s = s.substr(0, s.length() - 3)
+	out = s + out
+	return ("-" + out) if n < 0 else out
+
+
+# Wordle-style plaintext brag — emoji travel fine in a clipboard string.
+func _share_score_text() -> String:
+	var trophy_row := ""
+	for species in SPECIES:
+		trophy_row += "🏆" if bool(trophies.get(species, false)) else "⬜"
+	var lines: Array[String] = []
+	lines.append("⚓ RAIDER BAY — SEASON SCORE")
+	lines.append("⭐ %s ⭐" % _format_thousands(_season_score()))
+	lines.append("%s  💰 $%s  🐟 %d sold" % [trophy_row, _format_thousands(money), _total_fish_sold()])
+	if captain_name != "" and boat_name != "":
+		lines.append("Capt. %s · %s" % [captain_name, boat_name])
+	var outcome := _game_over_outcome()
+	lines.append("Day %d/%d — %s" % [mini(day, _season_days()), _season_days(), str(outcome["title"])])
+	return "\n".join(lines)
+
+
+func _share_score() -> void:
+	var text := _share_score_text()
+	DisplayServer.clipboard_set(text)
+	if OS.has_feature("web"):
+		# Mobile browsers get the native share sheet; the clipboard write above
+		# is the universal fallback.
+		JavaScriptBridge.eval("(function(){try{var t=%s;if(navigator.share){navigator.share({text:t}).catch(function(){});}else if(navigator.clipboard){navigator.clipboard.writeText(t).catch(function(){});}}catch(e){}})();" % JSON.stringify(text), true)
+	if ui.has("game_over_share"):
+		var btn := ui["game_over_share"] as Button
+		btn.text = "COPIED!"
+		# Rapid re-presses shouldn't let an older revert cut this flash short.
+		if btn.has_meta("copied_tween"):
+			var old = btn.get_meta("copied_tween")
+			if old is Tween and (old as Tween).is_valid():
+				(old as Tween).kill()
+		var t := btn.create_tween()
+		btn.set_meta("copied_tween", t)
+		t.tween_interval(1.4)
+		t.tween_callback(func() -> void:
+			if is_instance_valid(btn):
+				btn.text = "SHARE SCORE")
+	_log("Score copied — go brag.")
+
+
+# Solid bright stat chip (no stroke): small caption, big dark-ink value.
+func _go_stat_chip(caption: String, value: String, fill: Color) -> Control:
+	var chip := PanelContainer.new()
+	var s := _styled_shadow(fill, Color(0, 0, 0, 0), 0, 14, 4)
+	s.shadow_color = Color(0, 0, 0, 0.35)
+	s.shadow_offset = Vector2(0, 4)
+	s.content_margin_left = 18
+	s.content_margin_right = 18
+	s.content_margin_top = 8
+	s.content_margin_bottom = 10
+	chip.add_theme_stylebox_override("panel", s)
+	chip.custom_minimum_size = Vector2(180, 0)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_child(v)
+	v.add_child(_label(caption, 14, Color(0.05, 0.07, 0.1, 0.72), HORIZONTAL_ALIGNMENT_CENTER))
+	v.add_child(_label(value, 30, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER))
+	return chip
 
 
 func _show_game_over_screen() -> void:
@@ -10829,164 +10898,102 @@ func _show_game_over_screen() -> void:
 
 	var outcome := _game_over_outcome()
 	var score_rank := _record_high_score()
-	var total_sold := _total_fish_sold()
-	var upgrade_total := _upgrade_total(upgrades)
-	var fish_caught := _final_fish_caught()
-	var elapsed_seconds := int(round(float(game_stats.get("elapsed_seconds", 0.0))))
-	var paid_nights_found := int(game_stats.get("paid_nights_found", 0))
-	var treasure_summary := "%d · $%d" % [int(game_stats.get("treasures_found", 0)), int(game_stats.get("treasure_money", 0))]
-	if paid_nights_found > 0:
-		treasure_summary += " · +%dN" % paid_nights_found
+	var score := _season_score()
 
-	var title_lbl := _label(outcome["title"], 24, outcome["title_color"], HORIZONTAL_ALIGNMENT_CENTER)
-	title_lbl.add_theme_constant_override("shadow_offset_y", 4)
-	title_lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	# Outcome — huge and bright.
+	var title_lbl := _label(str(outcome["title"]), 46, outcome["title_color"], HORIZONTAL_ALIGNMENT_CENTER)
+	title_lbl.add_theme_constant_override("outline_size", 4)
+	title_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.65))
 	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(title_lbl)
 
-	var subtitle := _label(outcome["subtitle"], FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var subtitle := _label(str(outcome["subtitle"]), 18, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	subtitle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(subtitle)
 
-	col.add_child(_divider(BORDER_FRAME))
-	col.add_child(_rank_banner(score_rank))
+	# The one number that matters, counting up to land with a pop.
+	var score_caption := _label("SEASON SCORE", 20, _with_alpha(GOLD, 0.85), HORIZONTAL_ALIGNMENT_CENTER)
+	score_caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(score_caption)
 
-	# Final Score
-	var score_card := _panel_lifted(BG_PANEL, BORDER_FRAME, 1, 8, 6)
-	score_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(score_card)
+	var score_lbl := _label("0", 74, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	score_lbl.add_theme_constant_override("outline_size", 5)
+	score_lbl.add_theme_color_override("font_outline_color", Color("#3a2a00"))
+	score_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(score_lbl)
+	var st := score_lbl.create_tween()
+	st.tween_method(func(v: float) -> void: score_lbl.text = _format_thousands(int(round(v))), 0.0, float(score), 1.0).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	st.tween_callback(func() -> void:
+		score_lbl.pivot_offset = score_lbl.size * 0.5
+		var pop := score_lbl.create_tween()
+		pop.tween_property(score_lbl, "scale", Vector2(1.1, 1.1), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		pop.tween_property(score_lbl, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 
-	var score_pad := MarginContainer.new()
-	score_pad.add_theme_constant_override("margin_left", 10)
-	score_pad.add_theme_constant_override("margin_right", 10)
-	score_pad.add_theme_constant_override("margin_top", 9)
-	score_pad.add_theme_constant_override("margin_bottom", 9)
-	score_card.add_child(score_pad)
+	# Losing runs (sunk / out-raced) still show their rank, but don't celebrate.
+	var lost_run := str(outcome["title"]) == "SUNK!" or str(outcome["title"]) == "DEFEATED"
+	if score_rank > 0 and score_rank <= 10:
+		var rank_text := "NEW BEST — HIGH SCORE #1" if (score_rank == 1 and not lost_run) else "HIGH SCORE #%d" % score_rank
+		var rank_lbl := _label(rank_text, 18, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+		rank_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(rank_lbl)
 
-	var score_col := VBoxContainer.new()
-	score_col.add_theme_constant_override("separation", 6)
-	score_pad.add_child(score_col)
-
-	score_col.add_child(_section_label("FINAL RANKING"))
-
-	var ranking_note := _label("Ranked by stars, dollars, ship upgrades, fish, then fewer days.", FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	ranking_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	score_col.add_child(ranking_note)
-
-	var metric_grid := GridContainer.new()
-	metric_grid.columns = 4
-	metric_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	metric_grid.add_theme_constant_override("h_separation", 8)
-	metric_grid.add_theme_constant_override("v_separation", 6)
-	score_col.add_child(metric_grid)
-
-	metric_grid.add_child(_end_metric_tile("STARS", "%d/%d" % [_trophy_count(), TROPHY_WIN_COUNT], _star_string(_trophy_count()), GOLD))
-	metric_grid.add_child(_end_metric_tile("DOLLARS", "$%d" % money, "cash on hand", GREEN))
-	metric_grid.add_child(_end_metric_tile("UPGRADES", "%d" % upgrade_total, "ship levels", CYAN))
-	metric_grid.add_child(_end_metric_tile("FISH", "%d" % fish_caught, "%d sold" % total_sold, PURPLE))
-
-	col.add_child(_section_label("TRIP LOG"))
-	var trip_card := _panel_lifted(BG_PANEL_DARK, BORDER_DARK, 1, 8, 5)
-	trip_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(trip_card)
-
-	var trip_pad := MarginContainer.new()
-	trip_pad.add_theme_constant_override("margin_left", 8)
-	trip_pad.add_theme_constant_override("margin_right", 8)
-	trip_pad.add_theme_constant_override("margin_top", 8)
-	trip_pad.add_theme_constant_override("margin_bottom", 8)
-	trip_card.add_child(trip_pad)
-
-	var trip_grid := GridContainer.new()
-	trip_grid.columns = 4
-	trip_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	trip_grid.add_theme_constant_override("h_separation", 8)
-	trip_grid.add_theme_constant_override("v_separation", 6)
-	trip_pad.add_child(trip_grid)
-
-	trip_grid.add_child(_stat_chip("TIME", _format_duration(elapsed_seconds), CYAN))
-	trip_grid.add_child(_stat_chip("DAYS", "%d/%d" % [min(day, _season_days()), _season_days()], TEXT_PRIMARY))
-	trip_grid.add_child(_stat_chip("NIGHTS", "%d" % extra_nights, GOLD if extra_nights > 0 else TEXT_DIM))
-	trip_grid.add_child(_stat_chip("MOVES", "%d" % int(game_stats.get("move_actions", 0)), TEXT_PRIMARY))
-	trip_grid.add_child(_stat_chip("SPACES", "%d" % int(game_stats.get("moves_used", 0)), TEXT_MUTED))
-	trip_grid.add_child(_stat_chip("CASTS", "%d" % int(game_stats.get("casts_made", 0)), TEXT_PRIMARY))
-	trip_grid.add_child(_stat_chip("FINDER", "%d" % int(game_stats.get("finds_used", 0)), TEXT_MUTED))
-	trip_grid.add_child(_stat_chip("TREASURE", treasure_summary, GOLD))
-	trip_grid.add_child(_stat_chip("EMPTY", "%d" % int(game_stats.get("empty_casts", 0)), TEXT_DIM))
-	trip_grid.add_child(_stat_chip("REPAIRS", "%d" % int(game_stats.get("repairs_made", 0)), TEXT_MUTED))
-	trip_grid.add_child(_stat_chip("WEATHER", "%d" % int(game_stats.get("weather_hits", 0)), RED if int(game_stats.get("weather_hits", 0)) > 0 else TEXT_DIM))
-	if versus_mode:
-		trip_grid.add_child(_stat_chip("WON", "%d" % int(game_stats.get("raids_won", 0)), GREEN))
-		trip_grid.add_child(_stat_chip("LOST", "%d" % int(game_stats.get("raids_lost", 0)), RED if int(game_stats.get("raids_lost", 0)) > 0 else TEXT_DIM))
-
-	# Trophies section
-	col.add_child(_section_label("TROPHIES"))
-
-	var trophy_grid := GridContainer.new()
-	trophy_grid.columns = SPECIES.size()
-	trophy_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	trophy_grid.add_theme_constant_override("h_separation", 6)
-	trophy_grid.add_theme_constant_override("v_separation", 6)
-	col.add_child(trophy_grid)
-
+	# Trophy shelf — the Wordle row, in real hardware.
+	var shelf := HBoxContainer.new()
+	shelf.alignment = BoxContainer.ALIGNMENT_CENTER
+	shelf.add_theme_constant_override("separation", 16)
+	shelf.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(shelf)
 	for species in SPECIES:
-		trophy_grid.add_child(_trophy_grid_tile(species))
+		var earned := bool(trophies.get(species, false))
+		shelf.add_child(_icon_texture_rect(ICON_TROPHY_SOLID if earned else ICON_TROPHY_OUTLINE, Vector2(46, 46), GOLD if earned else Color("#39445e")))
 
-	# Ship stats section
-	col.add_child(_section_label("SHIP STATUS"))
+	# Three bright stat chips: banked cash, fish sold, days survived.
+	var chips := HBoxContainer.new()
+	chips.alignment = BoxContainer.ALIGNMENT_CENTER
+	chips.add_theme_constant_override("separation", 16)
+	chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(chips)
+	chips.add_child(_go_stat_chip("BANKED", "$%s" % _format_thousands(money), GOLD))
+	chips.add_child(_go_stat_chip("FISH SOLD", "%d" % _total_fish_sold(), PURPLE))
+	chips.add_child(_go_stat_chip("DAYS", "%d/%d" % [mini(day, _season_days()), _season_days()], CYAN))
 
-	var ship_card := _panel_lifted(BG_PANEL, BORDER_FRAME, 1, 8, 6)
-	ship_card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(ship_card)
+	if captain_name != "" and boat_name != "":
+		var crew := _label("Capt. %s · %s" % [captain_name, boat_name], 16, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		crew.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(crew)
 
-	var ship_pad := MarginContainer.new()
-	ship_pad.add_theme_constant_override("margin_left", 8)
-	ship_pad.add_theme_constant_override("margin_right", 8)
-	ship_pad.add_theme_constant_override("margin_top", 8)
-	ship_pad.add_theme_constant_override("margin_bottom", 8)
-	ship_card.add_child(ship_pad)
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 6)
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(gap)
 
-	var ship_grid := GridContainer.new()
-	ship_grid.columns = 5
-	ship_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ship_grid.add_theme_constant_override("h_separation", 8)
-	ship_grid.add_theme_constant_override("v_separation", 6)
-	ship_pad.add_child(ship_grid)
-
-	for key in CONDITION_KEYS:
-		var val := int(conditions[key])
-		var fill_ratio := float(val) / float(CONDITION_MAX)
-		var bar_color := GREEN if fill_ratio > 0.5 else (GOLD if fill_ratio > 0.2 else RED)
-		ship_grid.add_child(_stat_chip(_condition_short_label(key), "%d%%" % int(round(fill_ratio * 100.0)), bar_color))
-
-	for key in UPGRADE_KEYS:
-		var lvl := int(upgrades[key])
-		ship_grid.add_child(_stat_chip(_upgrade_short_label(key), "%d/%d" % [lvl, UPGRADE_MAX_LEVEL], CYAN if lvl > 0 else TEXT_DIM))
-
-	col.add_child(_divider(BORDER_FRAME))
-
-	# Buttons
+	# CTAs: share the brag, or get straight back on the water.
 	var btn_row := HBoxContainer.new()
 	btn_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn_row.add_theme_constant_override("separation", 8)
-	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_row.add_theme_constant_override("separation", 14)
 	col.add_child(btn_row)
 
-	var menu_btn := _tactile_button("MENU", 160, 46, BG_PANEL_LIGHT, GOLD_DEEP, GOLD)
-	menu_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	menu_btn.pressed.connect(func():
-		_hide_game_over_screen()
-		_show_start_screen()
-	)
-	btn_row.add_child(menu_btn)
+	var share_btn := _flat_button("SHARE SCORE", 0, 76, GOLD, Color("#3a2a00"), 28, 18)
+	share_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	share_btn.pressed.connect(_share_score)
+	btn_row.add_child(share_btn)
+	ui["game_over_share"] = share_btn
 
-	var again_btn := _tactile_button("PLAY AGAIN", 160, 46, CYAN_DEEP, CYAN, TEXT_PRIMARY)
+	var again_btn := _flat_button("NEW TRIP", 0, 76, GREEN_DEEP, TEXT_PRIMARY, 28, 18)
 	again_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	again_btn.pressed.connect(func():
+	again_btn.pressed.connect(func() -> void:
 		_hide_game_over_screen()
-		_new_game(versus_mode)
-	)
+		_new_game(versus_mode))
 	btn_row.add_child(again_btn)
+
+	# Quiet exit back to the title screen.
+	var title_link := _flat_button("BACK TO TITLE", 0, 44, Color(1, 1, 1, 0.06), TEXT_MUTED, 17, 12)
+	title_link.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	title_link.custom_minimum_size = Vector2(240, 44)
+	title_link.pressed.connect(func() -> void:
+		_hide_game_over_screen()
+		_show_start_screen())
+	col.add_child(title_link)
 
 	# A weather-card popup may still be up (e.g. opened during the bot's turn) —
 	# hard-close it so it can't draw over or eat input meant for this screen.
@@ -10998,6 +11005,11 @@ func _show_game_over_screen() -> void:
 	var go_overlay := ui["game_over_overlay"] as Control
 	go_overlay.move_to_front()  # tree-order input picking: last sibling wins
 	go_overlay.visible = true
+
+	# A champion season or a new personal best deserves the confetti cannon —
+	# but never for a run that ended at the bottom of the bay.
+	if _trophy_count() >= TROPHY_WIN_COUNT or (score_rank == 1 and not lost_run):
+		_burst_confetti()
 
 
 func _hide_game_over_screen() -> void:
@@ -11213,6 +11225,7 @@ func _record_high_score() -> int:
 	var entry := {
 		"schema": 1,
 		"id": entry_id,
+		"score": _season_score(),
 		"money": money,
 		"trophies": _trophy_count(),
 		"day": min(day, _season_days()),
@@ -11256,9 +11269,23 @@ func _sort_high_scores(scores: Array) -> void:
 	scores.sort_custom(_is_high_score_better)
 
 
+# A recorded run's season score — stored on new entries, derived from the same
+# formula for legacy entries (they carry every ingredient).
+func _entry_season_score(entry: Dictionary) -> int:
+	if entry.has("score"):
+		return int(entry["score"])
+	return int(entry.get("money", 0)) + int(entry.get("trophies", 0)) * 300 \
+		+ int(entry.get("upgrade_total", 0)) * 40 + _entry_fish_count(entry) * 2
+
+
 func _is_high_score_better(a, b) -> bool:
 	var ad: Dictionary = a if a is Dictionary else {}
 	var bd: Dictionary = b if b is Dictionary else {}
+	# SEASON SCORE is the headline metric — it ranks first; the old columns
+	# stay on as tiebreaks.
+	var score_diff := _entry_season_score(ad) - _entry_season_score(bd)
+	if score_diff != 0:
+		return score_diff > 0
 	var trophy_diff := int(ad.get("trophies", 0)) - int(bd.get("trophies", 0))
 	if trophy_diff != 0:
 		return trophy_diff > 0
