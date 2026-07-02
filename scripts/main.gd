@@ -369,11 +369,13 @@ var extra_night_cart := 0
 var weather_deck: Array[Dictionary] = []
 var forecast: Array[Dictionary] = []
 var current_weather: Dictionary = {"name": "Calm", "strength": 0}
-# Full-size weather card popup: fly-up flip from the tapped forecast chip.
+# Full-size card popup (weather chips + board squares): fly-up flip from the
+# tapped source control. weather_preview_spec: {"title", "accent", "front":
+# Callable(cw,ch)->Control, "fill_desc": Callable(RichTextLabel)}.
 var weather_preview_source_rect := Rect2()
 var weather_preview_source: Control = null
 var weather_preview_opening := false
-var weather_preview_weather: Dictionary = {}
+var weather_preview_spec: Dictionary = {}
 var weather_preview_tween: Tween = null
 var weather_preview_fly: Control = null
 var weather_preview_fly_front: Control = null
@@ -7126,10 +7128,12 @@ func _update_hud() -> void:
 		_counter_set("stat_moves", "%d" % moves_remaining, true, "MOVES")
 	else:
 		_counter_set("stat_moves", "GO", true, "END DAY")
-	if _is_docked():
-		_counter_set("stat_finds", "$$$$", not live_well.is_empty(), "SELL FISH")
+	# The counter only reads SELL FISH when there's actually a catch to sell;
+	# an empty well at the docks keeps the (unusable there) FIND FISH face.
+	if _is_docked() and not live_well.is_empty():
+		_counter_set("stat_finds", "$$$$", true, "SELL FISH")
 	else:
-		_counter_set("stat_finds", "%d" % finds_remaining, finds_remaining > 0, "FIND FISH")
+		_counter_set("stat_finds", "%d" % finds_remaining, not _is_docked() and finds_remaining > 0, "FIND FISH")
 	_counter_set("stat_casts", "%d" % casts_remaining, casts_remaining > 0)
 	# Attention pulse: FIND FISH on unscanned water, CAST on a workable hole —
 	# only while the action would actually do something (uses left, valid tile).
@@ -9452,19 +9456,117 @@ func _show_owned_upgrade_card_tooltip(key: String, level: int, anchor_node: Cont
 	_play_catch_plonk(0)
 
 
+# Long-press on a board square: pop the full-size card peek. Known squares fly
+# up their real card with the details; unknown squares fly up the card back.
 func _show_board_card_tooltip(pos: Vector2i) -> bool:
-	var payload := _board_card_tooltip_payload(pos)
-	if payload.is_empty():
+	if pos.x < 0 or pos.x >= GRID_COLS or pos.y < 0 or pos.y >= GRID_ROWS:
 		return false
-	_show_card_tooltip(
-		str(payload.get("title", "")),
-		str(payload.get("effect", "")),
-		str(payload.get("badge", "")),
-		payload.get("accent", CYAN),
-		_board_card_global_center(pos),
-		payload.get("badge_accent", payload.get("accent", CYAN))
-	)
+	if game_over or active_tray != "":
+		return false
+	var src: Control = null
+	var index := _cell_index(pos)
+	if index >= 0 and index < cell_buttons.size():
+		src = cell_buttons[index]
+	_open_board_card_preview(pos, src)
 	return true
+
+
+# A plain known-empty / fished-out square face: dark water, one quiet word.
+func _board_preview_plain_card(word: String, cw: float, ch: float) -> Control:
+	var holder := Control.new()
+	holder.size = Vector2(cw, ch)
+	holder.pivot_offset = Vector2(cw, ch) * 0.5
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_add_squarestep_card_shell(holder, Vector2(cw, ch), Color("#0c1a30"), {
+		"show_shadow": true,
+		"shadow_offset": Vector2(10, 14),
+		"card_border_px": 9,
+		"card_step_px": 5,
+	})
+	var lbl := _label(word, 30, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	lbl.anchor_left = 0.0
+	lbl.anchor_right = 1.0
+	lbl.anchor_top = 0.42
+	lbl.anchor_bottom = 0.42
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(lbl)
+	return holder
+
+
+func _open_board_card_preview(pos: Vector2i, source: Control = null) -> void:
+	var tile: Dictionary = board[_cell_index(pos)]
+	var known := bool(tile.get("found", false)) or bool(tile.get("revealed", false)) or bool(tile.get("depleted", false))
+	var zone := str(tile.get("zone", "Open"))
+
+	if not known:
+		# The square under the boat gets "you're here" copy, not "sail here".
+		var unknown_bb := "Uncharted [color=#8ad2f0]%s[/color] water.\nSail here and [color=#c889ff]FIND FISH[/color] to scan it — or spend a cast and see what bites." % zone
+		if pos == boat_pos:
+			unknown_bb = "You're floating on uncharted [color=#8ad2f0]%s[/color] water.\n[color=#c889ff]FIND FISH[/color] to scan it — or spend a cast and see what bites." % zone
+		_open_card_preview({
+			"title": "UNKNOWN",
+			"accent": TEXT_MUTED,
+			"front": func(cw: float, ch: float) -> Control: return _weather_preview_back_card(cw, ch),
+			"fill_desc": func(rt: RichTextLabel) -> void:
+				rt.clear()
+				rt.append_text(unknown_bb),
+		}, source)
+		return
+
+	var content := str(tile.get("content", "empty"))
+	if content == "fish":
+		var species := str(tile.get("species", "Fish"))
+		var remaining := int(tile.get("casts_remaining", 0))
+		var total := int(tile.get("casts_total", 0))
+		var depleted := bool(tile.get("depleted", false))
+		var price := int(market_prices.get(species, 0))
+		var bb := ""
+		if depleted:
+			bb = "[color=#fc6060]Fished out.[/color] This hole gave everything it had."
+		else:
+			bb = "A [color=#8ad2f0]%s[/color] hole with [color=#84ed72]%d of %d[/color] casts left.\nThe market pays [color=#fcba00]$%d[/color] each today." % [zone, remaining, total, price]
+		_open_card_preview({
+			"title": species.to_upper(),
+			"accent": _species_accent(species),
+			"front": func(cw: float, ch: float) -> Control: return _build_result_card(_fish_card_texture(species), Vector2(cw, ch)),
+			"fill_desc": func(rt: RichTextLabel) -> void:
+				rt.clear()
+				rt.append_text(bb),
+		}, source)
+		return
+
+	if content == "treasure":
+		var recovered := bool(tile.get("depleted", false))
+		var is_night := _is_paid_night_treasure(tile)
+		var value := int(tile.get("value", 0))
+		var t_title := "PAID NIGHT" if is_night else "TREASURE"
+		var t_accent: Color = CYAN if is_night else GOLD
+		var t_tex: Texture2D = CARD_TREASURE_NIGHT_TEXTURE if is_night else _treasure_card_texture(value)
+		# Neutral "recovered" phrasing — in versus games the bot may have taken it.
+		var t_bb := ""
+		if is_night:
+			t_bb = "[color=#84ed72]Recovered[/color] — it stretched the season one more night." if recovered else "An extra [color=#8ad2f0]night at sea[/color] waits below — cast here to claim it."
+		else:
+			t_bb = "[color=#84ed72]Recovered.[/color] The chest held [color=#fcba00]$%d[/color]." % value if recovered else "A chest worth [color=#fcba00]$%d[/color] waits below — cast here to raise it." % value
+		_open_card_preview({
+			"title": t_title,
+			"accent": t_accent,
+			"front": func(cw: float, ch: float) -> Control: return _build_result_card(t_tex, Vector2(cw, ch)),
+			"fill_desc": func(rt: RichTextLabel) -> void:
+				rt.clear()
+				rt.append_text(t_bb),
+		}, source)
+		return
+
+	# Known-empty water (scanned or fished blind).
+	_open_card_preview({
+		"title": "EMPTY WATER",
+		"accent": TEXT_MUTED,
+		"front": func(cw: float, ch: float) -> Control: return _board_preview_plain_card("EMPTY", cw, ch),
+		"fill_desc": func(rt: RichTextLabel) -> void:
+			rt.clear()
+			rt.append_text("Nothing but cold water down there. Save your casts for livelier %s." % ("water" if zone == "" else "%s water" % zone.to_lower())),
+	}, source)
 
 
 func _board_card_tooltip_payload(pos: Vector2i) -> Dictionary:
@@ -10416,23 +10518,34 @@ func _kill_weather_preview_anim() -> void:
 	weather_preview_closing = false
 
 
+# Weather chip tap → the generic card preview with the weather card + effect copy.
 func _open_weather_card_preview(weather: Dictionary, source: Control = null) -> void:
+	var w := weather.duplicate(true)
+	var meta := _weather_meta(str(w.get("name", "Calm")))
+	_open_card_preview({
+		"title": str(meta["label"]),
+		"accent": meta["accent"],
+		"front": func(cw: float, ch: float) -> Control: return _weather_preview_front_card(w, cw, ch),
+		"fill_desc": func(rt: RichTextLabel) -> void: _set_weather_desc(rt, w),
+	}, source)
+
+
+func _open_card_preview(spec: Dictionary, source: Control = null) -> void:
 	if not ui.has("weather_preview_overlay"):
 		return
 	weather_preview_seq += 1
 	var seq := weather_preview_seq
 	_kill_weather_preview_anim()
-	weather_preview_weather = weather.duplicate(true)
+	weather_preview_spec = spec
 	weather_preview_source_rect = Rect2()
 	weather_preview_source = source
 	if source != null and is_instance_valid(source):
 		weather_preview_source_rect = source.get_global_rect()
 
-	var meta := _weather_meta(str(weather.get("name", "Calm")))
 	var title: Label = ui["weather_preview_title"]
-	title.text = str(meta["label"])
-	title.add_theme_color_override("font_color", meta["accent"])
-	_set_weather_desc(ui["weather_preview_desc"] as RichTextLabel, weather)
+	title.text = str(spec.get("title", ""))
+	title.add_theme_color_override("font_color", spec.get("accent", CYAN))
+	(spec["fill_desc"] as Callable).call(ui["weather_preview_desc"] as RichTextLabel)
 
 	# Seat the real card in the slot now (hidden) — the fly card animates on top,
 	# then hands off to it so resizes keep the layout correct afterwards.
@@ -10445,7 +10558,7 @@ func _open_weather_card_preview(weather: Dictionary, source: Control = null) -> 
 	slot.scale = Vector2.ONE
 	slot.rotation = 0.0
 	slot.modulate = Color(1, 1, 1, 0)
-	slot.add_child(_weather_preview_front_card(weather, cw, ch))
+	slot.add_child((spec["front"] as Callable).call(cw, ch))
 
 	var overlay := ui["weather_preview_overlay"] as Control
 	var backdrop := ui["weather_preview_backdrop"] as Control
@@ -10490,7 +10603,7 @@ func _open_weather_card_preview(weather: Dictionary, source: Control = null) -> 
 	overlay.add_child(fly)
 	var fly_back := _weather_preview_back_card(cw, ch)
 	fly.add_child(fly_back)
-	var fly_front := _weather_preview_front_card(weather, cw, ch)
+	var fly_front: Control = (spec["front"] as Callable).call(cw, ch)
 	fly_front.scale = Vector2(0.0, 1.0)  # edge-on until the flip
 	fly.add_child(fly_front)
 	fly.position = src_center - fly.pivot_offset
@@ -10588,7 +10701,7 @@ func _close_weather_card_preview() -> void:
 		fly.pivot_offset = Vector2(cw, ch) * 0.5
 		fly.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		overlay.add_child(fly)
-		fly_front = _weather_preview_front_card(weather_preview_weather, cw, ch)
+		fly_front = (weather_preview_spec["front"] as Callable).call(cw, ch) if weather_preview_spec.has("front") else _weather_preview_back_card(cw, ch)
 		fly.add_child(fly_front)
 		fly_back = _weather_preview_back_card(cw, ch)
 		fly_back.scale = Vector2(0.0, 1.0)
