@@ -883,7 +883,9 @@ func _update_end_day_prompt(delta: float) -> void:
 	var card: Control = ui["stat_moves"]
 	if not is_instance_valid(card):
 		return
-	if not game_started or game_over or active_tray != "" or _is_docked() or _has_useful_action():
+	# Also stand down while the full-screen card preview covers the board.
+	var covered := ui.has("weather_preview_overlay") and (ui["weather_preview_overlay"] as Control).visible
+	if not game_started or game_over or active_tray != "" or _is_docked() or _has_useful_action() or covered:
 		if end_day_prompt_time != 0.0:
 			end_day_prompt_time = 0.0
 			card.modulate = Color(1, 1, 1, 1)
@@ -1548,6 +1550,11 @@ func _build_start_screen() -> void:
 	links.add_child(_title_link("SETTINGS", _show_settings_screen))
 	links.add_child(_title_link_sep())
 	links.add_child(_title_link("CREDITS", _show_credits_screen))
+	links.add_child(_title_link_sep())
+	# The mute toggle previously lived only in dead code — this is its live home.
+	var mute_link := _title_link("MUTE", _toggle_audio_mute)
+	links.add_child(mute_link)
+	ui["mute_button"] = mute_link
 
 	var links_wrap := Control.new()
 	links_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -6036,6 +6043,25 @@ func _sell_catch() -> void:
 	_open_sell_modal()
 
 
+# A trophy is a fifth of the win — confetti and a rising sting when one lands.
+# (The words go inside the sell modal, which covers the board at that moment.)
+func _celebrate_trophies(earned: Array) -> void:
+	if earned.is_empty():
+		return
+	_burst_confetti()
+	for p in range(3):
+		var sched := create_tween()
+		sched.tween_interval(0.12 * float(p))
+		sched.tween_callback(_play_catch_plonk.bind(4 + p))
+
+
+func _trophy_earned_text(earned: Array) -> String:
+	var names: Array[String] = []
+	for s in earned:
+		names.append(str(s).to_upper())
+	return " + ".join(names)
+
+
 func _confirm_sale() -> void:
 	if live_well.is_empty():
 		_close_sell_modal()
@@ -6045,9 +6071,26 @@ func _confirm_sale() -> void:
 		return
 	var result := _complete_sale(0)
 	_log_sale_result(result, "")
-	_close_sell_modal()
+	# The sale gets its own beat (same plumbing as the haggle reveal) instead
+	# of the modal just vanishing.
+	_populate_sell_rows(result["quantities"], 0)
+	(ui["sell_outcome"] as Control).visible = false
+	var earned: Array = result["earned_species"]
+	(ui["sell_title"] as Label).text = "TROPHY EARNED!" if not earned.is_empty() else "SOLD"
+	(ui["sell_total"] as Label).text = "SOLD FOR $%d" % int(result["total"])
+	if earned.is_empty():
+		(ui["sell_result"] as Label).text = "Market price, cash on the barrel."
+	else:
+		(ui["sell_result"] as Label).text = "The %s trophy is yours! Market price, cash on the barrel." % _trophy_earned_text(earned)
+	(ui["sell_action_row"] as Control).visible = false
+	(ui["sell_ok"] as Control).visible = true
+	if audio_catch:
+		audio_catch.stop()
+		audio_catch.play()
+	_celebrate_trophies(result["earned_species"])
 	_update_ui()
 	if game_over:
+		_close_sell_modal()
 		_show_game_over_screen()
 
 
@@ -6097,6 +6140,8 @@ func _reveal_haggle_result() -> void:
 	var haggle_text := "Roll %d: %s per fish. Auto-accepted." % [roll, adjustment_text]
 	if delta_per_fish == 0:
 		haggle_text = "Roll %d: market price. Auto-accepted." % roll
+	if not (result["earned_species"] as Array).is_empty():
+		haggle_text += "  ·  %s TROPHY EARNED!" % _trophy_earned_text(result["earned_species"])
 
 	_populate_sell_rows(result["quantities"], delta_per_fish)
 	_show_haggle_outcome(roll, delta_per_fish)
@@ -6106,8 +6151,10 @@ func _reveal_haggle_result() -> void:
 	(ui["sell_action_row"] as Control).visible = false
 	(ui["sell_ok"] as Control).visible = true
 	_log_sale_result(result, "Haggle roll %d. " % roll)
+	_celebrate_trophies(result["earned_species"])
 	_update_ui()
 	if game_over:
+		_close_sell_modal()
 		_show_game_over_screen()
 
 
@@ -6161,7 +6208,7 @@ func _open_sell_modal() -> void:
 	(ui["sell_outcome"] as Control).visible = false
 	(ui["sell_title"] as Label).text = "SELL YOUR CATCH"
 	_refresh_sell_selection_summary(0)
-	(ui["sell_result"] as Label).text = "Tap IN/KEEP to pick a batch · +/- to split it · HAGGLE rolls for a better price."
+	(ui["sell_result"] as Label).text = "Tap a card to sell or keep it · − / + splits a batch · sell 10 of one fish for its TROPHY."
 	(ui["sell_action_row"] as Control).visible = true
 	(ui["sell_ok"] as Control).visible = false
 	var overlay := ui["sell_overlay"] as Control
@@ -6380,12 +6427,19 @@ func _populate_sell_selection_rows(delta_per_fish: int) -> void:
 
 
 func _refresh_sell_selection_summary(delta_per_fish: int) -> void:
+	var quantities := _selected_sale_quantities()
 	var selected_count := _selected_sale_count()
-	var total := _sale_total_for(_selected_sale_quantities(), delta_per_fish)
+	var total := _sale_total_for(quantities, delta_per_fish)
 	if selected_count <= 0:
 		(ui["sell_total"] as Label).text = "SELECT FISH TO SELL"
 	else:
-		(ui["sell_total"] as Label).text = "%d FISH  ·  $%d" % [selected_count, total]
+		var text := "%d FISH  ·  $%d" % [selected_count, total]
+		# Live trophy cue: this sale would claim a species' trophy as selected.
+		for species in quantities.keys():
+			if int(quantities[species]) >= TROPHY_REQUIRED and not bool(trophies.get(species, false)):
+				text += "  ·  %s TROPHY!" % str(species).to_upper()
+				break
+		(ui["sell_total"] as Label).text = text
 	if ui.has("sell_confirm"):
 		var confirm: Button = ui["sell_confirm"]
 		confirm.disabled = selected_count <= 0
@@ -11042,6 +11096,11 @@ func _show_game_over_screen() -> void:
 		pop.tween_property(score_lbl, "scale", Vector2(1.1, 1.1), 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		pop.tween_property(score_lbl, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 
+	# How the number is built — so players know what to chase next run.
+	var formula := _label("BANK $  +  $300 A TROPHY  +  $40 AN UPGRADE  +  $2 A FISH SOLD", 14, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	formula.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(formula)
+
 	# Losing runs (sunk / out-raced) still show their rank, but don't celebrate.
 	var lost_run := str(outcome["title"]) == "SUNK!" or str(outcome["title"]) == "DEFEATED"
 	if score_rank > 0 and score_rank <= 10:
@@ -11498,6 +11557,9 @@ func _fetch_global_high_scores() -> void:
 	if not _global_scores_enabled():
 		return
 	global_scores_status = "Loading global scores..."
+	# Reopening the screen while a slow fetch is in flight would hit ERR_BUSY
+	# (engine console error + stuck status) — cancel is a safe no-op when idle.
+	global_scores_fetch_request.cancel_request()
 	var err := global_scores_fetch_request.request(GLOBAL_SCORES_API, ["Accept: application/json"], HTTPClient.METHOD_GET)
 	if err != OK:
 		global_scores_status = "Global scores unavailable. Showing local scores."
@@ -13226,16 +13288,20 @@ func _render_high_scores_screen(scores: Array, title_text: String, status_text: 
 
 		row.add_child(_hs_rank_badge(rank))
 
+		# The ranking metric leads the row — this is the number the list sorts by.
+		# (Trend-arrow icon: white-fill, so the gold tint applies cleanly.)
+		row.add_child(_hs_stat_block(ICON_MOVES_TEXTURE, _format_thousands(_entry_season_score(entry)), GOLD if is_top else GOLD.darkened(0.12), 138))
+
 		var t_count := int(entry.get("trophies", 0))
-		row.add_child(_hs_stat_block(ICON_TROPHY_SOLID, "%d" % t_count, GOLD, 96))
+		row.add_child(_hs_stat_block(ICON_TROPHY_SOLID, "%d" % t_count, GOLD, 84))
 
 		var money_val := int(entry.get("money", 0))
 		var money_color := GREEN.lightened(0.08) if is_top else TEXT_PRIMARY
-		row.add_child(_hs_stat_block(ICON_FUNDS_TEXTURE, "$%d" % money_val, money_color, 150))
+		row.add_child(_hs_stat_block(ICON_FUNDS_TEXTURE, "$%s" % _format_thousands(money_val), money_color, 140))
 
 		row.add_child(_hs_mini_stat("UPG", "%d" % int(entry.get("upgrade_total", 0)), CYAN if is_top else TEXT_MUTED))
 		row.add_child(_hs_mini_stat("FISH", "%d" % _entry_fish_count(entry), TEXT_PRIMARY if is_top else TEXT_MUTED))
-		row.add_child(_hs_mini_stat("DAY", "%d" % int(entry.get("day", 0)), TEXT_MUTED))
+		row.add_child(_hs_mini_stat("DAY", "%d/%d" % [int(entry.get("day", 0)), int(entry.get("season_days", 14))], TEXT_MUTED))
 
 		var spacer := Control.new()
 		spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
