@@ -11348,22 +11348,26 @@ var deck_training_animating := false
 
 func _deck_training_slides() -> Array:
 	return [
-		{"title": "WELCOME ABOARD", "accent": GOLD, "icon": ICON_ROCKET_FISH_TEXTURE, "visual": "board_boat",
-			"body": "You captain a fishing boat for one season. Catch fish, sell your haul at the docks, and upgrade your gear — and bank as much money as you can before time runs out."},
-		{"title": "THE BAY", "accent": CYAN, "icon": ICON_FIND_FISH_TEXTURE, "visual": "board",
-			"body": "The board is the bay, and every card is a fishing spot. The deep water up top holds the biggest, most valuable fish — your dock sits at the bottom."},
-		{"title": "YOUR DAILY BUDGET", "accent": Color("#8ad5f3"), "icon": ICON_DAY_TEXTURE, "visual": "counters",
-			"body": "Each day you get a small budget on the left: MOVES to sail, FIND FISH to spot fish, and CASTS to reel them in. Spend them, then end your day."},
-		{"title": "SAIL THE BAY", "accent": Color("#ff6161"), "icon": ICON_MOVES_TEXTURE, "visual": "board_boat",
-			"body": "Tap a card next to your boat to sail there — that costs one move. You can go straight or diagonal. Long-press any card to peek at what's on it."},
-		{"title": "FIND & CAST", "accent": Color("#84ed72"), "icon": ICON_CAST_TEXTURE, "visual": "cards",
-			"body": "Tap FIND FISH to scan the water nearby and reveal fish. Then sit on a fish and tap CAST to reel it in. Each spot only holds a few catches."},
-		{"title": "SELL AT THE DOCKS", "accent": GOLD, "icon": ICON_CARD_SHIP_TEXTURE, "visual": "sell",
-			"body": "Your catch waits in the live well, but it spoils after a few days. Sail back to THE DOCKS and sell it before it goes bad."},
-		{"title": "UPGRADE YOUR BOAT", "accent": PURPLE, "icon": ICON_FUNDS_TEXTURE, "visual": "ship",
-			"body": "At the docks, tap FUNDS to open the shop. Buy a faster motor, a sharper fish finder, and bigger nets — and repair your hull so storms can't sink you."},
-		{"title": "WEATHER & TROPHIES", "accent": CYAN, "icon": ICON_TROPHY_SOLID, "visual": "weather",
-			"body": "Watch the weather: a storm boosts your catch, but a hurricane cuts it and can batter your boat. Catch enough of one fish to earn its trophy, then survive the whole season to win!"},
+		# --- Story first: who you are and why you're here ---
+		{"title": "WELCOME TO RAIDER BAY", "accent": GOLD, "visual": "story_boat",
+			"body": "Cold water, big fish, bigger money. You're a captain in Raider Bay, Alaska — one boat, one short season, and a bay stacked with the richest fishing grounds in the north."},
+		{"title": "MAKE YOUR FORTUNE", "accent": GOLD, "visual": "story_goal",
+			"body": "The job is simple: catch fish, sell them at the docks, and pour the money back into your boat. When the season ends, your cash and trophies are your score — the bay remembers its best captains."},
+		# --- Then the rules, in the order you'll meet them ---
+		{"title": "THE BAY IS A DECK", "accent": CYAN, "visual": "board",
+			"body": "Every card on the board is a fishing spot. Deep water at the top hides the biggest, most valuable fish — but it's a long sail home to your dock at the bottom."},
+		{"title": "YOUR DAILY BUDGET", "accent": Color("#8ad5f3"), "visual": "counters",
+			"body": "Each day brings a few MOVES to sail and one CAST to reel in fish — FINDS from your Fish Finder scan the water first. Spend it all, then END DAY and the weather rolls in."},
+		{"title": "SAIL THE BAY", "accent": Color("#ff6161"), "visual": "board_boat",
+			"body": "Tap a card next to your boat to sail there — straight or diagonal, one move each. Long-press any card to peek at what you know about it."},
+		{"title": "FIND, THEN CAST", "accent": Color("#84ed72"), "visual": "find_cast",
+			"body": "FIND FISH scans the spot under your boat and flips the card. Found something? CAST rolls the die to see how many you reel in — each spot only has so many casts."},
+		{"title": "SELL BEFORE IT SPOILS", "accent": GOLD, "visual": "sell",
+			"body": "Your catch rides in the live well, and it won't stay fresh forever. Sail back to THE DOCKS and sell before it spoils — or roll the dice on a HAGGLE for a better price."},
+		{"title": "UPGRADE AT THE SHOP", "accent": PURPLE, "visual": "ship",
+			"body": "At the docks, spend your earnings on ship cards: motors add moves, fish finders add scans, nets haul bigger catches, and a live well keeps fish fresh longer."},
+		{"title": "WEATHER THE SEASON", "accent": CYAN, "visual": "weather",
+			"body": "Every night the weather turns. Rain fattens your haul, squalls and hurricanes cut it — and any rough night can smash your gear. Survive the whole season and post your best score!"},
 	]
 
 
@@ -11471,7 +11475,7 @@ func _build_deck_slide(slide: Dictionary, slide_size: Vector2) -> Control:
 	# A real slice of the game instead of a flat icon, held in a fixed-height stage
 	# so the title and body stay anchored as you page between slides.
 	var stage := CenterContainer.new()
-	stage.custom_minimum_size = Vector2(0, 184)
+	stage.custom_minimum_size = Vector2(0, 204)
 	stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(stage)
@@ -11499,19 +11503,24 @@ func _build_deck_slide(slide: Dictionary, slide_size: Vector2) -> Control:
 	return root
 
 
-# Each slide shows a real slice of the game the player is about to touch.
+# Each slide shows a real slice of the game the player is about to touch,
+# looping a little demonstration of the rule it teaches.
 func _deck_slide_visual(kind: String, accent: Color) -> Control:
 	match kind:
+		"story_boat":
+			return _deck_visual_story_boat()
+		"story_goal":
+			return _deck_visual_goal()
 		"board":
 			return _deck_visual_board(accent, false)
 		"board_boat":
 			return _deck_visual_board(accent, true)
 		"counters":
 			return _deck_visual_counters()
-		"cards":
-			return _deck_visual_cards(["Tuna", "Salmon", "Grouper"], [], GOLD)
+		"find_cast":
+			return _deck_visual_find_cast()
 		"sell":
-			return _deck_visual_cards(["Tuna", "Halibut"], ["$74", "$112"], GOLD)
+			return _deck_visual_sell()
 		"ship":
 			return _deck_visual_ship()
 		"weather":
@@ -11537,7 +11546,8 @@ func _deck_board_card(w: float, h: float, fill: Color, border: Color) -> Control
 
 
 # The bay: a mini grid of depth-tinted cards (deeper rows = darker), optionally with the
-# boat parked at the dock and its reachable neighbours lit up.
+# boat parked at the dock and its reachable neighbours lit up. Loops a little demo:
+# the boat sails to a neighbouring card and back; without the boat, the deep row shimmers.
 func _deck_visual_board(accent: Color, with_boat: bool) -> Control:
 	var cols := 6
 	var rows := 4
@@ -11557,7 +11567,8 @@ func _deck_visual_board(accent: Color, with_boat: bool) -> Control:
 	for r in range(rows):
 		var fill := _board_zone_card_color(int(depth_rows[r]))
 		for c in range(cols):
-			var adjacent := with_boat and (absi(c - boat_col) + absi(r - boat_row) == 1)
+			# Moves allow diagonals, so light the full ring around the boat.
+			var adjacent := with_boat and maxi(absi(c - boat_col), absi(r - boat_row)) == 1
 			var border: Color = accent.lightened(0.25) if adjacent else Color("#e7f0f5")
 			var card := _deck_board_card(cw, ch, fill, border)
 			card.position = Vector2(float(c) * (cw + gap), float(r) * (ch + gap))
@@ -11566,9 +11577,29 @@ func _deck_visual_board(accent: Color, with_boat: bool) -> Control:
 	if with_boat:
 		var boat := _icon_texture_rect(ICON_CARD_SHIP_TEXTURE, Vector2(28, 28), Color("#ffffff"))
 		boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		boat.pivot_offset = Vector2(14, 14)  # pop from the center, not the corner
 		boat.position = Vector2(float(boat_col) * (cw + gap) + (cw - 28.0) * 0.5, float(boat_row) * (ch + gap) + (ch - 28.0) * 0.5)
 		wrap.add_child(boat)
 		items.append(boat)
+		# Demo loop: sail one card right, pause, sail diagonally home.
+		var home := boat.position
+		var side := home + Vector2(cw + gap, 0.0)
+		var up := home + Vector2(0.0, -(ch + gap))
+		var bt := boat.create_tween().set_loops()
+		bt.tween_interval(1.0)
+		bt.tween_property(boat, "position", side, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+		bt.tween_interval(0.9)
+		bt.tween_property(boat, "position", up, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+		bt.tween_interval(0.9)
+		bt.tween_property(boat, "position", home, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+	else:
+		# Deep water breathes: the top row's cards swell gently, phase-shifted.
+		for c in range(cols):
+			var deep: Control = items[c]
+			var st := deep.create_tween().set_loops()
+			st.tween_interval(0.5 + 0.17 * float(c))
+			st.tween_property(deep, "scale", Vector2(1.08, 1.08), 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+			st.tween_property(deep, "scale", Vector2.ONE, 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	wrap.set_meta("anim_items", items)
 	wrap.set_meta("anim_pop", true)
 	return wrap
@@ -11611,25 +11642,41 @@ func _deck_mini_counter(icon_tex: Texture2D, title: String, value: String, accen
 	var val := _label(value, 22, Color("#ffffff"), HORIZONTAL_ALIGNMENT_CENTER)
 	val.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	well.add_child(val)
+	card.set_meta("value_label", val)
 	return card
 
 
-# The daily budget: MOVES / FIND FISH / CAST, exactly the chips on the left rail.
+# Loop a label through a sequence of texts (the "spending your budget" tick).
+func _deck_loop_ticker(label: Label, seq: Array, step: float) -> void:
+	if label == null:
+		return
+	var t := label.create_tween().set_loops()
+	for v in seq:
+		var text := str(v)
+		t.tween_interval(step)
+		t.tween_callback(func() -> void: label.text = text)
+
+
+# The daily budget: MOVES / FIND FISH / CAST, exactly the chips on the left rail —
+# each one ticks down as if a day were being spent, then the next day resets it.
 func _deck_visual_counters() -> Control:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 14)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var items: Array = []
+	# Real day-one numbers (for a boat with a Fish Finder aboard): 3 moves,
+	# finder-level finds, one cast.
 	var specs := [
-		[ICON_MOVES_TEXTURE, "MOVES", "3", Color("#ff6161")],
-		[ICON_FIND_FISH_TEXTURE, "FIND FISH", "2", Color("#c889ff")],
-		[ICON_CAST_TEXTURE, "CAST", "4", Color("#84ed72")],
+		[ICON_MOVES_TEXTURE, "MOVES", "3", Color("#ff6161"), ["2", "1", "0", "3"]],
+		[ICON_FIND_FISH_TEXTURE, "FIND FISH", "1", Color("#c889ff"), ["0", "1"]],
+		[ICON_CAST_TEXTURE, "CAST", "1", Color("#84ed72"), ["0", "1"]],
 	]
 	for s in specs:
 		var c := _deck_mini_counter(s[0], s[1], s[2], s[3])
 		row.add_child(c)
 		items.append(c)
+		_deck_loop_ticker(c.get_meta("value_label") as Label, s[4], 1.05)
 	row.set_meta("anim_items", items)
 	row.set_meta("anim_pop", false)
 	return row
@@ -11662,76 +11709,353 @@ func _deck_visual_cards(species_list: Array, badge_list: Array, badge_accent: Co
 	return wrap
 
 
-# Upgrades: the gear pip meters from the dock shop.
+# Loop a stacked card flip: back collapses edge-on, front sweeps open, then reverses.
+# Both must be pivot-centered siblings occupying the same spot.
+func _deck_loop_flip(front: Control, back: Control, hold: float) -> void:
+	var t := front.create_tween().set_loops()
+	t.tween_interval(hold)
+	t.tween_property(back, "scale:x", 0.0, 0.13).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.tween_property(front, "scale:x", 1.0, 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	t.tween_interval(hold + 0.5)
+	t.tween_property(front, "scale:x", 0.0, 0.13).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	t.tween_property(back, "scale:x", 1.0, 0.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+
+# Loop a label counting up to a total (the register ringing a sale up), then hold.
+func _deck_loop_count(label: Label, prefix: String, from_v: int, to_v: int, dur: float, hold: float) -> void:
+	var t := label.create_tween().set_loops()
+	t.tween_method(func(v: float) -> void: label.text = "%s%d" % [prefix, int(round(v))], float(from_v), float(to_v), dur)
+	t.tween_interval(hold)
+
+
+# Upgrades: a fanned hand of the REAL ship cards from the dock shop; the last one
+# keeps flipping over from its card back — the shop's purchase reveal, on loop.
 func _deck_visual_ship() -> Control:
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
-	col.custom_minimum_size = Vector2(316, 0)
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var cw := 96.0
+	var csize := Vector2(cw, cw * CATCH_CARD_ASPECT)
+	var specs := ["motor", "fish_finder", "nets"]
+	var spread := 96.0
+	var n := specs.size()
+	var ww := csize.x + float(n - 1) * spread + 40.0
+	var wh := csize.y + 36.0
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(ww, wh)
+	wrap.size = Vector2(ww, wh)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var opts := {"show_shadow": true, "card_border_px": 6, "card_step_px": 3}
 	var items: Array = []
-	var specs := [
-		["MOTOR", 3.0, "3 / 5", Color("#ff6161")],
-		["FISH FINDER", 2.0, "2 / 5", Color("#c889ff")],
-		["NETS", 4.0, "4 / 5", Color("#84ed72")],
-	]
-	for s in specs:
-		var c := _compact_system_card(s[0], s[1], 5.0, 5, s[2], s[3])
-		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.add_child(c)
-		items.append(c)
-	col.set_meta("anim_items", items)
-	col.set_meta("anim_pop", false)
-	return col
+	for i in range(n):
+		var t := float(i) - float(n - 1) / 2.0
+		var pos := Vector2(ww * 0.5 - csize.x * 0.5 + t * spread, wh * 0.5 - csize.y * 0.5 + absf(t) * 8.0)
+		var rot := t * 7.5
+		var front := _build_store_card_visual(str(specs[i]), 1, true, csize, opts)
+		front.position = pos
+		front.rotation_degrees = rot
+		if i == n - 1:
+			# The reveal demo: back card on top, front sweeps open on a loop.
+			var back := _build_store_card_visual(str(specs[i]), 1, false, csize, opts)
+			back.position = pos
+			back.rotation_degrees = rot
+			front.scale = Vector2(0.0, 1.0)
+			wrap.add_child(front)
+			wrap.add_child(back)
+			items.append(back)
+			_deck_loop_flip(front, back, 1.35)
+		else:
+			wrap.add_child(front)
+			items.append(front)
+	wrap.set_meta("anim_items", items)
+	wrap.set_meta("anim_pop", true)
+	return wrap
 
 
-# Weather + trophies: the redesigned forecast chips plus the reward they pay toward.
+# One forecast chip in the real weather-strip style (solid navy, white rim, name up
+# top, mult pill at the bottom) — minus the tap-to-preview button.
+func _deck_weather_chip(weather_name: String, mult: float, w: float, h: float) -> Control:
+	var meta := _weather_meta(weather_name)
+	var chip := PanelContainer.new()
+	chip.custom_minimum_size = Vector2(w, h)
+	chip.size = Vector2(w, h)
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := _styled_shadow(REF_CARD_NAVY, REF_BORDER, 4, 12, 2)
+	style.content_margin_left = 9
+	style.content_margin_right = 8
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	chip.add_theme_stylebox_override("panel", style)
+	var col := VBoxContainer.new()
+	col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 2)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.add_child(col)
+	var name_label := _label(str(meta["short"]), 16, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_LEFT)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.clip_text = true
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(name_label)
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(spacer)
+	if absf(mult - 1.0) > 0.001:
+		var pill := PanelContainer.new()
+		pill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var accent: Color = GREEN if mult > 1.0 else RED
+		var pill_style := _styled(accent, accent.darkened(0.18), 0, 6)
+		pill_style.content_margin_left = 7
+		pill_style.content_margin_right = 7
+		pill_style.content_margin_top = 1
+		pill_style.content_margin_bottom = 2
+		pill.add_theme_stylebox_override("panel", pill_style)
+		col.add_child(pill)
+		var pill_label := _label("%.1fx" % mult, 13, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
+		pill_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pill.add_child(pill_label)
+	return chip
+
+
+# Weather + the season prize: three real forecast chips riding a swell, and the
+# trophy they're all fishing for.
 func _deck_visual_weather() -> Control:
-	var col := VBoxContainer.new()
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 16)
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var chip_w := 92.0
+	var chip_h := 106.0
+	var gap := 22.0
+	var ww := chip_w * 3.0 + gap * 2.0
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(ww, 176)
+	wrap.size = Vector2(ww, 176)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var items: Array = []
-	var chips := HBoxContainer.new()
-	chips.alignment = BoxContainer.ALIGNMENT_CENTER
-	chips.add_theme_constant_override("separation", 10)
-	chips.custom_minimum_size = Vector2(300, 0)
-	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var weathers := [
-		{"name": "Rain", "strength": 3, "mult": 1.3},
-		{"name": "Calm", "strength": 0, "mult": 1.0},
-		{"name": "Hurricane", "strength": 4, "mult": 0.8},
-	]
-	for i in range(weathers.size()):
-		var chip := _forecast_chip(weathers[i], i == 0)
-		chips.add_child(chip)
+	var specs := [["Rain", 1.3], ["Calm", 1.0], ["Squall", 0.9]]
+	for i in range(specs.size()):
+		var chip := _deck_weather_chip(str(specs[i][0]), float(specs[i][1]), chip_w, chip_h)
+		chip.position = Vector2(float(i) * (chip_w + gap), 4.0)
+		wrap.add_child(chip)
 		items.append(chip)
-	col.add_child(chips)
+		# Chips ride a gentle swell, phase-shifted like days rolling in.
+		var bt := chip.create_tween().set_loops()
+		bt.tween_interval(0.3 * float(i))
+		bt.tween_property(chip, "position:y", 12.0, 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		bt.tween_property(chip, "position:y", 4.0, 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	var trophy := PanelContainer.new()
-	trophy.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	trophy.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tstyle := _styled_shadow(GOLD.darkened(0.62), GOLD, 3, 16, 4)
 	tstyle.content_margin_left = 16
 	tstyle.content_margin_right = 16
-	tstyle.content_margin_top = 9
-	tstyle.content_margin_bottom = 9
+	tstyle.content_margin_top = 8
+	tstyle.content_margin_bottom = 8
 	trophy.add_theme_stylebox_override("panel", tstyle)
 	var trow := HBoxContainer.new()
 	trow.alignment = BoxContainer.ALIGNMENT_CENTER
 	trow.add_theme_constant_override("separation", 10)
 	trow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	trophy.add_child(trow)
-	var tic := _icon_texture_rect(ICON_TROPHY_SOLID, Vector2(32, 32), GOLD.lightened(0.25))
+	var tic := _icon_texture_rect(ICON_TROPHY_SOLID, Vector2(30, 30), GOLD.lightened(0.25))
 	tic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	trow.add_child(tic)
-	var tlbl := _label("TROPHY", 18, GOLD.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
+	var tlbl := _label("BEST CAPTAIN", 17, GOLD.lightened(0.2), HORIZONTAL_ALIGNMENT_CENTER)
 	tlbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	trow.add_child(tlbl)
-	col.add_child(trophy)
+	trophy.position = Vector2(ww * 0.5 - 108.0, 130.0)
+	trophy.pivot_offset = Vector2(108, 23)  # rock about the center, not the corner
+	trophy.rotation_degrees = -1.5
+	wrap.add_child(trophy)
 	items.append(trophy)
-	col.set_meta("anim_items", items)
-	col.set_meta("anim_pop", false)
-	return col
+	var tt := trophy.create_tween().set_loops()
+	tt.tween_property(trophy, "rotation_degrees", 1.5, 1.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tt.tween_property(trophy, "rotation_degrees", -1.5, 1.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	wrap.set_meta("anim_items", items)
+	wrap.set_meta("anim_pop", false)
+	return wrap
+
+
+# A rounded strip of water for the story stage.
+func _deck_wave_strip(color: Color, w: float, h: float) -> Control:
+	var strip := PanelContainer.new()
+	strip.custom_minimum_size = Vector2(w, h)
+	strip.size = Vector2(w, h)
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var st := _styled(color, Color(0, 0, 0, 0), 0, int(h * 0.5))
+	strip.add_theme_stylebox_override("panel", st)
+	return strip
+
+
+# Story: one of the real player boats riding a swell in the bay.
+func _deck_visual_story_boat() -> Control:
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(380, 196)
+	wrap.size = Vector2(380, 196)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var back_wave := _deck_wave_strip(Color("#16457a"), 380, 26)
+	back_wave.position = Vector2(0, 138)
+	wrap.add_child(back_wave)
+
+	# The boat art rides in a white-rimmed navy card (same framing as the Boat
+	# Setup carousel — the source PNGs have a solid navy background).
+	var boat := PanelContainer.new()
+	boat.custom_minimum_size = Vector2(160, 160)
+	boat.size = Vector2(160, 160)
+	var boat_style := _styled_shadow(REF_CARD_NAVY, REF_BORDER, 4, 14, 3)
+	boat_style.content_margin_left = 5
+	boat_style.content_margin_right = 5
+	boat_style.content_margin_top = 5
+	boat_style.content_margin_bottom = 5
+	boat.add_theme_stylebox_override("panel", boat_style)
+	boat.position = Vector2(110, 2)
+	boat.pivot_offset = Vector2(80, 80)
+	boat.rotation_degrees = -2.0
+	boat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var boat_img := TextureRect.new()
+	boat_img.texture = BOAT_TEXTURES[0]
+	boat_img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boat_img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boat_img.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boat.add_child(boat_img)
+	wrap.add_child(boat)
+
+	var front_wave := _deck_wave_strip(Color("#0d3059"), 400, 36)
+	front_wave.position = Vector2(-10, 158)
+	wrap.add_child(front_wave)
+
+	# The swell: the boat bobs and rocks; the water drifts underneath it.
+	var bob := boat.create_tween().set_loops()
+	bob.tween_property(boat, "position:y", 12.0, 1.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	bob.tween_property(boat, "position:y", 2.0, 1.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var rock := boat.create_tween().set_loops()
+	rock.tween_property(boat, "rotation_degrees", 2.0, 2.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	rock.tween_property(boat, "rotation_degrees", -2.0, 2.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var bw := back_wave.create_tween().set_loops()
+	bw.tween_property(back_wave, "position:x", -14.0, 1.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	bw.tween_property(back_wave, "position:x", 0.0, 1.8).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var fw := front_wave.create_tween().set_loops()
+	fw.tween_property(front_wave, "position:x", 4.0, 1.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	fw.tween_property(front_wave, "position:x", -10.0, 1.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+	wrap.set_meta("anim_items", [back_wave, boat, front_wave])
+	wrap.set_meta("anim_pop", false)
+	return wrap
+
+
+# Story: the point of it all — money piling up and trophies on the wall.
+func _deck_visual_goal() -> Control:
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(360, 186)
+	wrap.size = Vector2(360, 186)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var pill := PanelContainer.new()
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pstyle := _styled_shadow(GOLD, GOLD_DEEP, 0, 12, 4)
+	pstyle.content_margin_left = 26
+	pstyle.content_margin_right = 26
+	pstyle.content_margin_top = 8
+	pstyle.content_margin_bottom = 10
+	pill.add_theme_stylebox_override("panel", pstyle)
+	pill.position = Vector2(112, 22)
+	pill.pivot_offset = Vector2(68, 28)
+	wrap.add_child(pill)
+	var money := _label("$0", 34, Color("#3a2a00"), HORIZONTAL_ALIGNMENT_CENTER)
+	money.custom_minimum_size = Vector2(84, 0)
+	money.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(money)
+	_deck_loop_count(money, "$", 0, 640, 1.6, 1.1)
+
+	var items: Array = [pill]
+	for i in range(3):
+		var trophy := _icon_texture_rect(ICON_TROPHY_SOLID, Vector2(42, 42), GOLD.lightened(0.15))
+		trophy.position = Vector2(104.0 + float(i) * 58.0, 118.0 - (10.0 if i == 1 else 0.0))
+		trophy.pivot_offset = Vector2(21, 21)
+		trophy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		wrap.add_child(trophy)
+		items.append(trophy)
+		var bt := trophy.create_tween().set_loops()
+		bt.tween_interval(0.25 * float(i))
+		bt.tween_property(trophy, "position:y", trophy.position.y - 8.0, 1.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		bt.tween_property(trophy, "position:y", trophy.position.y, 1.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+	wrap.set_meta("anim_items", items)
+	wrap.set_meta("anim_pop", true)
+	return wrap
+
+
+# Find & cast: a real spot card flipping from face-down to a fish (the FIND), with
+# the cast die hopping beside it (the CAST roll).
+func _deck_visual_find_cast() -> Control:
+	var cw := 104.0
+	var ch := cw * CATCH_CARD_ASPECT
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(330, ch + 16.0)
+	wrap.size = Vector2(330, ch + 16.0)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var slot := Vector2(64, 8)
+	var back := _weather_preview_back_card(cw, ch)
+	back.position = slot
+	wrap.add_child(back)
+	var front := _build_result_card(_fish_card_texture("Tuna"), Vector2(cw, ch))
+	front.position = slot
+	front.pivot_offset = Vector2(cw, ch) * 0.5
+	front.scale = Vector2(0.0, 1.0)
+	wrap.add_child(front)
+	_deck_loop_flip(front, back, 1.25)
+
+	var die := _icon_texture_rect(_pixel_die_texture(), Vector2(48, 48), Color(1, 1, 1))
+	die.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	die.position = Vector2(226, ch * 0.5 - 16.0)
+	die.pivot_offset = Vector2(24, 24)
+	die.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(die)
+	var die_y := die.position.y
+	var hop := die.create_tween().set_loops()
+	hop.tween_interval(1.1)
+	hop.tween_property(die, "position:y", die_y - 20.0, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	hop.tween_property(die, "position:y", die_y, 0.3).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	var spin := die.create_tween().set_loops()
+	spin.tween_property(die, "rotation_degrees", 9.0, 1.3).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	spin.tween_property(die, "rotation_degrees", -9.0, 1.3).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+	wrap.set_meta("anim_items", [back, die])
+	wrap.set_meta("anim_pop", false)
+	return wrap
+
+
+# Selling: the fan of caught fish with their price tags, and the till ringing up
+# the total underneath.
+func _deck_visual_sell() -> Control:
+	var fan := _deck_visual_cards(["Tuna", "Halibut"], ["$74", "$112"], GOLD)
+	var fan_size: Vector2 = fan.custom_minimum_size
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(fan_size.x, fan_size.y + 46.0)
+	wrap.size = wrap.custom_minimum_size
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fan.position = Vector2.ZERO
+	wrap.add_child(fan)
+
+	var pill := PanelContainer.new()
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pstyle := _styled_shadow(GOLD, GOLD_DEEP, 0, 10, 3)
+	pstyle.content_margin_left = 18
+	pstyle.content_margin_right = 18
+	pstyle.content_margin_top = 4
+	pstyle.content_margin_bottom = 6
+	pill.add_theme_stylebox_override("panel", pstyle)
+	pill.position = Vector2(fan_size.x * 0.5 - 62.0, fan_size.y + 6.0)
+	pill.pivot_offset = Vector2(62, 18)
+	wrap.add_child(pill)
+	var total := _label("$0", 22, Color("#3a2a00"), HORIZONTAL_ALIGNMENT_CENTER)
+	total.custom_minimum_size = Vector2(88, 0)
+	total.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(total)
+	_deck_loop_count(total, "$", 0, 186, 1.2, 1.3)
+
+	var items: Array = []
+	items.append_array(fan.get_meta("anim_items", []))
+	items.append(pill)
+	wrap.set_meta("anim_items", items)
+	wrap.set_meta("anim_pop", true)
+	return wrap
 
 
 func _render_deck_training_slide(direction: int = 0) -> void:
@@ -11879,6 +12203,12 @@ func _show_deck_training() -> void:
 
 
 func _hide_deck_training() -> void:
+	# Free the slide so its looping demo tweens die with it — hiding the overlay
+	# alone would leave them processing every frame for the rest of the session.
+	if deck_training_slide_node != null and is_instance_valid(deck_training_slide_node):
+		deck_training_slide_node.queue_free()
+	deck_training_slide_node = null
+	deck_training_animating = false
 	if ui.has("deck_training_overlay"):
 		(ui["deck_training_overlay"] as Control).visible = false
 
