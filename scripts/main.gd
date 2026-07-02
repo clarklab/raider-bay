@@ -2170,10 +2170,15 @@ func _build_sell_modal() -> void:
 	sell_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(sell_scroll)
 
-	ui["sell_rows"] = VBoxContainer.new()
-	ui["sell_rows"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ui["sell_rows"].add_theme_constant_override("separation", 10)
-	sell_scroll.add_child(ui["sell_rows"])
+	# Fish sit on the felt as REAL portrait cards (the catch-fan cards), wrapping
+	# into rows like a dealt hand.
+	var sell_flow := HFlowContainer.new()
+	sell_flow.alignment = FlowContainer.ALIGNMENT_CENTER
+	sell_flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sell_flow.add_theme_constant_override("h_separation", 20)
+	sell_flow.add_theme_constant_override("v_separation", 16)
+	ui["sell_rows"] = sell_flow
+	sell_scroll.add_child(sell_flow)
 
 	# Summary pill (chunky gold) — logic sets the inner label's text.
 	var total_pill := PanelContainer.new()
@@ -6013,7 +6018,7 @@ func _haggle_sale() -> void:
 	# Lock the roll in, then roll the dice across the screen; the sale is only
 	# completed + revealed once the dice finishes (sale_selection stays intact).
 	pending_haggle = {"roll": roll, "delta": delta_per_fish}
-	var rows: VBoxContainer = ui["sell_rows"]
+	var rows: Container = ui["sell_rows"]
 	for child in rows.get_children():
 		child.queue_free()
 	(ui["sell_outcome"] as Control).visible = false
@@ -6205,8 +6210,105 @@ func _log_sale_result(result: Dictionary, prefix: String) -> void:
 		_log("Contest won: %d trophies earned!" % TROPHY_WIN_COUNT)
 
 
+# One live-well batch as a REAL portrait fish card (the catch-fan card): tap the
+# card to toggle IN/KEEP, chunky −/+ steppers and the gold subtotal underneath.
+func _sell_batch_card_unit(batch_index: int, species: String, age: int, batch_quantity: int, selected: int, unit_price: int) -> Control:
+	var included := selected > 0
+	var cw := 148.0
+	var ch := cw * CATCH_CARD_ASPECT
+
+	var unit := VBoxContainer.new()
+	unit.add_theme_constant_override("separation", 6)
+	unit.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+
+	# --- the card (tap anywhere on it to toggle IN/KEEP) ---
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(cw + 12.0, ch + 14.0)
+	holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	unit.add_child(holder)
+
+	var card := _build_result_card(_fish_card_texture(species), Vector2(cw, ch), "$%d" % unit_price, GOLD)
+	card.position = Vector2(6, 2)
+	if not included:
+		# Kept fish sit back from the counter: dimmed and slightly small.
+		card.modulate = Color(0.6, 0.66, 0.78, 0.9)
+		card.scale = Vector2(0.96, 0.96)
+	holder.add_child(card)
+
+	# Freshness chip riding the card's top-left corner.
+	var age_name := _age_name(age).to_upper()
+	var age_accent: Color = GREEN if age <= 0 else (GOLD if age < _live_well_days() else RED)
+	var fresh := PanelContainer.new()
+	fresh.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var fs := _styled(age_accent, age_accent.darkened(0.25), 0, 7)
+	fs.content_margin_left = 8
+	fs.content_margin_right = 8
+	fs.content_margin_top = 1
+	fs.content_margin_bottom = 2
+	fresh.add_theme_stylebox_override("panel", fs)
+	fresh.position = Vector2(-2, -4)
+	fresh.rotation_degrees = -3.0
+	if not included:
+		fresh.modulate = Color(1, 1, 1, 0.55)
+	fresh.add_child(_label(age_name, 13, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER))
+	holder.add_child(fresh)
+
+	# IN/KEEP flag pinned to the card's bottom edge.
+	var state := PanelContainer.new()
+	state.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ss := _styled(GREEN_DEEP if included else BG_PANEL_DARK, GREEN if included else BORDER_FRAME, 2, 8)
+	ss.content_margin_left = 14
+	ss.content_margin_right = 14
+	ss.content_margin_top = 2
+	ss.content_margin_bottom = 3
+	state.add_theme_stylebox_override("panel", ss)
+	state.position = Vector2(holder.custom_minimum_size.x * 0.5 - 32.0, ch - 10.0)
+	state.add_child(_label("IN" if included else "KEEP", FONT_SMALL, TEXT_PRIMARY if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER))
+	holder.add_child(state)
+
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	_anchor_fill(btn)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(st, _transparent_style())
+	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	btn.pressed.connect(_on_sell_batch_toggled.bind(not included, batch_index))
+	holder.add_child(btn)
+	_add_press_pop(card, btn)
+
+	# --- −/+ steppers with the split count ---
+	var controls := HBoxContainer.new()
+	controls.alignment = BoxContainer.ALIGNMENT_CENTER
+	controls.add_theme_constant_override("separation", 6)
+	controls.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	unit.add_child(controls)
+
+	var minus := _tactile_button("-", 44, 44, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
+	minus.add_theme_font_size_override("font_size", FONT_CELL_BIG)
+	minus.disabled = selected <= 0
+	minus.pressed.connect(_adjust_sale_batch_quantity.bind(batch_index, -1))
+	controls.add_child(minus)
+
+	var count_lbl := _label("%d/%d" % [selected, batch_quantity], FONT_CELL, TEXT_PRIMARY if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	count_lbl.custom_minimum_size = Vector2(58, 0)
+	controls.add_child(count_lbl)
+
+	var plus := _tactile_button("+", 44, 44, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
+	plus.add_theme_font_size_override("font_size", FONT_CELL_BIG)
+	plus.disabled = selected >= batch_quantity
+	plus.pressed.connect(_adjust_sale_batch_quantity.bind(batch_index, 1))
+	controls.add_child(plus)
+
+	# --- gold subtotal ---
+	var sub := _label("$%d" % (selected * unit_price), FONT_CELL_BIG, GOLD if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	unit.add_child(sub)
+	return unit
+
+
 func _populate_sell_selection_rows(delta_per_fish: int) -> void:
-	var rows: VBoxContainer = ui["sell_rows"]
+	var rows: Container = ui["sell_rows"]
 	for child in rows.get_children():
 		child.queue_free()
 
@@ -6215,83 +6317,10 @@ func _populate_sell_selection_rows(delta_per_fish: int) -> void:
 		var batch_quantity: int = max(0, int(batch.get("quantity", 0)))
 		if batch_quantity <= 0:
 			continue
-
 		var species := str(batch.get("species", ""))
 		var selected := _selected_sale_quantity_for_batch(i)
-		var included := selected > 0
 		var unit_price: int = max(0, int(market_prices[species]) + delta_per_fish)
-		var subtotal := selected * unit_price
-
-		# Each batch is a chunky white-bordered navy card; gold trim when it's
-		# part of the sale, dimmed when it's being kept.
-		var wrap := PanelContainer.new()
-		var card_border := GOLD if included else Color(REF_BORDER.r, REF_BORDER.g, REF_BORDER.b, 0.32)
-		var style := _styled_shadow(REF_CARD_NAVY if included else REF_CARD_NAVY.darkened(0.22), card_border, 3, 14, 3)
-		style.content_margin_left = 12
-		style.content_margin_right = 14
-		style.content_margin_top = 10
-		style.content_margin_bottom = 10
-		wrap.add_theme_stylebox_override("panel", style)
-		wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		rows.add_child(wrap)
-
-		var row := HBoxContainer.new()
-		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_theme_constant_override("separation", 12)
-		wrap.add_child(row)
-
-		# Chunky include toggle: green = in the sale, dark = keeping it.
-		var toggle := _tactile_button("IN" if included else "KEEP", 62, 62, GREEN_DEEP if included else BG_PANEL_DARK, GREEN if included else BORDER_FRAME, TEXT_PRIMARY if included else TEXT_DIM)
-		toggle.add_theme_font_size_override("font_size", FONT_SMALL)
-		toggle.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		toggle.pressed.connect(_on_sell_batch_toggled.bind(not included, i))
-		row.add_child(toggle)
-
-		var art := TextureRect.new()
-		art.texture = _fish_texture(species)
-		art.custom_minimum_size = Vector2(104, 78)
-		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(art)
-
-		var info := VBoxContainer.new()
-		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		info.add_theme_constant_override("separation", 2)
-		row.add_child(info)
-
-		info.add_child(_label(species, FONT_CELL, TEXT_PRIMARY))
-		info.add_child(_label("%s · %d aboard" % [_age_name(int(batch.get("age", 0))), batch_quantity], FONT_SMALL, TEXT_MUTED))
-		info.add_child(_label("$%d each" % unit_price, FONT_SMALL, GOLD))
-
-		var controls := HBoxContainer.new()
-		controls.alignment = BoxContainer.ALIGNMENT_CENTER
-		controls.add_theme_constant_override("separation", 8)
-		controls.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(controls)
-
-		var minus := _tactile_button("-", 46, 46, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
-		minus.add_theme_font_size_override("font_size", FONT_CELL_BIG)
-		minus.disabled = selected <= 0
-		minus.pressed.connect(_adjust_sale_batch_quantity.bind(i, -1))
-		controls.add_child(minus)
-
-		var count_lbl := _label("%d/%d" % [selected, batch_quantity], FONT_CELL, TEXT_PRIMARY if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
-		count_lbl.custom_minimum_size = Vector2(64, 0)
-		controls.add_child(count_lbl)
-
-		var plus := _tactile_button("+", 46, 46, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
-		plus.add_theme_font_size_override("font_size", FONT_CELL_BIG)
-		plus.disabled = selected >= batch_quantity
-		plus.pressed.connect(_adjust_sale_batch_quantity.bind(i, 1))
-		controls.add_child(plus)
-
-		var price := _label("$%d" % subtotal, FONT_CELL_BIG, GOLD if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_RIGHT)
-		price.custom_minimum_size = Vector2(84, 0)
-		price.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(price)
+		rows.add_child(_sell_batch_card_unit(i, species, int(batch.get("age", 0)), batch_quantity, selected, unit_price))
 
 
 func _refresh_sell_selection_summary(delta_per_fish: int) -> void:
@@ -6334,10 +6363,12 @@ func _adjust_sale_batch_quantity(batch_index: int, delta: int) -> void:
 
 
 func _populate_sell_rows(quantities: Dictionary, delta_per_fish: int) -> void:
-	var rows: VBoxContainer = ui["sell_rows"]
+	var rows: Container = ui["sell_rows"]
 	for child in rows.get_children():
 		child.queue_free()
 
+	# Sold fish as the same portrait cards, with the count on the card and the
+	# money made underneath.
 	for species in SPECIES:
 		var quantity := int(quantities.get(species, 0))
 		if quantity <= 0:
@@ -6346,43 +6377,24 @@ func _populate_sell_rows(quantities: Dictionary, delta_per_fish: int) -> void:
 		var unit_price: int = max(0, int(market_prices[species]) + delta_per_fish)
 		var subtotal := quantity * unit_price
 
-		# Sold-fish card: white-bordered navy with a gold subtotal.
-		var wrap := PanelContainer.new()
-		var style := _styled_shadow(REF_CARD_NAVY, REF_BORDER, 3, 14, 3)
-		style.content_margin_left = 12
-		style.content_margin_right = 14
-		style.content_margin_top = 10
-		style.content_margin_bottom = 10
-		wrap.add_theme_stylebox_override("panel", style)
-		wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		rows.add_child(wrap)
+		var unit := VBoxContainer.new()
+		unit.add_theme_constant_override("separation", 6)
+		unit.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		rows.add_child(unit)
 
-		var row := HBoxContainer.new()
-		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_theme_constant_override("separation", 12)
-		wrap.add_child(row)
+		var cw := 148.0
+		var holder := Control.new()
+		holder.custom_minimum_size = Vector2(cw + 12.0, cw * CATCH_CARD_ASPECT + 14.0)
+		holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		unit.add_child(holder)
+		var card := _build_result_card(_fish_card_texture(species), Vector2(cw, cw * CATCH_CARD_ASPECT), "×%d" % quantity, GOLD)
+		card.position = Vector2(6, 2)
+		holder.add_child(card)
 
-		var art := TextureRect.new()
-		art.texture = _fish_texture(species)
-		art.custom_minimum_size = Vector2(120, 88)
-		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(art)
-
-		var info := VBoxContainer.new()
-		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		info.add_theme_constant_override("separation", 2)
-		row.add_child(info)
-		info.add_child(_label(species, FONT_CELL, TEXT_PRIMARY))
-		info.add_child(_label("%d  ×  $%d each" % [quantity, unit_price], FONT_SMALL, TEXT_MUTED))
-
-		var price := _label("$%d" % subtotal, FONT_CELL_BIG, GOLD, HORIZONTAL_ALIGNMENT_RIGHT)
-		price.custom_minimum_size = Vector2(96, 0)
-		price.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(price)
+		unit.add_child(_label("%d × $%d each" % [quantity, unit_price], FONT_SMALL, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+		var sub := _label("$%d" % subtotal, FONT_CELL_BIG, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+		sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		unit.add_child(sub)
 
 
 func _repair_segment(key: String) -> void:
@@ -10048,20 +10060,26 @@ func _counter_set(key: String, value_text: String, enabled: bool = true, title_o
 	card.modulate = Color(1, 1, 1, 1) if enabled else Color(0.5, 0.56, 0.64, 0.8)
 
 
-# Physical "push/pop" — scale down on press, overshoot back on release.
+# Physical "push/pop" — scale down on press, overshoot back on release. The
+# target's scale at first press is its rest scale (sell KEEP cards sit at 0.96,
+# not 1.0 — always restore to where the card actually lives).
 func _add_press_pop(target: Control, trigger: BaseButton) -> void:
 	trigger.button_down.connect(func() -> void:
 		if not is_instance_valid(target):
 			return
+		if not target.has_meta("press_pop_rest"):
+			target.set_meta("press_pop_rest", target.scale)
+		var rest: Vector2 = target.get_meta("press_pop_rest")
 		target.pivot_offset = target.size * 0.5
 		var t := target.create_tween()
-		t.tween_property(target, "scale", Vector2(0.93, 0.93), 0.06).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
+		t.tween_property(target, "scale", rest * 0.93, 0.06).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 	trigger.button_up.connect(func() -> void:
 		if not is_instance_valid(target):
 			return
+		var rest: Vector2 = target.get_meta("press_pop_rest") if target.has_meta("press_pop_rest") else Vector2.ONE
 		target.pivot_offset = target.size * 0.5
 		var t := target.create_tween()
-		t.tween_property(target, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
+		t.tween_property(target, "scale", rest, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
 
 
 func _pill(text: String, accent: Color, text_color: Color = Color(0, 0, 0, 0)) -> PanelContainer:
