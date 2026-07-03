@@ -210,6 +210,38 @@ const SOUND_REEL_STREAM: AudioStream = preload("res://assets/sound-reel.mp3")
 const SOUND_BONK_STREAM: AudioStream = preload("res://assets/sound-bonk.mp3")
 const SOUND_CATCH_STREAM: AudioStream = preload("res://assets/sound-catch.mp3")
 
+# One-shot UI/event sounds (assets/sounds). Played via _play_sfx on the master
+# bus, so the title-screen MUTE toggle silences them with everything else.
+const SFX_STREAMS: Dictionary = {
+	"tap": preload("res://assets/sounds/sfx-tap.mp3"),
+	"tap_cancel": preload("res://assets/sounds/sfx-tap-cancel.mp3"),
+	"modal_open": preload("res://assets/sounds/sfx-modal-open.mp3"),
+	"card_flip": preload("res://assets/sounds/sfx-card-flip.mp3"),
+	"card_slide": preload("res://assets/sounds/sfx-card-slide.mp3"),
+	"dice_roll": preload("res://assets/sounds/dice-roll.mp3"),
+	"confetti": preload("res://assets/sounds/sfx-confetti.mp3"),
+	"bonk_1": preload("res://assets/sounds/sfx-bonk-1.mp3"),
+	"bonk_2": preload("res://assets/sounds/sfx-bonk-2.mp3"),
+	"haggle_avg": preload("res://assets/sounds/sfx-haggle-avg.mp3"),
+	"trophy": preload("res://assets/sounds/sfx-trophy.mp3"),
+	"title_slam": preload("res://assets/sounds/sfx-title-slam.mp3"),
+}
+# Per-sound base volume: taps sit under the ambience; celebrations get the stage.
+const SFX_BASE_DB: Dictionary = {
+	"tap": -9.0,
+	"tap_cancel": -9.0,
+	"modal_open": -7.0,
+	"card_flip": -6.0,
+	"card_slide": -6.0,
+	"dice_roll": -4.0,
+	"confetti": -4.0,
+	"bonk_1": -3.0,
+	"bonk_2": -3.0,
+	"haggle_avg": -4.0,
+	"trophy": -3.0,
+	"title_slam": -4.0,
+}
+
 # Birds cycle: distant → near → close → gone, on a rolling loop. Volumes are
 # linear amplitudes (0..1); we crossfade between them so the birds "come and
 # go" rather than snapping between levels.
@@ -440,6 +472,11 @@ var plonk_players: Array[AudioStreamPlayer] = []
 var plonk_index: int = 0
 var cast_audio_token: int = 0
 var audio_muted: bool = false
+var sfx_players: Array[AudioStreamPlayer] = []
+var sfx_pool_index: int = 0
+var sfx_last_played_ms: Dictionary = {}
+var sfx_gesture_seen: bool = false
+var dice_sfx_player: AudioStreamPlayer = null
 var birds_phase_index: int = 0
 var birds_phase_time: float = 0.0
 var birds_previous_volume: float = 0.0
@@ -464,8 +501,8 @@ func _ready() -> void:
 		balatro_font.fallbacks = [ThemeDB.fallback_font]
 	_build_ui()
 	_build_start_screen()
+	_build_audio()  # before the start screen: the title intro plays a slam SFX
 	_show_start_screen()
-	_build_audio()
 	_build_global_score_requests()
 	_apply_safe_area_inset()
 	get_viewport().size_changed.connect(_apply_safe_area_inset)
@@ -751,6 +788,7 @@ func _build_audio() -> void:
 	audio_bonk = _make_one_shot_player(SOUND_BONK_STREAM)
 	audio_catch = _make_one_shot_player(SOUND_CATCH_STREAM)
 	_build_plonk_players()
+	_build_sfx_pool()
 
 
 # A short synthesized "pluck" used for the ascending per-card catch ticks. Built in
@@ -809,6 +847,57 @@ func _make_one_shot_player(stream: AudioStream) -> AudioStreamPlayer:
 	player.autoplay = false
 	add_child(player)
 	return player
+
+
+func _input(event: InputEvent) -> void:
+	if not sfx_gesture_seen and (event is InputEventMouseButton or event is InputEventScreenTouch or event is InputEventKey):
+		sfx_gesture_seen = true
+
+
+func _build_sfx_pool() -> void:
+	for stream in SFX_STREAMS.values():
+		if stream is AudioStreamMP3:
+			(stream as AudioStreamMP3).loop = false
+	for i in range(8):
+		var p := AudioStreamPlayer.new()
+		p.autoplay = false
+		add_child(p)
+		sfx_players.append(p)
+
+
+# Round-robin one-shot pool with a small per-sound throttle so simultaneous
+# triggers (e.g. an X press that also closes a popup) don't phase-stack.
+func _play_sfx(sfx: String, volume_offset_db: float = 0.0, pitch: float = 1.0) -> AudioStreamPlayer:
+	if sfx_players.is_empty() or not SFX_STREAMS.has(sfx):
+		return null
+	# Pre-gesture the browser AudioContext is suspended; a one-shot queued now
+	# would pop, stale, on the player's first tap. Drop it instead.
+	if OS.has_feature("web") and not sfx_gesture_seen:
+		return null
+	var now := Time.get_ticks_msec()
+	if sfx_last_played_ms.has(sfx) and now - int(sfx_last_played_ms[sfx]) < 70:
+		return null
+	sfx_last_played_ms[sfx] = now
+	var player := sfx_players[sfx_pool_index % sfx_players.size()]
+	sfx_pool_index += 1
+	player.stop()
+	player.stream = SFX_STREAMS[sfx]
+	player.volume_db = float(SFX_BASE_DB.get(sfx, 0.0)) + volume_offset_db
+	player.pitch_scale = pitch
+	player.play()
+	return player
+
+
+# Factory-wired button audio: a soft tap, or the cancel variant for dismiss-y
+# labels. Set a "sfx" meta on a button to override (empty string = silent).
+func _play_button_sfx(b: Button) -> void:
+	var sfx := "tap"
+	if b.has_meta("sfx"):
+		sfx = str(b.get_meta("sfx"))
+	elif b.text.strip_edges().to_upper() in ["CANCEL", "X", "BACK", "CLOSE", "NO"]:
+		sfx = "tap_cancel"
+	if sfx != "":
+		_play_sfx(sfx)
 
 
 func _play_cast_outcome(outcome: String) -> void:
@@ -1439,6 +1528,7 @@ func _build_arched_title(parent: Control, text: String, center_x: float, base_y:
 func _play_title_intro() -> void:
 	title_ebb_active = false
 	title_ebb_time = 0.0
+	_play_sfx("title_slam")
 	for i in range(title_letters.size()):
 		var e = title_letters[i]
 		var g: Control = e["node"]
@@ -1541,6 +1631,7 @@ func _title_link(text: String, on_pressed: Callable) -> Button:
 	b.add_theme_color_override("font_pressed_color", CYAN)
 	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
 		b.add_theme_stylebox_override(st, _transparent_style())
+	b.button_down.connect(_play_button_sfx.bind(b))
 	b.pressed.connect(on_pressed)
 	return b
 
@@ -2043,6 +2134,7 @@ func _show_rules_modal() -> void:
 		var ov := ui["rules_overlay"] as Control
 		ov.move_to_front()  # tree-order input picking: last sibling wins
 		ov.visible = true
+		_play_sfx("modal_open")
 
 
 func _hide_rules_modal() -> void:
@@ -2236,6 +2328,7 @@ func _board_card_tilt(cell: Vector2i) -> float:
 func _deal_board_cards() -> void:
 	if cell_buttons.is_empty():
 		return
+	_play_sfx("card_slide")
 	# The dock is the dealer: cards ripple outward from THE DOCKS, nearest
 	# squares first, each order slot getting a small shuffle nudge.
 	var deck_from_global := Vector2.ZERO
@@ -3620,7 +3713,7 @@ func _reveal_upgrade_card(back: Control, key: String, level: int, cost: int) -> 
 	slot.add_child(front)
 	back.pivot_offset = back.size * 0.5
 
-	_play_catch_plonk(1)
+	_play_sfx("card_flip")
 	var t := create_tween()
 	ui["upgrade_reveal_tween"] = t
 	t.tween_property(back, "scale:x", 0.0, 0.13).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
@@ -4202,6 +4295,7 @@ func _open_upgrade_tray() -> void:
 		return
 	_hide_card_tooltip()
 	active_tray = "upgrade"
+	_play_sfx("modal_open")
 	if ui.has("tray_title"):
 		(ui["tray_title"] as Label).text = "SHIP CARD STORE"
 	if ui.has("tray_hint"):
@@ -4218,6 +4312,7 @@ func _open_repair_tray() -> void:
 		return
 	_hide_card_tooltip()
 	active_tray = "repair"
+	_play_sfx("modal_open")
 	if ui.has("tray_title"):
 		(ui["tray_title"] as Label).text = "SHIP REPAIRS"
 	if ui.has("tray_hint"):
@@ -5420,7 +5515,8 @@ func _sell_catch() -> void:
 func _celebrate_trophies(earned: Array) -> void:
 	if earned.is_empty():
 		return
-	_burst_confetti()
+	_play_sfx("trophy")
+	_burst_confetti(false)
 	for p in range(3):
 		var sched := create_tween()
 		sched.tween_interval(0.12 * float(p))
@@ -5572,6 +5668,8 @@ func _show_haggle_outcome(roll: int, delta_per_fish: int) -> void:
 		_burst_confetti()
 	elif delta_per_fish < 0:
 		_play_bonk()
+	else:
+		_play_sfx("haggle_avg")
 
 
 # Deal the freshly-built batch cards in like a hand — only on OPEN; the
@@ -5579,6 +5677,7 @@ func _show_haggle_outcome(roll: int, delta_per_fish: int) -> void:
 func _deal_in_sell_cards() -> void:
 	if not ui.has("sell_rows"):
 		return
+	_play_sfx("card_slide")
 	var rows: Container = ui["sell_rows"]
 	var i := 0
 	for unit in rows.get_children():
@@ -5613,6 +5712,7 @@ func _open_sell_modal() -> void:
 	var overlay := ui["sell_overlay"] as Control
 	overlay.move_to_front()  # top-most sibling so clicks reach the modal
 	overlay.visible = true
+	_play_sfx("modal_open")
 
 
 func _close_sell_modal() -> void:
@@ -9063,6 +9163,7 @@ func _tactile_button(text: String, min_w: int, min_h: int, fill: Color, border: 
 	b.custom_minimum_size = Vector2(min_w, min_h)
 	_add_button_chrome(b, border)
 	_apply_tactile_style(b, fill, border)
+	b.button_down.connect(_play_button_sfx.bind(b))
 	return b
 
 
@@ -9097,6 +9198,7 @@ func _flat_button(text: String, min_w: int, min_h: int, fill: Color, label_color
 	b.add_theme_stylebox_override("disabled", disabled)
 	b.add_theme_stylebox_override("focus", _transparent_style())
 	_add_press_pop(b, b)
+	b.button_down.connect(_play_button_sfx.bind(b))
 	return b
 
 
@@ -9910,6 +10012,10 @@ func _open_card_preview(spec: Dictionary, source: Control = null) -> void:
 	weather_preview_fly_front = fly_front
 	weather_preview_fly_back = fly_back
 
+	_play_sfx("card_slide")
+	var flip_cue := create_tween()
+	flip_cue.tween_interval(0.12)
+	flip_cue.tween_callback(_play_sfx.bind("card_flip"))
 	var t := create_tween()
 	weather_preview_tween = t
 	t.set_parallel(true)
@@ -9954,6 +10060,7 @@ func _close_weather_card_preview() -> void:
 	if weather_preview_tween != null and weather_preview_tween.is_valid():
 		weather_preview_tween.kill()
 	weather_preview_tween = null
+	_play_sfx("card_slide")
 	# Re-read the chip's rect — layout may have shifted since open (e.g. resize).
 	if weather_preview_source != null and is_instance_valid(weather_preview_source) \
 			and weather_preview_source.is_inside_tree():
@@ -10176,6 +10283,7 @@ func _go_stat_chip(caption: String, value: String, fill: Color) -> Control:
 func _show_game_over_screen() -> void:
 	if not ui.has("game_over_overlay") or not ui.has("game_over_col"):
 		return
+	_play_sfx("modal_open")
 
 	var col: VBoxContainer = ui["game_over_col"]
 	for child in col.get_children():
@@ -11425,6 +11533,7 @@ func _deck_training_next() -> void:
 
 
 func _show_deck_training() -> void:
+	_play_sfx("modal_open")
 	deck_training_index = 0
 	deck_training_animating = false
 	if deck_training_slide_node != null and is_instance_valid(deck_training_slide_node):
@@ -11672,6 +11781,7 @@ func _refresh_boat_carousel() -> void:
 
 
 func _show_boat_setup(versus: bool) -> void:
+	_play_sfx("modal_open")
 	pending_versus = versus
 	_hide_solo_save_chooser()  # don't let the New Trip / Continue chooser sit over it
 	boat_choice = rng.randi_range(0, BOAT_TEXTURES.size() - 1)
@@ -11858,6 +11968,9 @@ func _play_dice_roll(on_done: Callable = Callable()) -> void:
 	overlay.move_to_front()
 	overlay.visible = true
 	(ui["dice_viewport"] as SubViewport).render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	if dice_sfx_player != null and is_instance_valid(dice_sfx_player):
+		dice_sfx_player.stop()  # mashed re-roll: restart the rattle, don't stack it
+	dice_sfx_player = _play_sfx("dice_roll")
 
 	die.position = Vector3(-7.5, -0.3, 0.0)
 	die.rotation = Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU)
@@ -11892,6 +12005,9 @@ func _on_dice_roll_done(overlay: Control, on_done: Callable) -> void:
 
 # Abort an in-flight cosmetic roll (e.g. leaving the setup screen mid-shuffle).
 func _stop_dice_roll() -> void:
+	if dice_sfx_player != null and is_instance_valid(dice_sfx_player):
+		dice_sfx_player.stop()
+		dice_sfx_player = null
 	if not ui.has("dice_overlay"):
 		return
 	var overlay := ui["dice_overlay"] as Control
@@ -11951,7 +12067,9 @@ func _ensure_confetti_rig() -> void:
 	ui["confetti_emitters"] = emitters
 
 
-func _burst_confetti() -> void:
+func _burst_confetti(with_sfx: bool = true) -> void:
+	if with_sfx:
+		_play_sfx("confetti")
 	_ensure_confetti_rig()
 	(ui["confetti_overlay"] as Control).move_to_front()
 	for p in ui["confetti_emitters"]:
@@ -11962,6 +12080,7 @@ func _burst_confetti() -> void:
 
 # A comedic "BONK!" stamp that slams in with a red flash, then fades. Transient.
 func _play_bonk() -> void:
+	_play_sfx("bonk_1" if rng.randf() < 0.5 else "bonk_2")
 	var overlay := Control.new()
 	overlay.anchor_right = 1.0
 	overlay.anchor_bottom = 1.0
@@ -12087,6 +12206,7 @@ func _show_high_scores_screen() -> void:
 		return
 	if not ui.has("high_scores_overlay") or not ui.has("high_scores_col"):
 		return
+	_play_sfx("modal_open")
 
 	global_scores_status = "Loading global scores..." if _global_scores_enabled() else "Local scores on this device."
 	_render_high_scores_screen(_load_high_scores(), "HIGH SCORES", global_scores_status)
@@ -12103,6 +12223,7 @@ func _show_high_scores_screen() -> void:
 func _close_x_button() -> Button:
 	var b := _tactile_button("X", 60, 60, Color("#7a2323"), RED, Color("#ffe4e4"))
 	b.add_theme_font_size_override("font_size", 30)
+	b.set_meta("sfx", "tap_cancel")
 	b.mouse_filter = Control.MOUSE_FILTER_STOP
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return b
