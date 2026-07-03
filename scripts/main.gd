@@ -2364,20 +2364,34 @@ func _render_board_card_shell(btn: Button, fill: Color, dead_card: bool = false)
 	_draw_squarestep_card(shell, card_size, fill, Color.WHITE, border_px, steps, step_px)
 
 	if dead_card:
+		var wm := _card_shell_metrics(card_size)
+		var wi := float(int(wm["border"]))
 		var wash := ColorRect.new()
 		wash.color = _with_alpha(Color("#020914"), 0.22)
 		wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		wash.position = Vector2(border_px + step_px, border_px + step_px)
-		wash.size = card_size - Vector2(border_px + step_px, border_px + step_px) * 2.0
+		wash.position = Vector2(wi, wi)
+		wash.size = card_size - Vector2(wi, wi) * 2.0
 		shell.add_child(wash)
 
 
-func _draw_squarestep_card(parent: Control, card_size: Vector2, fill: Color, border_color: Color, border_px: int, steps: int, step_px: int) -> void:
+# Board-cell/dock variant of the unified shell (colorable border, no outline
+# stroke — cells sit edge to edge and read cleaner without it). The legacy
+# border/step params are ignored: metrics come from the card size.
+func _draw_squarestep_card(parent: Control, card_size: Vector2, fill: Color, border_color: Color, _border_px: int, _steps: int, _step_px: int, metrics_ref: Vector2 = Vector2.ZERO) -> void:
+	var m := _card_shell_metrics(metrics_ref if metrics_ref != Vector2.ZERO else card_size)
+	var b := float(m["border"])
+	var s := float(m["step"])
+	# Use the caller's raw size — anything seated at these metrics derives
+	# from the same floats, so edges always agree (no floor drift).
 	var w := card_size.x
 	var h := card_size.y
-	_gallery_chunky_rrect(parent, 0.0, 0.0, w, h, border_color, steps, step_px)
-	var inset := float(border_px)
-	_gallery_chunky_rrect(parent, inset, inset, w - inset * 2.0, h - inset * 2.0, fill, steps, step_px)
+	var shell := Control.new()
+	shell.size = card_size
+	shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shell.draw.connect(func() -> void:
+		_draw_stepped_slab(shell, 0.0, 0.0, w, h, s, border_color)
+		shell.draw_rect(Rect2(b, b, w - 2.0 * b, h - 2.0 * b), fill))
+	parent.add_child(shell)
 
 
 # A dashed-outline parking placeholder spanning `width_cells` cells of the dock row.
@@ -2466,7 +2480,8 @@ func _render_dock_card_shell(dock_btn: Button, fill: Color) -> void:
 	for child in shell.get_children():
 		child.queue_free()
 	var size := Vector2(BOARD_CELL_WIDTH * DOCK_WIDTH_CELLS + BOARD_CARD_GAP * (DOCK_WIDTH_CELLS - 1), BOARD_CELL_HEIGHT)
-	_draw_squarestep_card(shell, size, fill, Color.WHITE, 4, 2, 2)
+	# Reference cell metrics so the dock's border matches its neighbours 1:1.
+	_draw_squarestep_card(shell, size, fill, Color.WHITE, 4, 2, 2, Vector2(BOARD_CELL_WIDTH, BOARD_CELL_HEIGHT))
 
 
 func _add_cast_dot_layer(btn: Button) -> void:
@@ -3733,19 +3748,54 @@ func _build_store_card_visual(key: String, level: int, face_up: bool, card_size:
 	return card
 
 
+# ─── Unified card shell ───
+# ONE renderer for every generated card: dark pixel outline, chunky white
+# border at a fixed PROPORTION of the card's width, stepped pixel corners,
+# and the art seated EXACTLY against the border — no fill ring, ever.
+# Metrics are integers derived from the card size, so an 84px fish card and
+# a 372px weather card carry identical proportions with zero seams.
+
+func _card_shell_metrics(card_size: Vector2) -> Dictionary:
+	# Keyed on the shorter side so wide strips (the dock) stay in proportion.
+	var b := maxi(3, roundi(minf(card_size.x, card_size.y) * 0.055))  # white border
+	var o := maxi(1, roundi(float(b) * 0.35))      # dark outline stroke
+	var s := maxi(2, roundi(float(b) * 0.55))      # corner step unit (2 rows)
+	return {"outline": o, "border": b, "step": s, "inset": o + b}
+
+
+# One filled slab with a stepped-corner silhouette (two corner rows of `s`,
+# square below). All edges land on the same computed values — no seams.
+func _draw_stepped_slab(ci: Control, x: float, y: float, w: float, h: float, s: float, color: Color) -> void:
+	ci.draw_rect(Rect2(x + 2.0 * s, y, w - 4.0 * s, s), color)
+	ci.draw_rect(Rect2(x + s, y + s, w - 2.0 * s, s), color)
+	ci.draw_rect(Rect2(x, y + 2.0 * s, w, h - 4.0 * s), color)
+	ci.draw_rect(Rect2(x + s, y + h - 2.0 * s, w - 2.0 * s, s), color)
+	ci.draw_rect(Rect2(x + 2.0 * s, y + h - s, w - 4.0 * s, s), color)
+
+
+# Draws the shell into ONE canvas item and returns the art inset: callers
+# place their face at (inset, inset) sized (card - 2*inset) and it meets the
+# white border exactly. Legacy border/step options are ignored (proportional).
 func _add_squarestep_card_shell(card: Control, card_size: Vector2, fill: Color, options: Dictionary = {}) -> float:
 	if bool(options.get("show_shadow", true)):
 		_add_halftone_card_shadow(card, card_size, options)
+	var m := _card_shell_metrics(card_size)
+	var o := float(m["outline"])
+	var s := float(m["step"])
+	var t := float(m["inset"])
+	# Use the caller's raw size — anything seated at these metrics derives
+	# from the same floats, so edges always agree (no floor drift).
 	var w := card_size.x
 	var h := card_size.y
-	var steps := int(options.get("card_steps", 2))
-	var sp := int(options.get("card_step_px", 4))
-	var border := int(options.get("card_border_px", 8))
-	_gallery_chunky_rrect(card, 0.0, 0.0, w, h, Color("#0a0e14"), steps, sp)
-	_gallery_chunky_rrect(card, 2.0, 2.0, w - 4.0, h - 4.0, Color("#ffffff"), steps, sp)
-	var ci := 2.0 + float(border)
-	_gallery_chunky_rrect(card, ci, ci, w - 2.0 * ci, h - 2.0 * ci, fill, steps, sp)
-	return ci + float(steps * sp)
+	var shell := Control.new()
+	shell.size = card_size
+	shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shell.draw.connect(func() -> void:
+		_draw_stepped_slab(shell, 0.0, 0.0, w, h, s, Color("#0a0e14"))
+		_draw_stepped_slab(shell, o, o, w - 2.0 * o, h - 2.0 * o, s, Color("#ffffff"))
+		shell.draw_rect(Rect2(t, t, w - 2.0 * t, h - 2.0 * t), fill))
+	card.add_child(shell)
+	return t
 
 
 func _add_generated_upgrade_card_face(card: Control, key: String, level: int, rect: Rect2, options: Dictionary = {}) -> void:
@@ -8421,7 +8471,10 @@ func _gallery_face(tex: Texture2D) -> TextureRect:
 	face.texture = tex
 	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	face.stretch_mode = TextureRect.STRETCH_SCALE
-	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# Card illustrations are high-res sources downscaled 3-20x on screen —
+	# trilinear (mipmapped) sampling is what keeps them from shimmering.
+	# Card imports set mipmaps/generate=true + size_limit=1024 to match.
+	face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	face.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	face.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -9694,18 +9747,12 @@ func _weather_preview_front_card(weather: Dictionary, cw: float, ch: float) -> C
 	holder.size = Vector2(cw, ch)
 	holder.pivot_offset = Vector2(cw, ch) * 0.5
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var border_px := 9.0
-	_add_squarestep_card_shell(holder, Vector2(cw, ch), Color("#0a1024"), {
+	# The unified shell returns the exact art inset — face meets the border.
+	var frame := _add_squarestep_card_shell(holder, Vector2(cw, ch), Color("#0a1024"), {
 		"show_shadow": true,
 		"shadow_offset": Vector2(10, 14),
-		"card_border_px": int(border_px),
-		"card_step_px": 5,
 	})
-	# Seat the art right against the white border so the dark inner step ring is
-	# fully covered (no black ring between the border and the illustration).
-	var frame := 2.0 + border_px
 	var face := _gallery_face(meta["card"])
-	face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	face.position = Vector2(frame, frame)
 	face.size = Vector2(cw - frame * 2.0, ch - frame * 2.0)
 	holder.add_child(face)
@@ -9744,16 +9791,11 @@ func _weather_preview_back_card(cw: float, ch: float) -> Control:
 	holder.size = Vector2(cw, ch)
 	holder.pivot_offset = Vector2(cw, ch) * 0.5
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var border_px := 9.0
-	_add_squarestep_card_shell(holder, Vector2(cw, ch), Color("#0a1024"), {
+	var frame := _add_squarestep_card_shell(holder, Vector2(cw, ch), Color("#0a1024"), {
 		"show_shadow": true,
 		"shadow_offset": Vector2(10, 14),
-		"card_border_px": int(border_px),
-		"card_step_px": 5,
 	})
-	var frame := 2.0 + border_px
 	var back := _gallery_face(CARD_BACK_TEXTURE)
-	back.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	back.position = Vector2(frame, frame)
 	back.size = Vector2(cw - frame * 2.0, ch - frame * 2.0)
 	holder.add_child(back)
@@ -10729,18 +10771,12 @@ func _deck_slide_visual(kind: String, accent: Color) -> Control:
 
 # A single mini board cell, styled like the real card-table cells (white rim, depth fill).
 func _deck_board_card(w: float, h: float, fill: Color, border: Color) -> Control:
-	var card := PanelContainer.new()
+	var card := Control.new()
 	card.custom_minimum_size = Vector2(w, h)
 	card.size = Vector2(w, h)
 	card.pivot_offset = Vector2(w, h) * 0.5
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var st := StyleBoxFlat.new()
-	st.bg_color = fill
-	st.border_color = border
-	st.set_border_width_all(3)
-	st.set_corner_radius_all(6)
-	st.anti_aliasing = false
-	card.add_theme_stylebox_override("panel", st)
+	_draw_squarestep_card(card, Vector2(w, h), fill, border, 0, 0, 0)
 	return card
 
 
