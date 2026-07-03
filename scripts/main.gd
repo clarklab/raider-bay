@@ -313,7 +313,7 @@ const BG_PANEL_DARK  := Color("#071a27")
 const BG_PANEL_LIGHT := Color("#12384f")
 const BG_BODY        := Color("#203b59")
 const BG_NAV         := Color("#081722")
-# Structural colors sampled from the study (assets/preview-design.png).
+# Structural colors sampled from the study (source-assets/art/preview-design.png).
 const REF_BG_NAVY    := Color("#061854")  # deep screen background
 const REF_PANEL      := Color("#486084")  # right-side group + boat-status panel fill
 const REF_INSET      := Color("#0c182a")  # dark list/container insets
@@ -326,7 +326,7 @@ const BORDER_HI      := Color("#6fb6d8")
 const TEXT_PRIMARY   := Color("#f1f7fb")
 const TEXT_MUTED     := Color("#a3bccd")
 const TEXT_DIM       := Color("#5a7993")
-# Accents sampled from assets/preview-design.png (the study) for an exact match.
+# Accents sampled from source-assets/art/preview-design.png (the study) for an exact match.
 const CYAN           := Color("#8ad2f0")
 const CYAN_DEEP      := Color("#1688b0")
 const GOLD           := Color("#fcba00")
