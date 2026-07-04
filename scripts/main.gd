@@ -5696,6 +5696,24 @@ func _deal_in_sell_cards() -> void:
 			card.pivot_offset = card.custom_minimum_size * 0.5
 			card.scale = Vector2(0.62, 0.62)
 			t.parallel().tween_property(card, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		# Fan spread: back layers start stacked behind the front card and fan
+		# out just after the unit lands.
+		if u.has_meta("fan"):
+			var fan := u.get_meta("fan") as Control
+			for b in fan.get_children():
+				if not (b is Control) or not b.has_meta("fan_k"):
+					continue
+				var bc := b as Control
+				var k := int(bc.get_meta("fan_k"))
+				bc.position = Vector2.ZERO
+				bc.rotation_degrees = 0.0
+				# set_delay, NOT tween_interval + set_parallel: parallel tweeners
+				# join the interval's step, which would spread during the fade-in.
+				var fd := 0.28 + 0.08 * float(i)
+				var ft := bc.create_tween()
+				ft.set_parallel(true)
+				ft.tween_property(bc, "position", _sell_fan_offset(k), 0.24).set_delay(fd).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+				ft.tween_property(bc, "rotation_degrees", _sell_fan_rotation(k), 0.24).set_delay(fd).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		i += 1
 
 
@@ -5812,32 +5830,48 @@ func _log_sale_result(result: Dictionary, prefix: String) -> void:
 		_log("Contest won: %d trophies earned!" % TROPHY_WIN_COUNT)
 
 
-# One live-well batch as a REAL portrait fish card (the catch-fan card): tap the
-# card to toggle IN/KEEP, chunky −/+ steppers and the gold subtotal underneath.
+# One live-well batch as a mini FAN of real portrait fish cards: the fan depth
+# tracks how many are selected, a checkbox on the card's bottom edge shows the
+# group's SELL state, and -/+ steppers split the batch. Tap the card to toggle.
+# Updates happen in place (no rebuild) so every change can animate.
 func _sell_batch_card_unit(batch_index: int, species: String, age: int, batch_quantity: int, selected: int, unit_price: int) -> Control:
-	var included := selected > 0
 	var cw := 148.0
 	var ch := cw * CATCH_CARD_ASPECT
+	var pad_x := 26.0
+	var pad_top := 16.0
+	var pad_bottom := 18.0
+	var holder_w := cw + pad_x * 2.0
 
 	var unit := VBoxContainer.new()
 	unit.add_theme_constant_override("separation", 6)
 	unit.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	unit.set_meta("batch_index", batch_index)
+	unit.set_meta("species", species)
+	unit.set_meta("batch_quantity", batch_quantity)
+	unit.set_meta("unit_price", unit_price)
+	unit.set_meta("card_size", Vector2(cw, ch))
 
-	# --- the card (tap anywhere on it to toggle IN/KEEP) ---
 	var holder := Control.new()
-	holder.custom_minimum_size = Vector2(cw + 12.0, ch + 14.0)
+	holder.custom_minimum_size = Vector2(holder_w, ch + pad_top + pad_bottom)
 	holder.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	unit.add_child(holder)
+	unit.set_meta("deal_card", holder)
+
+	# Fan layers live UNDER the front card; _update_sell_unit grows/shrinks them.
+	var fan := Control.new()
+	fan.position = Vector2(pad_x, pad_top)
+	fan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(fan)
+	unit.set_meta("fan", fan)
 
 	var card := _build_result_card(_fish_card_texture(species), Vector2(cw, ch), "$%d" % unit_price, GOLD)
-	card.position = Vector2(6, 2)
-	if not included:
-		# Kept fish sit back from the counter: dimmed and slightly small.
-		card.modulate = Color(0.6, 0.66, 0.78, 0.9)
-		card.scale = Vector2(0.96, 0.96)
+	card.position = Vector2(pad_x, pad_top)
+	card.pivot_offset = Vector2(cw * 0.5, ch)
 	holder.add_child(card)
+	unit.set_meta("front_card", card)
 
-	# Freshness chip riding the card's top-left corner.
+	# Freshness chip riding the card's top-left corner. Positive offsets only —
+	# the old negative ones poked out of the holder and the scroll clipped them.
 	var age_name := _age_name(age).to_upper()
 	var age_accent: Color = GREEN if age <= 0 else (GOLD if age < _live_well_days() else RED)
 	var fresh := PanelContainer.new()
@@ -5848,25 +5882,17 @@ func _sell_batch_card_unit(batch_index: int, species: String, age: int, batch_qu
 	fs.content_margin_top = 1
 	fs.content_margin_bottom = 2
 	fresh.add_theme_stylebox_override("panel", fs)
-	fresh.position = Vector2(-2, -4)
+	fresh.position = Vector2(pad_x - 10.0, 3.0)
 	fresh.rotation_degrees = -3.0
-	if not included:
-		fresh.modulate = Color(1, 1, 1, 0.55)
 	fresh.add_child(_label(age_name, 13, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER))
 	holder.add_child(fresh)
+	unit.set_meta("chip", fresh)
 
-	# IN/KEEP flag pinned to the card's bottom edge.
-	var state := PanelContainer.new()
-	state.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var ss := _styled(GREEN_DEEP if included else BG_PANEL_DARK, GREEN if included else BORDER_FRAME, 2, 8)
-	ss.content_margin_left = 14
-	ss.content_margin_right = 14
-	ss.content_margin_top = 2
-	ss.content_margin_bottom = 3
-	state.add_theme_stylebox_override("panel", ss)
-	state.position = Vector2(holder.custom_minimum_size.x * 0.5 - 32.0, ch - 10.0)
-	state.add_child(_label("IN" if included else "KEEP", FONT_SMALL, TEXT_PRIMARY if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER))
-	holder.add_child(state)
+	# Checkbox pinned to the card's bottom edge: the group's SELL state.
+	var checkbox := _sell_checkbox(selected > 0)
+	checkbox.position = Vector2(holder_w * 0.5 - 15.0, pad_top + ch - 16.0)
+	holder.add_child(checkbox)
+	unit.set_meta("checkbox", checkbox)
 
 	var btn := Button.new()
 	btn.flat = true
@@ -5875,12 +5901,11 @@ func _sell_batch_card_unit(batch_index: int, species: String, age: int, batch_qu
 	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
 		btn.add_theme_stylebox_override(st, _transparent_style())
 	btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	btn.pressed.connect(_on_sell_batch_toggled.bind(not included, batch_index))
+	btn.pressed.connect(_on_sell_batch_card_tapped.bind(batch_index))
 	holder.add_child(btn)
 	_add_press_pop(card, btn)
-	unit.set_meta("deal_card", holder)
 
-	# --- −/+ steppers with the split count ---
+	# --- -/+ steppers with the split count ---
 	var controls := HBoxContainer.new()
 	controls.alignment = BoxContainer.ALIGNMENT_CENTER
 	controls.add_theme_constant_override("separation", 6)
@@ -5889,25 +5914,184 @@ func _sell_batch_card_unit(batch_index: int, species: String, age: int, batch_qu
 
 	var minus := _tactile_button("-", 44, 44, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
 	minus.add_theme_font_size_override("font_size", FONT_CELL_BIG)
-	minus.disabled = selected <= 0
 	minus.pressed.connect(_adjust_sale_batch_quantity.bind(batch_index, -1))
 	controls.add_child(minus)
+	unit.set_meta("minus", minus)
 
-	var count_lbl := _label("%d/%d" % [selected, batch_quantity], FONT_CELL, TEXT_PRIMARY if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	var count_lbl := _label("", FONT_CELL, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
 	count_lbl.custom_minimum_size = Vector2(58, 0)
 	controls.add_child(count_lbl)
+	unit.set_meta("count_label", count_lbl)
 
 	var plus := _tactile_button("+", 44, 44, BG_PANEL_LIGHT, BORDER_DARK, TEXT_PRIMARY)
 	plus.add_theme_font_size_override("font_size", FONT_CELL_BIG)
-	plus.disabled = selected >= batch_quantity
 	plus.pressed.connect(_adjust_sale_batch_quantity.bind(batch_index, 1))
 	controls.add_child(plus)
+	unit.set_meta("plus", plus)
 
 	# --- gold subtotal ---
-	var sub := _label("$%d" % (selected * unit_price), FONT_CELL_BIG, GOLD if included else TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	var sub := _label("", FONT_CELL_BIG, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
 	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	unit.add_child(sub)
+	unit.set_meta("subtotal", sub)
 	return unit
+
+
+# Chunky flat checkbox (custom-drawn: box + tick), state lives in a meta flag.
+func _sell_checkbox(checked: bool) -> Control:
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(30, 30)
+	box.size = Vector2(30, 30)
+	box.pivot_offset = Vector2(15, 15)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.set_meta("checked", checked)
+	box.draw.connect(func() -> void:
+		var on: bool = bool(box.get_meta("checked"))
+		box.draw_rect(Rect2(0, 0, 30, 30), GREEN.darkened(0.35) if on else BORDER_FRAME)
+		box.draw_rect(Rect2(3, 3, 24, 24), GREEN if on else Color("#131a26"))
+		if on:
+			var pts := PackedVector2Array([Vector2(8, 15), Vector2(13, 21), Vector2(22, 9)])
+			box.draw_polyline(pts, Color("#0c3312"), 4.0))
+	return box
+
+
+# Fan geometry: layer k (1..3) behind the front card, alternating sides so the
+# stack reads as a small held hand. All cards pivot at their bottom-center.
+func _sell_fan_offset(k: int) -> Vector2:
+	match k:
+		1: return Vector2(9, 0)
+		2: return Vector2(-9, 0)
+		_: return Vector2(16, 0)
+
+
+func _sell_fan_rotation(k: int) -> float:
+	match k:
+		1: return 4.0
+		2: return -4.0
+		_: return 7.0
+
+
+func _sell_fan_back(unit: Control, k: int, animate: bool) -> Control:
+	var cs: Vector2 = unit.get_meta("card_size")
+	var species := str(unit.get_meta("species"))
+	var b := _build_result_card(_fish_card_texture(species), cs, "", Color(0, 0, 0, 0), {"show_shadow": false})
+	b.pivot_offset = Vector2(cs.x * 0.5, cs.y)
+	b.set_meta("fan_k", k)
+	var dimmed := _selected_sale_quantity_for_batch(int(unit.get_meta("batch_index"))) <= 0
+	var tint := Color(0.6, 0.66, 0.78, 1.0) if dimmed else Color(0.74, 0.8, 0.9, 1.0)
+	if animate:
+		b.position = Vector2.ZERO
+		b.rotation_degrees = 0.0
+		b.modulate = Color(tint.r, tint.g, tint.b, 0.0)
+		var t := b.create_tween()
+		t.set_parallel(true)
+		t.tween_property(b, "position", _sell_fan_offset(k), 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.tween_property(b, "rotation_degrees", _sell_fan_rotation(k), 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.tween_property(b, "modulate:a", 1.0, 0.16)
+	else:
+		b.position = _sell_fan_offset(k)
+		b.rotation_degrees = _sell_fan_rotation(k)
+		b.modulate = tint
+	return b
+
+
+# Refresh one batch unit in place: fan depth, checkbox, dim state, labels.
+func _update_sell_unit(batch_index: int, animate: bool = true) -> void:
+	if not ui.has("sell_units"):
+		return
+	var units: Dictionary = ui["sell_units"]
+	if not units.has(batch_index):
+		return
+	var unit := units[batch_index] as Control
+	if unit == null or not is_instance_valid(unit):
+		return
+	var selected := _selected_sale_quantity_for_batch(batch_index)
+	var included := selected > 0
+	var batch_quantity := int(unit.get_meta("batch_quantity"))
+	var unit_price := int(unit.get_meta("unit_price"))
+
+	# Fan depth follows the selection (an unselected group keeps its lone card).
+	var fan := unit.get_meta("fan") as Control
+	var want_backs := clampi(maxi(selected, 1), 1, 4) - 1
+	var backs: Array[Control] = []
+	for c in fan.get_children():
+		# has_meta filter: a back animating OUT loses its marker immediately, so
+		# a quick re-select re-grows the fan instead of counting the dying card.
+		if c is Control and c.has_meta("fan_k") and not (c as Control).is_queued_for_deletion():
+			backs.append(c)
+	# Fan children are ordered deepest-first so nearer layers draw on top.
+	while backs.size() > want_backs:
+		var gone: Control = backs.pop_front()
+		gone.remove_meta("fan_k")
+		if animate:
+			var gt := gone.create_tween()
+			gt.set_parallel(true)
+			gt.tween_property(gone, "position", Vector2.ZERO, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+			gt.tween_property(gone, "rotation_degrees", 0.0, 0.18)
+			gt.tween_property(gone, "modulate:a", 0.0, 0.16)
+			gt.chain().tween_callback(gone.queue_free)
+		else:
+			gone.queue_free()
+	while backs.size() < want_backs:
+		var k := backs.size() + 1
+		var nb := _sell_fan_back(unit, k, animate)
+		fan.add_child(nb)
+		fan.move_child(nb, 0)  # deeper layers sit under the nearer ones
+		backs.push_front(nb)
+		if animate:
+			_play_sfx("card_slide", -4.0)
+
+	# Checkbox tick + pop.
+	var checkbox := unit.get_meta("checkbox") as Control
+	if bool(checkbox.get_meta("checked")) != included:
+		checkbox.set_meta("checked", included)
+		checkbox.queue_redraw()
+		if animate:
+			checkbox.scale = Vector2(1.35, 1.35)
+			var ct := checkbox.create_tween()
+			ct.tween_property(checkbox, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	# Kept fish sit back from the counter: dimmed and slightly small.
+	var card := unit.get_meta("front_card") as Control
+	var chip := unit.get_meta("chip") as Control
+	var card_tint := Color(1, 1, 1, 1) if included else Color(0.6, 0.66, 0.78, 0.9)
+	var card_scale := Vector2.ONE if included else Vector2(0.96, 0.96)
+	# The press pop recenters the pivot and caches its own rest scale — re-seat
+	# both so dim/undim always scales around the card's bottom edge and a
+	# cancelled press settles back to THIS state's scale.
+	var cs: Vector2 = unit.get_meta("card_size")
+	card.pivot_offset = Vector2(cs.x * 0.5, cs.y)
+	card.set_meta("press_pop_rest", card_scale)
+	var back_tint := Color(0.74, 0.8, 0.9, 1.0) if included else Color(0.6, 0.66, 0.78, 0.9)
+	var chip_tint := Color(1, 1, 1, 1) if included else Color(1, 1, 1, 0.55)
+	if animate:
+		var dt := card.create_tween()
+		dt.set_parallel(true)
+		dt.tween_property(card, "modulate", card_tint, 0.18)
+		dt.tween_property(card, "scale", card_scale, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		dt.tween_property(chip, "modulate", chip_tint, 0.18)
+		for b in backs:
+			dt.tween_property(b, "modulate", back_tint, 0.18)
+	else:
+		card.modulate = card_tint
+		card.scale = card_scale
+		chip.modulate = chip_tint
+		for b in backs:
+			b.modulate = back_tint
+
+	# Labels + stepper gating.
+	(unit.get_meta("count_label") as Label).text = "%d/%d" % [selected, batch_quantity]
+	(unit.get_meta("count_label") as Label).add_theme_color_override("font_color", TEXT_PRIMARY if included else TEXT_DIM)
+	(unit.get_meta("minus") as Button).disabled = selected <= 0
+	(unit.get_meta("plus") as Button).disabled = selected >= batch_quantity
+	var sub := unit.get_meta("subtotal") as Label
+	sub.text = "$%d" % (selected * unit_price)
+	sub.add_theme_color_override("font_color", GOLD if included else TEXT_DIM)
+	if animate:
+		sub.pivot_offset = sub.size * 0.5
+		sub.scale = Vector2(1.18, 1.18)
+		var st := sub.create_tween()
+		st.tween_property(sub, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 func _populate_sell_selection_rows(delta_per_fish: int) -> void:
@@ -5915,15 +6099,32 @@ func _populate_sell_selection_rows(delta_per_fish: int) -> void:
 	for child in rows.get_children():
 		child.queue_free()
 
+	# Spoil-first ordering: fewest days of freshness left leads the grid.
+	var days := _live_well_days()
+	var order: Array = []
 	for i in range(live_well.size()):
+		if int(live_well[i].get("quantity", 0)) > 0:
+			order.append(i)
+	order.sort_custom(func(a: int, b: int) -> bool:
+		var da: int = days - int(live_well[a].get("age", 0))
+		var db: int = days - int(live_well[b].get("age", 0))
+		if da == db:
+			return a < b
+		return da < db)
+
+	var units: Dictionary = {}
+	for i in order:
 		var batch: Dictionary = live_well[i]
 		var batch_quantity: int = max(0, int(batch.get("quantity", 0)))
-		if batch_quantity <= 0:
-			continue
 		var species := str(batch.get("species", ""))
 		var selected := _selected_sale_quantity_for_batch(i)
 		var unit_price: int = max(0, int(market_prices[species]) + delta_per_fish)
-		rows.add_child(_sell_batch_card_unit(i, species, int(batch.get("age", 0)), batch_quantity, selected, unit_price))
+		var unit := _sell_batch_card_unit(i, species, int(batch.get("age", 0)), batch_quantity, selected, unit_price)
+		rows.add_child(unit)
+		units[i] = unit
+	ui["sell_units"] = units
+	for i in order:
+		_update_sell_unit(i, false)
 
 
 func _refresh_sell_selection_summary(delta_per_fish: int) -> void:
@@ -5948,14 +6149,16 @@ func _refresh_sell_selection_summary(delta_per_fish: int) -> void:
 		haggle.disabled = selected_count <= 0
 
 
-func _on_sell_batch_toggled(enabled: bool, batch_index: int) -> void:
+func _on_sell_batch_card_tapped(batch_index: int) -> void:
 	if not pending_haggle.is_empty():
 		return  # selection is locked once the haggle dice is rolling
 	if batch_index < 0 or batch_index >= live_well.size():
 		return
 	var batch: Dictionary = live_well[batch_index]
-	sale_selection[batch_index] = max(0, int(batch.get("quantity", 0))) if enabled else 0
-	_populate_sell_selection_rows(0)
+	var enable := _selected_sale_quantity_for_batch(batch_index) <= 0
+	sale_selection[batch_index] = max(0, int(batch.get("quantity", 0))) if enable else 0
+	_play_sfx("tap" if enable else "tap_cancel")
+	_update_sell_unit(batch_index)
 	_refresh_sell_selection_summary(0)
 
 
@@ -5968,7 +6171,7 @@ func _adjust_sale_batch_quantity(batch_index: int, delta: int) -> void:
 	var batch_quantity: int = max(0, int(batch.get("quantity", 0)))
 	var selected: int = _selected_sale_quantity_for_batch(batch_index)
 	sale_selection[batch_index] = min(batch_quantity, max(0, selected + delta))
-	_populate_sell_selection_rows(0)
+	_update_sell_unit(batch_index)
 	_refresh_sell_selection_summary(0)
 
 
