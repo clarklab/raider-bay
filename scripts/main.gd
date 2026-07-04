@@ -867,7 +867,7 @@ func _build_sfx_pool() -> void:
 
 # Round-robin one-shot pool with a small per-sound throttle so simultaneous
 # triggers (e.g. an X press that also closes a popup) don't phase-stack.
-func _play_sfx(sfx: String, volume_offset_db: float = 0.0, pitch: float = 1.0) -> AudioStreamPlayer:
+func _play_sfx(sfx: String, volume_offset_db: float = 0.0, pitch: float = 1.0, throttle_ms: int = 70) -> AudioStreamPlayer:
 	if sfx_players.is_empty() or not SFX_STREAMS.has(sfx):
 		return null
 	# Pre-gesture the browser AudioContext is suspended; a one-shot queued now
@@ -875,7 +875,7 @@ func _play_sfx(sfx: String, volume_offset_db: float = 0.0, pitch: float = 1.0) -
 	if OS.has_feature("web") and not sfx_gesture_seen:
 		return null
 	var now := Time.get_ticks_msec()
-	if sfx_last_played_ms.has(sfx) and now - int(sfx_last_played_ms[sfx]) < 70:
+	if sfx_last_played_ms.has(sfx) and now - int(sfx_last_played_ms[sfx]) < throttle_ms:
 		return null
 	sfx_last_played_ms[sfx] = now
 	var player := sfx_players[sfx_pool_index % sfx_players.size()]
@@ -2390,7 +2390,7 @@ func _deal_board_cards() -> void:
 		tween.tween_interval(float(rank) * per_card)
 		if rank % 6 == 0:
 			# A soft ascending riffle as the hand sweeps out.
-			tween.tween_callback(_play_catch_plonk.bind(mini(rank / 6, 6)))
+			tween.tween_callback(_play_sfx.bind("card_slide", -8.0, 1.0 + 0.008 * float(rank), 35))
 		tween.tween_property(btn, "modulate:a", 1.0, 0.12)
 		tween.parallel().tween_property(btn, "position", home, flight).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		tween.parallel().tween_property(btn, "scale", Vector2.ONE, flight).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
@@ -3685,6 +3685,7 @@ func _purchase_selected_upgrade() -> void:
 
 # Celebratory pop for a card that is already face-up.
 func _pop_upgrade_card(front: Control, level: int, cost: int) -> void:
+	_play_sfx("card_flip")
 	_play_catch_plonk(1)
 	front.pivot_offset = front.size * 0.5
 	var pop := front.create_tween()
@@ -8226,9 +8227,7 @@ func _bloom_fan_options() -> Dictionary:
 		"card_inner_margin": 7,
 		"corner_style": "none",
 		"shadow_offset": Vector2(10, 16),
-		"shadow_alpha_min": 0.12,
-		"shadow_alpha_max": 0.38,
-		"shadow_spacing": 11,
+		"shadow_alpha": 0.34,
 		"label_font_size": 36,
 		"label_border": 2,
 		"label_radius": 10,
@@ -8497,6 +8496,7 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 			plonk_sched.tween_callback(func():
 				if token != catch_card_token:
 					return
+				_play_sfx("card_slide", -4.0, 1.0 + 0.03 * float(pidx))
 				if is_bonus:
 					# Bonus cards land with their own brighter cue.
 					_play_catch_plonk(5)
@@ -8926,26 +8926,25 @@ func _add_halftone_card_shadow(card: Control, card_size: Vector2, options: Dicti
 	shadow.position = options.get("shadow_offset", Vector2(13, 15))
 	shadow.size = card_size
 	shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(shadow)
 
-	var spacing := int(options.get("shadow_spacing", 12))
-	var dot_size := int(options.get("shadow_dot_size", 4))
-	var alpha_min := float(options.get("shadow_alpha_min", 0.18))
-	var alpha_max := float(options.get("shadow_alpha_max", 0.52))
-	for y in range(10, int(card_size.y) + 28, spacing):
-		for x in range(10, int(card_size.x) + 26, spacing):
-			var grid_sum := int(x / spacing) + int(y / spacing)
-			if grid_sum % 2 != 0:
-				continue
-			var diagonal := (float(x) / maxf(card_size.x, 1.0) + float(y) / maxf(card_size.y, 1.0)) * 0.5
-			if diagonal < 0.25:
-				continue
-			var dot := ColorRect.new()
-			dot.color = _with_alpha(Color("#00152d"), lerpf(alpha_min, alpha_max, clampf(diagonal, 0.0, 1.0)))
-			dot.position = Vector2(x, y)
-			dot.size = Vector2(dot_size, dot_size)
-			dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			shadow.add_child(dot)
+	# A proper halftone screen: square pixel dots on a staggered (45-degree)
+	# lattice at uniform size and alpha — tight and organized, not scattered.
+	var spacing := float(options.get("shadow_spacing", 7.0))
+	var dot := float(options.get("shadow_dot_size", 3.0))
+	var col := _with_alpha(Color("#00152d"), float(options.get("shadow_alpha", 0.4)))
+	var w := card_size.x
+	var h := card_size.y
+	shadow.draw.connect(func() -> void:
+		var row := 0
+		var y := 0.0
+		while y <= h - dot:
+			var x := spacing * 0.5 if row % 2 == 1 else 0.0
+			while x <= w - dot:
+				shadow.draw_rect(Rect2(x, y, dot, dot), col)
+				x += spacing
+			y += spacing * 0.5
+			row += 1)
+	card.add_child(shadow)
 
 
 func _add_card_badge(card: Control, card_size: Vector2, text: String, accent: Color, options: Dictionary = {}) -> void:
