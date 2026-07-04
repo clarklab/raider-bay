@@ -1528,7 +1528,6 @@ func _build_arched_title(parent: Control, text: String, center_x: float, base_y:
 func _play_title_intro() -> void:
 	title_ebb_active = false
 	title_ebb_time = 0.0
-	_play_sfx("title_slam")
 	for i in range(title_letters.size()):
 		var e = title_letters[i]
 		var g: Control = e["node"]
@@ -1548,6 +1547,9 @@ func _play_title_intro() -> void:
 		var t := g.create_tween()
 		g.set_meta("intro_tween", t)
 		t.tween_interval(float(i) * 0.08)
+		# Every letter hits with its own slam, stepping up in pitch (40ms
+		# throttle: the 80ms stagger must never be swallowed by the default).
+		t.tween_callback(_play_sfx.bind("title_slam", -2.0, 1.0 + 0.03 * float(i), 40))
 		t.tween_property(g, "modulate:a", 1.0, 0.05)
 		t.parallel().tween_property(g, "scale", Vector2(1.2, 1.2), 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		t.parallel().tween_property(g, "rotation_degrees", base_rot, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
