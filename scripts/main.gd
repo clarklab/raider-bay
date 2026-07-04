@@ -2481,9 +2481,11 @@ func _draw_squarestep_card(parent: Control, card_size: Vector2, fill: Color, bor
 	var shell := Control.new()
 	shell.size = card_size
 	shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var outer_steps := int(m["steps"])
+	var inner_steps := int(m["inner_steps"])
 	shell.draw.connect(func() -> void:
-		_draw_stepped_slab(shell, 0.0, 0.0, w, h, s, border_color)
-		shell.draw_rect(Rect2(b, b, w - 2.0 * b, h - 2.0 * b), fill))
+		_draw_stepped_slab(shell, 0.0, 0.0, w, h, s, border_color, outer_steps)
+		_draw_stepped_slab(shell, b, b, w - 2.0 * b, h - 2.0 * b, s, fill, inner_steps))
 	parent.add_child(shell)
 
 
@@ -3828,14 +3830,16 @@ func _build_store_card_visual(key: String, level: int, face_up: bool, card_size:
 	var inner_size := Vector2(card_size.x - inner * 2.0, card_size.y - inner * 2.0)
 	if face_up:
 		if full_tex != null:
-			var face := _gallery_face(full_tex)
+			var smm := _card_shell_metrics(card_size)
+			var face := _gallery_face(full_tex, float(smm["step"]), int(smm["inner_steps"]))
 			face.position = Vector2(inner, inner)
 			face.size = inner_size
 			card.add_child(face)
 		else:
 			_add_generated_upgrade_card_face(card, key, level, Rect2(Vector2(inner, inner), inner_size), options)
 	else:
-		var back := _gallery_face(CARD_BACK_TEXTURE)
+		var bmm := _card_shell_metrics(card_size)
+		var back := _gallery_face(CARD_BACK_TEXTURE, float(bmm["step"]), int(bmm["inner_steps"]))
 		back.position = Vector2(inner, inner)
 		back.size = inner_size
 		card.add_child(back)
@@ -3853,18 +3857,20 @@ func _card_shell_metrics(card_size: Vector2) -> Dictionary:
 	# Keyed on the shorter side so wide strips (the dock) stay in proportion.
 	var b := maxi(3, roundi(minf(card_size.x, card_size.y) * 0.055))  # white border
 	var o := maxi(1, roundi(float(b) * 0.35))      # dark outline stroke
-	var s := maxi(2, roundi(float(b) * 0.55))      # corner step unit (2 rows)
-	return {"outline": o, "border": b, "step": s, "inset": o + b}
+	var s := maxi(2, roundi(float(b) * 0.37))      # corner step unit
+	# Outer edge rounds over 3 chunks; the border's inner edge over 2, so the
+	# white frame follows one continuous radius on BOTH sides.
+	return {"outline": o, "border": b, "step": s, "inset": o + b, "steps": 3, "inner_steps": 2}
 
 
 # One filled slab with a stepped-corner silhouette (two corner rows of `s`,
 # square below). All edges land on the same computed values — no seams.
-func _draw_stepped_slab(ci: Control, x: float, y: float, w: float, h: float, s: float, color: Color) -> void:
-	ci.draw_rect(Rect2(x + 2.0 * s, y, w - 4.0 * s, s), color)
-	ci.draw_rect(Rect2(x + s, y + s, w - 2.0 * s, s), color)
-	ci.draw_rect(Rect2(x, y + 2.0 * s, w, h - 4.0 * s), color)
-	ci.draw_rect(Rect2(x + s, y + h - 2.0 * s, w - 2.0 * s, s), color)
-	ci.draw_rect(Rect2(x + 2.0 * s, y + h - s, w - 4.0 * s, s), color)
+func _draw_stepped_slab(ci: Control, x: float, y: float, w: float, h: float, s: float, color: Color, steps: int = 3) -> void:
+	for i in range(steps):
+		var inset := float(steps - i) * s
+		ci.draw_rect(Rect2(x + inset, y + float(i) * s, w - 2.0 * inset, s), color)
+		ci.draw_rect(Rect2(x + inset, y + h - float(i + 1) * s, w - 2.0 * inset, s), color)
+	ci.draw_rect(Rect2(x, y + float(steps) * s, w, h - 2.0 * float(steps) * s), color)
 
 
 # Draws the shell into ONE canvas item and returns the art inset: callers
@@ -3884,10 +3890,12 @@ func _add_squarestep_card_shell(card: Control, card_size: Vector2, fill: Color, 
 	var shell := Control.new()
 	shell.size = card_size
 	shell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var outer_steps := int(m["steps"])
+	var inner_steps := int(m["inner_steps"])
 	shell.draw.connect(func() -> void:
-		_draw_stepped_slab(shell, 0.0, 0.0, w, h, s, Color("#0a0e14"))
-		_draw_stepped_slab(shell, o, o, w - 2.0 * o, h - 2.0 * o, s, Color("#ffffff"))
-		shell.draw_rect(Rect2(t, t, w - 2.0 * t, h - 2.0 * t), fill))
+		_draw_stepped_slab(shell, 0.0, 0.0, w, h, s, Color("#0a0e14"), outer_steps)
+		_draw_stepped_slab(shell, o, o, w - 2.0 * o, h - 2.0 * o, s, Color("#ffffff"), outer_steps)
+		_draw_stepped_slab(shell, t, t, w - 2.0 * t, h - 2.0 * t, s, fill, inner_steps))
 	card.add_child(shell)
 	return t
 
@@ -8755,7 +8763,8 @@ func _build_result_card(card_texture: Texture2D, card_size: Vector2, badge_text:
 
 	var fill: Color = options.get("card_fill", Color("#011244"))
 	var m := _add_squarestep_card_shell(card, card_size, fill, options)
-	var face := _gallery_face(card_texture)
+	var mm := _card_shell_metrics(card_size)
+	var face := _gallery_face(card_texture, float(mm["step"]), int(mm["inner_steps"]))
 	face.position = Vector2(m, m)
 	face.size = Vector2(card_size.x - 2.0 * m, card_size.y - 2.0 * m)
 	card.add_child(face)
@@ -8769,18 +8778,43 @@ func _build_result_card(card_texture: Texture2D, card_size: Vector2, badge_text:
 # Four techniques for a lightly-rounded, pixel-square full card with an inner
 # white edge that follows the rounding. Preview via ?catch_preview=cardgallery.
 
-func _gallery_face(tex: Texture2D) -> TextureRect:
-	var face := TextureRect.new()
-	face.texture = tex
-	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	face.stretch_mode = TextureRect.STRETCH_SCALE
-	# Card illustrations are high-res sources downscaled 3-20x on screen —
-	# trilinear (mipmapped) sampling is what keeps them from shimmering.
-	# Card imports set mipmaps/generate=true + size_limit=1024 to match.
-	face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+func _gallery_face(tex: Texture2D, notch: float = 0.0, notch_steps: int = 2) -> Control:
+	if notch <= 0.0:
+		var flat := TextureRect.new()
+		flat.texture = tex
+		flat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		flat.stretch_mode = TextureRect.STRETCH_SCALE
+		# Card illustrations are high-res sources downscaled 3-20x on screen —
+		# trilinear (mipmapped) sampling is what keeps them from shimmering.
+		# Card imports set mipmaps/generate=true + size_limit=1024 to match.
+		flat.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		flat.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		flat.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		flat.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		return flat
+	# Notched: draw the art as horizontal strips whose corners step in with the
+	# card border's inner radius, so the white frame rounds on BOTH edges.
+	var face := Control.new()
 	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	face.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	face.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	face.resized.connect(face.queue_redraw)
+	face.draw.connect(func() -> void:
+		var fw := face.size.x
+		var fh := face.size.y
+		if fw <= 2.0 * notch * float(notch_steps) or fh <= 2.0 * notch * float(notch_steps):
+			return
+		var ts := Vector2(float(tex.get_width()), float(tex.get_height()))
+		var sc := Vector2(ts.x / fw, ts.y / fh)
+		var strips: Array[Rect2] = []
+		for i in range(notch_steps):
+			var inset := float(notch_steps - i) * notch
+			strips.append(Rect2(inset, float(i) * notch, fw - 2.0 * inset, notch))
+			strips.append(Rect2(inset, fh - float(i + 1) * notch, fw - 2.0 * inset, notch))
+		strips.append(Rect2(0.0, float(notch_steps) * notch, fw, fh - 2.0 * float(notch_steps) * notch))
+		for r in strips:
+			face.draw_texture_rect_region(tex, r, Rect2(r.position * sc, r.size * sc)))
 	return face
 
 
@@ -10056,7 +10090,8 @@ func _weather_preview_front_card(weather: Dictionary, cw: float, ch: float) -> C
 		"show_shadow": true,
 		"shadow_offset": Vector2(10, 14),
 	})
-	var face := _gallery_face(meta["card"])
+	var wmm := _card_shell_metrics(Vector2(cw, ch))
+	var face := _gallery_face(meta["card"], float(wmm["step"]), int(wmm["inner_steps"]))
 	face.position = Vector2(frame, frame)
 	face.size = Vector2(cw - frame * 2.0, ch - frame * 2.0)
 	holder.add_child(face)
@@ -10099,7 +10134,8 @@ func _weather_preview_back_card(cw: float, ch: float) -> Control:
 		"show_shadow": true,
 		"shadow_offset": Vector2(10, 14),
 	})
-	var back := _gallery_face(CARD_BACK_TEXTURE)
+	var kmm := _card_shell_metrics(Vector2(cw, ch))
+	var back := _gallery_face(CARD_BACK_TEXTURE, float(kmm["step"]), int(kmm["inner_steps"]))
 	back.position = Vector2(frame, frame)
 	back.size = Vector2(cw - frame * 2.0, ch - frame * 2.0)
 	holder.add_child(back)
