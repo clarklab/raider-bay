@@ -32,10 +32,17 @@ jobs:
         timeout-minutes: 8
         run: bash scripts/build-web.sh
 
+      - name: Assemble site (landing page at /, game at /play/)
+        run: |
+          mkdir -p public/play
+          cp -r site/. public/
+          rm -f public/.gdignore
+          cp -r builds/web/. public/play/
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: builds/web
+          path: public
 
   deploy:
     name: Deploy GitHub Pages
