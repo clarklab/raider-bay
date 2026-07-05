@@ -210,6 +210,11 @@ const SOUND_REEL_STREAM: AudioStream = preload("res://assets/sound-reel.mp3")
 const SOUND_BONK_STREAM: AudioStream = preload("res://assets/sound-bonk.mp3")
 const SOUND_CATCH_STREAM: AudioStream = preload("res://assets/sound-catch.mp3")
 
+# Update channel: newest release metadata + the constant-name APK asset the
+# release workflow uploads, so this link always serves the latest build.
+const UPDATE_RELEASE_API := "https://api.github.com/repos/clarklab/raider-bay/releases/latest"
+const UPDATE_DOWNLOAD_URL := "https://github.com/clarklab/raider-bay/releases/latest/download/raider-bay.apk"
+
 # One-shot UI/event sounds (assets/sounds). Played via _play_sfx on the master
 # bus, so the title-screen MUTE toggle silences them with everything else.
 const SFX_STREAMS: Dictionary = {
@@ -510,6 +515,64 @@ func _ready() -> void:
 	_schedule_catch_preview_from_query()
 	_schedule_deck_preview_from_query()
 	_maybe_show_first_run_training()
+	get_tree().create_timer(2.0).timeout.connect(_maybe_check_for_update)
+
+
+
+# Sideloaded Android builds don't self-update, so the title screen offers the
+# newest release when GitHub has one. CI stamps application/config/version from
+# the tag; local "dev" builds never nag. Web debug hook: ?update_preview forces
+# the check (the web build itself always ships current, so it's excluded).
+var update_check_started: bool = false
+
+func _maybe_check_for_update() -> void:
+	var forced := OS.has_feature("web") and str(JavaScriptBridge.eval("window.location.search", true)).find("update_preview") != -1
+	if not (OS.has_feature("android") or forced):
+		return
+	if update_check_started:
+		return
+	update_check_started = true
+	var current := str(ProjectSettings.get_setting("application/config/version", "dev"))
+	if forced:
+		current = "0.0.1"
+	if current.is_empty() or not current[0].is_valid_int():
+		return
+	var req := HTTPRequest.new()
+	req.timeout = 10.0
+	add_child(req)
+	req.request_completed.connect(func(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+		req.queue_free()
+		if code != 200:
+			return
+		var parsed: Variant = JSON.parse_string(body.get_string_from_utf8())
+		if not (parsed is Dictionary):
+			return
+		var latest := str((parsed as Dictionary).get("tag_name", "")).trim_prefix("v")
+		if latest.is_empty() or latest == current:
+			return
+		_show_update_chip(latest))
+	# No custom User-Agent: browsers forbid it and the web fetch would fail.
+	# Native builds send the engine UA, which GitHub accepts.
+	req.request(UPDATE_RELEASE_API, ["Accept: application/vnd.github+json"])
+
+
+func _show_update_chip(latest: String) -> void:
+	if not ui.has("start_overlay") or ui.has("update_chip"):
+		return
+	var overlay := ui["start_overlay"] as Control
+	var chip := _flat_button("GET UPDATE v%s" % latest, 0, 56, GOLD, Color("#3a2a00"), 22, 14)
+	chip.pressed.connect(func() -> void: OS.shell_open(UPDATE_DOWNLOAD_URL))
+	var wrap := CenterContainer.new()
+	wrap.anchor_right = 1.0
+	var vp := get_viewport_rect().size
+	wrap.offset_top = vp.y * 0.87
+	wrap.offset_bottom = vp.y * 0.87 + 62.0
+	wrap.add_child(chip)
+	overlay.add_child(wrap)
+	ui["update_chip"] = wrap
+	wrap.modulate = Color(1, 1, 1, 0)
+	var t := wrap.create_tween()
+	t.tween_property(wrap, "modulate:a", 1.0, 0.3)
 
 
 # First boot ever: open DECK TRAINING over the title so new players learn the
