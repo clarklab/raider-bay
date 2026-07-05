@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raider Bay — cold water, big fish, bigger money</title>
+<meta name="description" content="Raider Bay is a pixel-art fishing board game. One boat, one short season, and a bay stacked with the richest fishing grounds in the north. Play free online or grab the Android APK.">
+<meta property="og:title" content="Raider Bay">
+<meta property="og:description" content="Cold water, big fish, bigger money. A pixel-art fishing board game — play free in your browser or on Android.">
+<meta property="og:image" content="assets/screenshot.webp">
+<link rel="icon" href="assets/icon.webp">
+<link rel="apple-touch-icon" href="assets/icon.webp">
+<style>
+  @font-face {
+    font-family: "Balatro";
+    src: url("assets/Balatro.otf") format("opentype");
+    font-display: swap;
+  }
+  :root {
+    --navy: #0a1024;
+    --panel: #14203a;
+    --panel-light: #1d2c4e;
+    --ink: #10131a;
+    --gold: #fcba00;
+    --gold-ink: #3a2a00;
+    --green: #84ed72;
+    --cyan: #8ad2f0;
+    --red: #fc6060;
+    --text: #eaf2ff;
+    --muted: #a3bccd;
+    --frame: #fcfcfc;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body::before {
+    /* Fixed backdrop div-style: background-attachment:fixed is janky in some
+       mobile browsers, a fixed pseudo-element paints reliably everywhere. */
+    content: "";
+    position: fixed; inset: 0; z-index: -1;
+    background: var(--navy) url("assets/bg.webp") center / cover no-repeat;
+  }
+  body {
+    background: var(--navy);
+    color: var(--text);
+    font-family: "Balatro", "Courier New", monospace;
+    letter-spacing: 0.02em;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+
+  /* ── Hero ── */
+  header { text-align: center; padding: 64px 0 40px; }
+  .app-icon {
+    width: 128px; height: 128px; border-radius: 28px;
+    border: 4px solid var(--frame);
+    box-shadow: 0 10px 0 rgba(0, 0, 0, 0.35);
+    image-rendering: -webkit-optimize-contrast;
+  }
+  h1 {
+    font-size: clamp(52px, 9vw, 92px);
+    line-height: 0.95;
+    margin: 26px 0 10px;
+    color: var(--text);
+    text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45);
+    letter-spacing: 0.03em;
+  }
+  .tagline {
+    font-size: clamp(19px, 3vw, 26px);
+    color: var(--cyan);
+    margin-bottom: 42px;
+  }
+
+  /* ── Store tiles ── */
+  .stores {
+    display: flex; gap: 22px; justify-content: center; flex-wrap: wrap;
+    margin-bottom: 26px;
+  }
+  .store-tile {
+    display: flex; align-items: center; gap: 16px;
+    background: var(--panel);
+    border: 3px solid var(--frame);
+    border-radius: 18px;
+    padding: 16px 26px 16px 16px;
+    min-width: 280px;
+    text-align: left;
+    text-decoration: none;
+    color: var(--text);
+    box-shadow: 0 8px 0 rgba(0, 0, 0, 0.35);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  a.store-tile:hover { transform: translateY(-3px); box-shadow: 0 11px 0 rgba(0, 0, 0, 0.35); }
+  a.store-tile:active { transform: translateY(2px); box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35); }
+  .store-tile img { width: 64px; height: 64px; border-radius: 14px; border: 2px solid var(--frame); }
+  .store-tile .small { display: block; font-size: 14px; color: var(--muted); letter-spacing: 0.08em; }
+  .store-tile .big { display: block; font-size: 24px; margin-top: 2px; }
+  .store-tile .ver { display: block; font-size: 13px; color: var(--green); margin-top: 3px; min-height: 15px; }
+  .store-tile.ios {
+    position: relative;
+    opacity: 0.55;
+    filter: saturate(0.35);
+    border-style: dashed;
+    box-shadow: none;
+    cursor: default;
+  }
+  .store-tile.ios img { opacity: 0.55; filter: grayscale(0.6); }
+  .store-tile.ios .soon {
+    position: absolute; top: -12px; right: -10px;
+    background: var(--gold); color: var(--gold-ink);
+    font-size: 13px; letter-spacing: 0.1em;
+    padding: 4px 10px 3px; border-radius: 9px;
+    transform: rotate(3deg);
+    opacity: 1; filter: none;
+    box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+  }
+
+  /* ── Play button ── */
+  .play-row { text-align: center; margin-bottom: 10px; }
+  .play-btn {
+    display: inline-block;
+    background: var(--gold); color: var(--gold-ink);
+    font-family: inherit;
+    font-size: clamp(24px, 4vw, 32px);
+    letter-spacing: 0.06em;
+    text-decoration: none;
+    padding: 20px 54px 18px;
+    border-radius: 18px;
+    box-shadow: 0 9px 0 rgba(0, 0, 0, 0.4);
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  }
+  .play-btn:hover { background: #ffd23e; transform: translateY(-3px); box-shadow: 0 12px 0 rgba(0, 0, 0, 0.4); }
+  .play-btn:active { transform: translateY(3px); box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4); }
+  .play-note { font-size: 15px; color: var(--muted); margin-top: 14px; }
+
+  /* ── Pitch ── */
+  section { padding: 46px 0 8px; }
+  .pitch {
+    background: rgba(10, 16, 36, 0.82);
+    border: 3px solid var(--panel-light);
+    border-radius: 22px;
+    padding: 34px 34px 30px;
+    margin-top: 48px;
+  }
+  .pitch p.lede {
+    font-size: clamp(19px, 2.6vw, 24px);
+    line-height: 1.5;
+    color: var(--text);
+    text-align: center;
+    max-width: 780px;
+    margin: 0 auto;
+  }
+  .pitch p.lede .hl { color: var(--gold); }
+
+  .features {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px; margin-top: 34px;
+  }
+  .feature {
+    background: var(--panel);
+    border: 3px solid var(--frame);
+    border-radius: 18px;
+    padding: 22px;
+    text-align: center;
+    box-shadow: 0 7px 0 rgba(0, 0, 0, 0.35);
+  }
+  .feature img { width: 96px; height: 96px; object-fit: cover; margin-bottom: 10px; border-radius: 14px; border: 2px solid var(--panel-light); }
+  .feature h3 { font-size: 22px; margin-bottom: 8px; }
+  .feature h3.gold { color: var(--gold); }
+  .feature h3.cyan { color: var(--cyan); }
+  .feature h3.green { color: var(--green); }
+  .feature p { font-size: 15.5px; line-height: 1.5; color: var(--muted); }
+
+  /* ── Screenshot ── */
+  .shot {
+    margin: 54px auto 0;
+    text-align: center;
+  }
+  .shot img {
+    width: 100%; max-width: 900px;
+    border: 4px solid var(--frame);
+    border-radius: 18px;
+    box-shadow: 0 12px 0 rgba(0, 0, 0, 0.4);
+  }
+  .shot figcaption { font-size: 15px; color: var(--muted); margin-top: 14px; }
+
+  /* ── Footer ── */
+  footer {
+    text-align: center;
+    padding: 56px 0 44px;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  footer a { color: var(--cyan); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img class="app-icon" src="assets/icon.webp" alt="Raider Bay app icon" width="128" height="128">
+      <h1>RAIDER BAY</h1>
+      <p class="tagline">Cold water, big fish, bigger money.</p>
+
+      <div class="stores">
+        <a class="store-tile" href="https://github.com/clarklab/raider-bay/releases/latest/download/raider-bay.apk">
+          <img src="assets/icon.webp" alt="" width="64" height="64">
+          <span>
+            <span class="small">DOWNLOAD FOR</span>
+            <span class="big">Android</span>
+            <span class="ver" id="apk-version"></span>
+          </span>
+        </a>
+        <span class="store-tile ios" aria-label="iOS version coming soon">
+          <img src="assets/icon.webp" alt="" width="64" height="64">
+          <span>
+            <span class="small">IN THE WORKS</span>
+            <span class="big">iOS</span>
+            <span class="ver"></span>
+          </span>
+          <span class="soon">COMING SOON</span>
+        </span>
+      </div>
+
+      <div class="play-row">
+        <a class="play-btn" href="play/">PLAY ONLINE NOW</a>
+        <p class="play-note">Free in your browser · nothing to install · works on your phone</p>
+      </div>
+    </header>
+
+    <section>
+      <div class="pitch">
+        <p class="lede">
+          You're a captain in <span class="hl">Raider Bay, Alaska</span> — one boat, one
+          short season, and a bay stacked with the richest fishing grounds in the north.
+          Every square of water is a face-down card. Scan it, cast on it, and haul up
+          whatever bites.
+        </p>
+
+        <div class="features">
+          <div class="feature">
+            <img src="assets/fish-tuna.webp" alt="Pixel-art tuna">
+            <h3 class="cyan">FISH THE DECK</h3>
+            <p>The bay is a deck of cards. Deep water hides the biggest, most valuable
+               fish — but it's a long sail home to the docks before your catch spoils.</p>
+          </div>
+          <div class="feature">
+            <img src="assets/fish-swordish.webp" alt="Pixel-art swordfish">
+            <h3 class="gold">BEAT THE WEATHER</h3>
+            <p>Rain fattens the haul. Squalls and hurricanes batter your hull. Read the
+               forecast, roll the die, and decide when it's worth staying out.</p>
+          </div>
+          <div class="feature">
+            <img src="assets/fish-salmon.webp" alt="Pixel-art salmon">
+            <h3 class="green">SELL HIGH</h3>
+            <p>Market prices drift every night. Haggle for a better cut, bank trophies for
+               ten-fish hauls, and spend it all on a faster, greedier boat.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <figure class="shot">
+      <img src="assets/screenshot.webp" alt="Raider Bay gameplay: the card board, weather forecast, market prices and boat status" loading="lazy">
+      <figcaption>Fourteen days at sea. Make them count.</figcaption>
+    </figure>
+
+    <footer>
+      <p>Raider Bay is free and <a href="https://github.com/clarklab/raider-bay">open on GitHub</a>.
+         Android updates arrive in-game — install once, stay current.</p>
+    </footer>
+  </div>
+
+  <script>
+    // Version tag on the Android tile; silent if the API is unreachable.
+    fetch("https://api.github.com/repos/clarklab/raider-bay/releases/latest")
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.tag_name) {
+          document.getElementById("apk-version").textContent = j.tag_name + " · free";
+        }
+      })
+      .catch(function () {});
+  </script>
+</body>
+</html>
