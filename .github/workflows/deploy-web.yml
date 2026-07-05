@@ -6,13 +6,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: web-pages
+  group: web-deploy
   cancel-in-progress: true
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
@@ -43,19 +41,32 @@ jobs:
           UNFURL='<meta property="og:title" content="Raider Bay"><meta property="og:description" content="Cold water, big fish, bigger money. A pixel-art fishing board game - play free in your browser."><meta property="og:type" content="website"><meta property="og:url" content="https://raiderbay.superfun.games/play/"><meta property="og:image" content="https://raiderbay.superfun.games/assets/unfurl.jpg"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://raiderbay.superfun.games/assets/unfurl.jpg">'
           perl -0pi -e "s|<head>|<head>\n$UNFURL|" public/play/index.html
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
         with:
+          name: site
           path: public
+          retention-days: 7
 
   deploy:
-    name: Deploy GitHub Pages
+    name: Deploy to Netlify
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    timeout-minutes: 10
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Download site artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: public
+
+      - name: Deploy to Netlify
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          npx --yes netlify-cli@17 deploy --prod --no-build \
+            --dir public \
+            --site "$NETLIFY_SITE_ID" \
+            --auth "$NETLIFY_AUTH_TOKEN" \
+            --message "deploy ${GITHUB_SHA::7}"
