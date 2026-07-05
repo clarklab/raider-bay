@@ -51,6 +51,7 @@ jobs:
           export VERSION_NAME="$version_name"
           perl -0pi -e 's/version\/code=\d+/version\/code=$ENV{GITHUB_RUN_NUMBER}/' export_presets.cfg
           perl -0pi -e 's/version\/name="[^"]+"/version\/name="$ENV{VERSION_NAME}"/' export_presets.cfg
+          perl -0pi -e 's/config\/version="[^"]*"/config\/version="$ENV{VERSION_NAME}"/' project.godot
           grep -E 'version/(code|name)=|launcher_icons/main_192x192=' export_presets.cfg
 
       - name: Build APK
@@ -79,12 +80,16 @@ jobs:
         with:
           name: raider-bay-debug
 
-      - name: Rename APK with version
-        run: mv raider-bay.apk raider-bay-${{ github.ref_name }}.apk
+      - name: Copy APK to versioned name
+        run: cp raider-bay.apk raider-bay-${{ github.ref_name }}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: Raider Bay ${{ github.ref_name }}
           generate_release_notes: true
-          files: raider-bay-${{ github.ref_name }}.apk
+          # raider-bay.apk keeps a constant name so
+          # releases/latest/download/raider-bay.apk is an evergreen link.
+          files: |
+            raider-bay-${{ github.ref_name }}.apk
+            raider-bay.apk
