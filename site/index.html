@@ -182,12 +182,13 @@
     margin: 54px auto 0;
     text-align: center;
   }
-  .shot img {
+  .shot img, .shot video {
     width: 100%; max-width: 900px;
     border: 4px solid var(--frame);
     border-radius: 18px;
     box-shadow: 0 12px 0 rgba(0, 0, 0, 0.4);
   }
+  .shot video { display: block; margin: 0 auto; background: #000; }
   .shot figcaption { font-size: 15px; color: var(--muted); margin-top: 14px; }
 
   /* ── Footer ── */
@@ -199,6 +200,7 @@
   }
   footer a { color: var(--cyan); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
+  footer .credit { margin-top: 18px; font-size: 13px; opacity: 0.7; }
 </style>
 </head>
 <body>
@@ -267,13 +269,16 @@
     </section>
 
     <figure class="shot">
-      <img src="assets/screenshot.webp" alt="Raider Bay gameplay: the card board, weather forecast, market prices and boat status" loading="lazy">
+      <video src="assets/gameplay.mp4" poster="assets/screenshot.webp"
+             autoplay muted loop playsinline preload="metadata"
+             aria-label="Raider Bay gameplay: leaving the docks, hauling in catches, and selling the day's fish at the market"></video>
       <figcaption>Fourteen days at sea. Make them count.</figcaption>
     </figure>
 
     <footer>
       <p>Raider Bay is free and <a href="https://github.com/clarklab/raider-bay">open on GitHub</a>.
          Android updates arrive in-game — install once, stay current.</p>
+      <p class="credit">Original concept by Chase and Zach of Setti Games.</p>
     </footer>
   </div>
 
