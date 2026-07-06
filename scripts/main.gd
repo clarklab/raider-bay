@@ -514,9 +514,175 @@ func _ready() -> void:
 	set_process(true)
 	_schedule_catch_preview_from_query()
 	_schedule_deck_preview_from_query()
+	# Promo/demo capture: `-- --autoplay` drives a full scripted playthrough for
+	# Movie Maker recording. Inert in every normal launch; suppresses the training
+	# and update overlays so nothing covers the reel.
+	if OS.get_cmdline_user_args().has("--autoplay"):
+		_start_autopilot()
+		return
 	_maybe_show_first_run_training()
 	get_tree().create_timer(2.0).timeout.connect(_maybe_check_for_update)
 
+
+# ────────────────────────────────────────────────────────────────────────
+# Autopilot — a scripted solo playthrough for promo/landing capture. Enabled
+# only by `-- --autoplay` on the command line (see _ready). It drives the REAL
+# gameplay functions with paced awaits, so the recording is genuine play, not a
+# mockup. RNG is pinned to AUTOPILOT_SEED for a reproducible "good take".
+# ────────────────────────────────────────────────────────────────────────
+
+const AUTOPILOT_SEED := 20260706
+const AUTOPILOT_DAYS := 4
+var autopilot := false
+
+func _start_autopilot() -> void:
+	autopilot = true
+	seen_training = true  # never let the first-run training overlay cover the reel
+	rng.seed = AUTOPILOT_SEED   # gameplay RNG (board, catches, market, haggle, names)
+	seed(AUTOPILOT_SEED)        # global RNG (board-deal card scatter cosmetics)
+	call_deferred("_run_autopilot")
+
+
+func _ap_wait(seconds: float) -> void:
+	await get_tree().create_timer(seconds).timeout
+
+
+func _run_autopilot() -> void:
+	await _ap_wait(1.2)                       # beat on the title
+	_new_game(false)                          # opens Boat Setup
+	await _ap_wait(1.1)
+	_boat_setup_shuffle()                     # a die tumbles — setup flavor
+	await _ap_wait(1.4)
+	boat_choice = 0                           # boat #0: motor perk
+	_refresh_boat_carousel()
+	await _ap_wait(0.9)
+	_boat_setup_set_sail()                    # builds the game + deals the board
+	await _ap_wait(1.8)
+
+	# Equip a lively demo boat so every trip shows a finder ping AND a catch and
+	# has the moves to fish and get home in a single day.
+	upgrades["fish_finder"] = maxi(1, int(upgrades["fish_finder"]))
+	upgrades["motor"] = maxi(1, int(upgrades["motor"]))
+	_refresh_daily_actions(true)
+	_update_ui()
+	await _ap_wait(0.6)
+
+	for d in range(AUTOPILOT_DAYS):
+		if game_over:
+			break
+		await _ap_play_day(d)
+
+	await _ap_wait(1.8)
+	get_tree().quit()
+
+
+# One full catch → sell → end-day cycle.
+func _ap_play_day(day_index: int) -> void:
+	var target := _ap_best_fish_cell()
+	if target.x >= 0:
+		await _ap_move_to(target)
+	elif _is_docked():
+		await _ap_move_to(Vector2i(DOCK_COL, GRID_ROWS - 1))  # at least leave the dock
+	await _ap_wait(0.4)
+
+	if _can_find_here():
+		_find_fish()                          # finder card-fan
+		await _ap_wait(1.4)
+	if _can_attempt_cast_here():
+		_cast()                               # catch card-fan
+		await _ap_wait(1.9)
+
+	await _ap_dock()
+	await _ap_wait(0.5)
+
+	if _is_docked() and not live_well.is_empty():
+		_sell_catch()                         # opens the sell modal (all selected)
+		await _ap_wait(0.9)
+		if day_index % 2 == 1:
+			_haggle_sale()                    # dice roll + confetti / BONK
+			await _ap_wait(3.0)
+		else:
+			_confirm_sale()                   # straight SOLD
+			await _ap_wait(1.5)
+		await _ap_wait(1.0)
+		_close_sell_modal()
+		await _ap_wait(0.5)
+
+	_end_day()                                # weather resolve + day transition
+	await _ap_wait(2.1)
+
+
+# Nearest fishable fish tile we can reach AND still get home from this turn,
+# preferring closer and shallower (higher-row) water.
+func _ap_best_fish_cell() -> Vector2i:
+	var access := _ap_dock_access_cells()
+	var best := Vector2i(-1, -1)
+	var best_score := 1 << 30
+	for y in range(GRID_ROWS):
+		for x in range(GRID_COLS):
+			var idx := y * GRID_COLS + x
+			var tile: Dictionary = board[idx]
+			if str(tile["content"]) != "fish" or bool(tile["depleted"]):
+				continue
+			if cast_holes_today.has(idx):
+				continue
+			var cell := Vector2i(x, y)
+			var to_fish := _ap_cheb(boat_pos, cell)
+			var home := _ap_cheb(cell, _ap_nearest(access, cell)) + 1  # +1 to dock
+			if to_fish + home > moves_remaining:
+				continue
+			var score := to_fish * 2 + (GRID_ROWS - y)
+			if score < best_score:
+				best_score = score
+				best = cell
+	return best
+
+
+func _ap_dock_access_cells() -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for x in range(DOCK_ACCESS_START_COL, DOCK_ACCESS_END_COL + 1):
+		cells.append(Vector2i(x, GRID_ROWS - 1))
+	return cells
+
+
+func _ap_cheb(a: Vector2i, b: Vector2i) -> int:
+	return maxi(absi(a.x - b.x), absi(a.y - b.y))
+
+
+func _ap_nearest(cells: Array, from: Vector2i) -> Vector2i:
+	var best: Vector2i = cells[0]
+	var best_dist := 1 << 30
+	for c in cells:
+		var d := _ap_cheb(from, c)
+		if d < best_dist:
+			best_dist = d
+			best = c
+	return best
+
+
+# Diagonal-capable walk toward a sea cell, one step per beat, stopping if blocked
+# or out of moves.
+func _ap_move_to(target: Vector2i) -> void:
+	var guard := 0
+	while boat_pos != target and moves_remaining > 0 and guard < 16:
+		guard += 1
+		var prev := boat_pos
+		var d := target - boat_pos
+		_move(Vector2i(signi(d.x), signi(d.y)))
+		if boat_pos == prev:
+			break  # rejected (edge / rudder / dock rules) — don't spin
+		await _ap_wait(0.6)
+
+
+# Route back to the nearest dock mouth and dock.
+func _ap_dock() -> void:
+	if _is_docked():
+		return
+	var access := _ap_nearest(_ap_dock_access_cells(), boat_pos)
+	await _ap_move_to(access)
+	if _is_dock_access_cell(boat_pos) and moves_remaining > 0:
+		var dock_x := clampi(boat_pos.x, DOCK_START_COL, DOCK_END_COL)
+		_move(Vector2i(dock_x - boat_pos.x, 1))
 
 
 # Sideloaded Android builds don't self-update, so the title screen offers the
