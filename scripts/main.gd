@@ -683,7 +683,12 @@ func _schedule_catch_preview_from_query() -> void:
 	var species := _species_from_key(species_key)
 	var quantity: int = clampi(int(quantity_text) if quantity_text != "" else 4, 1, CATCH_CARD_MAX_DRAW)
 	var multiplier: int = max(1, int(multiplier_text) if multiplier_text != "" else 1)
-	call_deferred("_run_catch_preview", species, quantity, multiplier)
+	var dice_sign := 0
+	for part in query.split("&", false):
+		if part.begins_with("dice="):
+			dice_sign = clampi(int(part.trim_prefix("dice=")), -1, 1)
+			break
+	call_deferred("_run_catch_preview", species, quantity, multiplier, dice_sign)
 
 
 func _schedule_fan_preview(raw: String) -> bool:
@@ -741,11 +746,17 @@ func _schedule_finder_preview(raw: String) -> bool:
 	return true
 
 
-func _run_catch_preview(species: String, quantity: int, multiplier: int) -> void:
+func _run_catch_preview(species: String, quantity: int, multiplier: int, dice_sign: int = 0) -> void:
 	if ui.has("start_overlay"):
 		(ui["start_overlay"] as Control).visible = false
 	await get_tree().create_timer(0.35).timeout
-	_show_catch_card_fan(species, quantity, multiplier)
+	if dice_sign == 0:
+		_show_catch_card_fan(species, quantity, multiplier)
+		return
+	var droll := rng.randi_range(1, 6)
+	var delta := int(ceil(float(droll) / 2.0)) if dice_sign > 0 else -int(floor(float(droll - 1) / 2.0))
+	var final := maxi(1, quantity + delta)
+	_show_catch_card_fan(species, final, 1, Vector2(-1, -1), dice_sign, final - quantity, quantity)
 
 
 func _run_finder_preview(species: String, casts: int) -> void:
@@ -5245,16 +5256,16 @@ func _draw_weather() -> Dictionary:
 	if weather_deck.is_empty():
 		_build_weather_deck()
 	var w: Dictionary = weather_deck.pop_back()
-	# Roll the catch multiplier fresh each draw: rain boosts, squalls/hurricanes cut.
+	# The weather die replaced the old catch multiplier: good weather rolls a
+	# BONUS die at every catch (+1/+2/+3 fish), bad weather rolls a DANGER die
+	# (-0/-1/-2). Calm rolls nothing. The roll happens at catch time.
 	match str(w["name"]):
 		"Rain":
-			w["mult"] = rng.randf_range(1.1, 1.5)
-		"Squall":
-			w["mult"] = rng.randf_range(0.8, 0.95)
-		"Hurricane":
-			w["mult"] = rng.randf_range(0.6, 0.85)
+			w["dice"] = 1
+		"Squall", "Hurricane":
+			w["dice"] = -1
 		_:
-			w["mult"] = 1.0
+			w["dice"] = 0
 	return w
 
 
@@ -5532,21 +5543,29 @@ func _cast() -> void:
 		# Fish: roll d6 + nets, decrement casts on the hole.
 		var nets_bonus: int = int(upgrades["nets"]) if int(conditions["nets"]) > 0 else 0
 		var roll := rng.randi_range(1, CAST_DIE_SIDES)
-		var weather_mult: float = float(current_weather.get("mult", 1.0))
-		var weathered := int(ceil(float(roll) * weather_mult))
-		var amount: int = weathered + nets_bonus
 		var catch_base := roll + nets_bonus
-		var catch_extra := weathered - roll
+		# The weather die: rolled NOW so the game state resolves instantly; the
+		# card fan then stages the reveal (base cards → 3D die → outcome).
+		# Bonus die maps d6 → +1/+2/+3; danger die maps d6 → -0/-1/-2. A catch
+		# never drops below one fish.
+		var dice_sign := _weather_dice_sign(current_weather)
+		var dice_delta := 0
+		if dice_sign > 0:
+			dice_delta = int(ceil(float(rng.randi_range(1, 6)) / 2.0))
+		elif dice_sign < 0:
+			dice_delta = -int(floor(float(rng.randi_range(1, 6) - 1) / 2.0))
+		var amount: int = maxi(1, catch_base + dice_delta)
+		dice_delta = amount - catch_base  # post-clamp, so the reveal matches state
 		_stat_add("fish_caught", amount)
 		live_well.append({"species": tile["species"], "quantity": amount, "age": 0})
 		tile["casts_remaining"] = max(0, int(tile["casts_remaining"]) - 1)
 		if int(tile["casts_remaining"]) <= 0:
 			tile["depleted"] = true
 		var bonus_text := "" if nets_bonus == 0 else " (rolled %d + nets %d)" % [roll, nets_bonus]
-		if abs(weather_mult - 1.0) > 0.001:
-			bonus_text += " · %s x%.1f" % [str(current_weather.get("name", "weather")), weather_mult]
+		if dice_sign != 0:
+			bonus_text += " · %s die %+d" % [str(current_weather.get("name", "weather")), dice_delta]
 		_log("Caught %d %s%s." % [amount, str(tile["species"]), bonus_text])
-		_show_catch_card_fan(str(tile["species"]), amount, 1, catch_origin, weather_mult, catch_base, catch_extra)
+		_show_catch_card_fan(str(tile["species"]), amount, 1, catch_origin, dice_sign, dice_delta, catch_base)
 		cast_outcome = "catch"
 	_update_ui()
 	_animate_board_card_reveal(boat_pos)
@@ -7710,16 +7729,31 @@ func _pixel_die_texture() -> Texture2D:
 
 # BBCode effect blurb for the full-size weather card (uses tonight's strength).
 # {DIE} marks where the inline pixel d6 is dropped in by _set_weather_desc.
+# +1 for bonus-die weather, -1 for danger-die weather, 0 for Calm. Falls back
+# to the legacy numeric "mult" for weather dicts saved before the dice change.
+func _weather_dice_sign(weather: Dictionary) -> int:
+	if weather.is_empty():
+		return 0
+	if weather.has("dice"):
+		return int(weather["dice"])
+	var mult := float(weather.get("mult", 1.0))
+	if mult > 1.001:
+		return 1
+	if mult < 0.999:
+		return -1
+	return 0
+
+
 func _weather_effect_desc(weather: Dictionary) -> String:
 	var name := str(weather.get("name", "Calm"))
 	var s := int(weather.get("strength", 0))
 	match name:
 		"Rain":
-			return "Fish bite in the rain — a [color=#84ed72]richer haul[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and rough water [color=#fc6060]damages[/color] random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
+			return "Fish bite in the rain — every catch rolls a [color=#84ed72]bonus die: +1, +2 or +3 fish[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and rough water [color=#fc6060]damages[/color] random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
 		"Squall":
-			return "Choppy seas scatter the fish — a [color=#fc6060]leaner haul[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and you take [color=#fc6060]damage[/color] to random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
+			return "Choppy seas — every catch rolls a [color=#fc6060]danger die: -0, -1 or -2 fish[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and you take [color=#fc6060]damage[/color] to random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
 		"Hurricane":
-			return "The worst of the season — a [color=#fc6060]poor catch[/color] and [color=#fc6060]heavy damage[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and it wrecks random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
+			return "The worst of the season — every catch rolls a [color=#fc6060]danger die: -0, -1 or -2 fish[/color], plus [color=#fc6060]heavy damage[/color].\nRoll a {DIE} — below [color=#fcba00]%d[/color] and it wrecks random systems.\n[color=#5a7993]Safe at the docks.[/color]" % s
 		_:
 			return "Flat, quiet water — a [color=#8ad2f0]safe night[/color].\nNo storm damage, and your catch pays the usual rate."
 
@@ -8307,7 +8341,7 @@ func _bloom_fan_options() -> Dictionary:
 	}
 
 
-func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, origin_center: Vector2 = Vector2(-1, -1), weather_mult: float = 1.0, catch_base: int = 0, catch_extra: int = 0) -> void:
+func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, origin_center: Vector2 = Vector2(-1, -1), dice_sign: int = 0, dice_delta: int = 0, catch_base: int = 0) -> void:
 	var label := "+%d %s" % [quantity, species]
 	var opts := _bloom_fan_options()
 	opts["video_entrance"] = true
@@ -8322,21 +8356,14 @@ func _show_catch_card_fan(species: String, quantity: int, multiplier: int = 1, o
 	if multiplier > 1:
 		opts["mult_label"] = "X%d MULT" % multiplier
 		opts["mult_accent"] = GOLD
-	elif abs(weather_mult - 1.0) > 0.001:
-		# Weather mult: a "1.2X" pill plus the "base + extra" math breakdown.
-		opts["mult_label"] = "%.1fX" % weather_mult
-		opts["mult_accent"] = GREEN if weather_mult > 1.0 else RED
-		if catch_extra > 0:
-			opts["extra_label"] = "%d + %d EXTRA" % [catch_base, catch_extra]
-			opts["extra_accent"] = GREEN
-			# Show the base catch in the fan first, then pop the weather bonus on top.
-			fan_quantity = catch_base
-			opts["bonus_count"] = catch_extra
-			opts["bonus_label"] = "+%d EXTRA" % catch_extra
-			opts["bonus_accent"] = GOLD
-		elif catch_extra < 0:
-			opts["extra_label"] = "%d - %d" % [catch_base, -catch_extra]
-			opts["extra_accent"] = RED
+	elif dice_sign != 0:
+		# Weather die: fan the BASE catch first, then the 3D die rolls and the
+		# outcome adds bonus cards or takes cards away.
+		fan_quantity = catch_base
+		label = "+%d %s" % [catch_base, species]
+		opts["dice_sign"] = dice_sign
+		opts["dice_delta"] = dice_delta
+		opts["final_label"] = "+%d %s" % [quantity, species]
 	_show_card_result_fan(_fish_card_texture(species), fan_quantity, label, _species_accent(species), GREEN, "", Color(0, 0, 0, 0), origin_center, opts)
 
 
@@ -8495,8 +8522,14 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 
 	var viewport_size := get_viewport().get_visible_rect().size
 	var card_size := _catch_card_size(viewport_size) * float(options.get("card_size_scale", 1.0))
-	# The fan deals `base_count` cards, then any weather-bonus cards arrive as a second wave.
+	# The fan deals `base_count` cards, then any bonus cards arrive as a second
+	# wave. A pending weather die reserves its potential bonus slots up front.
+	var dice_sign: int = int(options.get("dice_sign", 0))
+	var dice_delta: int = int(options.get("dice_delta", 0))
+	var has_dice := dice_sign != 0
 	var bonus_count: int = maxi(0, int(options.get("bonus_count", 0)))
+	if has_dice:
+		bonus_count = maxi(0, dice_delta)
 	var base_count: int = mini(quantity, CATCH_CARD_MAX_DRAW)
 	var card_count: int = mini(quantity + bonus_count, CATCH_CARD_MAX_DRAW)
 	var actual_bonus: int = card_count - base_count
@@ -8589,7 +8622,7 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 		if m > 0:
 			driver.tween_interval(draw_stagger)
 		driver.tween_callback(deal_card.bind(m))
-	if actual_bonus > 0:
+	if actual_bonus > 0 and not has_dice:
 		if base_count > 0:
 			driver.tween_interval(bonus_gap)
 		# A clear "bonus" callout as the extra weather cards arrive.
@@ -8634,7 +8667,71 @@ func _show_card_result_fan(card_texture: Texture2D, quantity: int, total_label: 
 		total_delay = entrance_seconds + maxf(0.0, float(base_count - 1)) * draw_stagger + draw_seconds \
 			+ bonus_gap + maxf(0.0, float(actual_bonus - 1)) * bonus_stagger + draw_seconds \
 			+ float(options.get("total_pop_delay", CATCH_TOTAL_POP_DELAY))
-	_schedule_catch_total_bug(layer, total_label, total_accent, total_center, total_delay, token, options)
+	if not has_dice:
+		_schedule_catch_total_bug(layer, total_label, total_accent, total_center, total_delay, token, options)
+	else:
+		# The weather-die beat: base cards land → the 3D die tumbles → outcome
+		# pill → cards fly in (bonus) or away (danger) → the FINAL total slams.
+		var base_done := entrance_seconds + maxf(0.0, float(base_count - 1)) * draw_stagger + draw_seconds
+		var dice_sched := layer.create_tween()
+		dice_sched.tween_interval(base_done + 0.6)
+		dice_sched.tween_callback(func() -> void:
+			if token != catch_card_token:
+				return
+			_play_dice_roll(func() -> void:
+				if token != catch_card_token:
+					return
+				var pill_text := "WEATHER DIE  ±0"
+				var pill_accent := CYAN
+				if dice_delta > 0:
+					pill_text = "WEATHER DIE  +%d" % dice_delta
+					pill_accent = GREEN
+				elif dice_delta < 0:
+					pill_text = "WEATHER DIE  %d" % dice_delta
+					pill_accent = RED
+				var pill_center := total_center + Vector2(0, float(options.get("label_height", 74.0)) * 0.5 + 34.0)
+				var pill_opts := options.duplicate()
+				pill_opts["label_font_size"] = 30
+				pill_opts["label_height"] = 54.0
+				pill_opts["label_width_min"] = 250.0
+				pill_opts["label_hold"] = 1.8
+				pill_opts["label_scale_peak"] = 1.16
+				_schedule_catch_total_bug(layer, pill_text, pill_accent, pill_center, 0.0, token, pill_opts)
+				if dice_delta > 0:
+					_play_sfx("card_flip")
+				elif dice_delta < 0:
+					_play_bonk()
+				var settle := 0.5
+				if dice_delta > 0:
+					var wave := layer.create_tween()
+					wave.tween_interval(0.35)
+					for m in range(base_count, card_count):
+						if m > base_count:
+							wave.tween_interval(bonus_stagger)
+						wave.tween_callback(deal_card.bind(m))
+					settle = 0.35 + maxf(0.0, float(card_count - base_count - 1)) * bonus_stagger + draw_seconds + 0.2
+				elif dice_delta < 0:
+					var gone := mini(-dice_delta, base_count - 1)
+					var out := layer.create_tween()
+					out.tween_interval(0.35)
+					for i in range(gone):
+						out.tween_callback(_fly_out_fan_card.bind(cards, base_count - 1 - i))
+						out.tween_interval(0.14)
+					# Close the gap: re-fan the survivors once the losses are away.
+					var keep := base_count - gone
+					out.tween_callback(func() -> void:
+						if token != catch_card_token or keep < 1:
+							return
+						var layout := _fan_layout(keep, center, card_size, viewport_size, options)
+						for i in range(keep):
+							_retarget_fan_card(cards, card_anims, i, layout[i], 0.4, Tween.TRANS_CUBIC, Tween.EASE_OUT, float(i) * 0.02))
+					settle = 0.35 + float(gone) * 0.14 + 0.55
+				var fin := layer.create_tween()
+				fin.tween_interval(settle)
+				fin.tween_callback(func() -> void:
+					if token != catch_card_token:
+						return
+					_schedule_catch_total_bug(layer, str(options.get("final_label", total_label)), total_accent, total_center, 0.0, token, options))))
 	var mult_label := str(options.get("mult_label", ""))
 	if mult_label != "":
 		var mult_accent: Color = options.get("mult_accent", GOLD)
@@ -9072,6 +9169,24 @@ func _add_card_badge(card: Control, card_size: Vector2, text: String, accent: Co
 	label.add_theme_color_override("font_outline_color", Color("#071829"))
 	badge.add_child(label)
 	card.add_child(badge)
+
+
+# A danger-die loss: the card tumbles off the bottom of the fan and fades.
+func _fly_out_fan_card(cards: Array, idx: int) -> void:
+	if idx < 0 or idx >= cards.size():
+		return
+	var card := cards[idx] as Control
+	if card == null or not is_instance_valid(card):
+		return
+	_play_sfx("card_slide", -4.0, 0.85)
+	var t := card.create_tween()
+	t.set_parallel(true)
+	t.tween_property(card, "position", card.position + Vector2(randf_range(-90.0, 90.0), 430.0), 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	t.tween_property(card, "rotation_degrees", card.rotation_degrees + randf_range(-55.0, 55.0), 0.5)
+	t.tween_property(card, "modulate:a", 0.0, 0.42)
+	t.chain().tween_callback(func() -> void:
+		if is_instance_valid(card):
+			card.visible = false)
 
 
 func _schedule_catch_total_bug(layer: Control, label: String, accent: Color, center: Vector2, delay: float, _token: int, options: Dictionary = {}) -> void:
@@ -10025,20 +10140,27 @@ func _weather_day_card(weather: Dictionary, day_offset: int, is_tonight: bool) -
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(spacer)
 
-	var mult := float(weather.get("mult", 1.0))
-	if abs(mult - 1.0) > 0.001:
-		var mult_accent := GREEN if mult > 1.0 else RED
+	var chip_dice := _weather_dice_sign(weather)
+	if chip_dice != 0:
+		# A die icon on a green (bonus) or red (danger) pill: an upcoming roll
+		# decides this weather's fate at every catch.
+		var pill_accent := GREEN if chip_dice > 0 else RED
 		var pill := PanelContainer.new()
 		pill.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		var pill_style := _styled(mult_accent, mult_accent.darkened(0.18), 0, 6)
+		var pill_style := _styled(pill_accent, pill_accent.darkened(0.18), 0, 6)
 		pill_style.content_margin_left = 7
 		pill_style.content_margin_right = 7
-		pill_style.content_margin_top = 1
+		pill_style.content_margin_top = 2
 		pill_style.content_margin_bottom = 2
 		pill.add_theme_stylebox_override("panel", pill_style)
 		col.add_child(pill)
-		var pill_label := _label("%.1fx" % mult, 14, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
-		pill.add_child(pill_label)
+		var die_icon := TextureRect.new()
+		die_icon.texture = _pixel_die_texture()
+		die_icon.custom_minimum_size = Vector2(15, 15)
+		die_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		die_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		die_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pill.add_child(die_icon)
 
 	var btn := Button.new()
 	btn.flat = true
@@ -10161,10 +10283,10 @@ func _weather_preview_front_card(weather: Dictionary, cw: float, ch: float) -> C
 	face.size = Vector2(cw - frame * 2.0, ch - frame * 2.0)
 	holder.add_child(face)
 
-	# Mult chip pinned to the card's bottom-right, when it has one.
-	var mult := float(weather.get("mult", 1.0))
-	if abs(mult - 1.0) > 0.001:
-		var chip_accent := GREEN if mult > 1.0 else RED
+	# Dice chip pinned to the card's bottom-right, when this weather rolls one.
+	var chip_dice := _weather_dice_sign(weather)
+	if chip_dice != 0:
+		var chip_accent := GREEN if chip_dice > 0 else RED
 		var chip := PanelContainer.new()
 		var chip_style := _styled_shadow(chip_accent, chip_accent.darkened(0.3), 0, 10, 3)
 		chip_style.content_margin_left = 15
@@ -10184,8 +10306,19 @@ func _weather_preview_front_card(weather: Dictionary, cw: float, ch: float) -> C
 		chip.offset_bottom = -28
 		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		holder.add_child(chip)
-		var chip_lbl := _label("%.1fx" % mult, FONT_CELL_BIG, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
-		chip.add_child(chip_lbl)
+		var chip_row := HBoxContainer.new()
+		chip_row.add_theme_constant_override("separation", 8)
+		chip_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_child(chip_row)
+		var chip_die := TextureRect.new()
+		chip_die.texture = _pixel_die_texture()
+		chip_die.custom_minimum_size = Vector2(24, 24)
+		chip_die.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		chip_die.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		chip_die.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip_row.add_child(chip_die)
+		var chip_lbl := _label("+1·+2·+3" if chip_dice > 0 else "-0·-1·-2", FONT_CELL_BIG, Color("#10131a"), HORIZONTAL_ALIGNMENT_CENTER)
+		chip_row.add_child(chip_lbl)
 	return holder
 
 
