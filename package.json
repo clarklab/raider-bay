@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "build": "bash scripts/build-web.sh",
-    "build:netlify": "mkdir -p netlify/public"
+    "build:netlify": "mkdir -p netlify/public",
+    "render:promo": "bash scripts/render-promo.sh"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.8"
