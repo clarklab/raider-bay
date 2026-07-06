@@ -532,7 +532,8 @@ func _ready() -> void:
 # ────────────────────────────────────────────────────────────────────────
 
 const AUTOPILOT_SEED := 20260706
-const AUTOPILOT_DAYS := 4
+const AUTOPILOT_TRIPS := 3          # dock-and-sell cycles
+const AUTOPILOT_MAX_FISH_DAYS := 2  # nights spent fishing at sea before selling
 var autopilot := false
 
 func _start_autopilot() -> void:
@@ -567,18 +568,60 @@ func _run_autopilot() -> void:
 	_update_ui()
 	await _ap_wait(0.6)
 
-	for d in range(AUTOPILOT_DAYS):
+	for t in range(AUTOPILOT_TRIPS):
 		if game_over:
 			break
-		await _ap_play_day(d)
+		await _ap_run_trip(t)
 
-	await _ap_wait(1.8)
+	await _ap_wait(1.6)
 	get_tree().quit()
 
 
-# One full catch → sell → end-day cycle.
-func _ap_play_day(day_index: int) -> void:
-	var target := _ap_best_fish_cell()
+# A trip: fish 1-2 nights at sea, stockpiling the live well, then run home and
+# sell the whole haul in one visit — instead of selling after every catch.
+func _ap_run_trip(trip_index: int) -> void:
+	var fished := 0
+	while not game_over:
+		await _ap_fish_once()
+		fished += 1
+		if fished >= AUTOPILOT_MAX_FISH_DAYS:
+			break
+		# Stay out another night only when it's calm enough to be safe and there's
+		# still a reachable hole to work tomorrow; otherwise head in and cash out.
+		var more_fish := _ap_best_fish_cell(true).x >= 0
+		var safe_night := int(current_weather.get("strength", 0)) <= 2
+		if not (more_fish and safe_night):
+			break
+		_end_day()                            # a night ridden out at sea
+		await _ap_wait(1.9)
+
+	if game_over:
+		return
+
+	await _ap_dock()
+	await _ap_wait(0.6)
+
+	if _is_docked() and not live_well.is_empty():
+		_sell_catch()                         # sell the whole accumulated haul
+		await _ap_wait(0.9)
+		if trip_index % 2 == 1:
+			_haggle_sale()                    # dice roll + confetti / BONK
+			await _ap_wait(3.0)
+		else:
+			_confirm_sale()                   # straight SOLD
+			await _ap_wait(1.6)
+		await _ap_wait(1.0)
+		_close_sell_modal()
+		await _ap_wait(0.5)
+
+	_end_day()                                # cash in hand, weather rides out at dock
+	await _ap_wait(2.0)
+
+
+# One fishing day: run to a fresh, returnable hole and haul in a catch. The catch
+# card-fan now stages a weather-die reveal, so allow more time when it rolls.
+func _ap_fish_once() -> void:
+	var target := _ap_best_fish_cell(true)
 	if target.x >= 0:
 		await _ap_move_to(target)
 	elif _is_docked():
@@ -587,34 +630,17 @@ func _ap_play_day(day_index: int) -> void:
 
 	if _can_find_here():
 		_find_fish()                          # finder card-fan
-		await _ap_wait(1.4)
+		await _ap_wait(1.3)
 	if _can_attempt_cast_here():
-		_cast()                               # catch card-fan
-		await _ap_wait(1.9)
-
-	await _ap_dock()
-	await _ap_wait(0.5)
-
-	if _is_docked() and not live_well.is_empty():
-		_sell_catch()                         # opens the sell modal (all selected)
-		await _ap_wait(0.9)
-		if day_index % 2 == 1:
-			_haggle_sale()                    # dice roll + confetti / BONK
-			await _ap_wait(3.0)
-		else:
-			_confirm_sale()                   # straight SOLD
-			await _ap_wait(1.5)
-		await _ap_wait(1.0)
-		_close_sell_modal()
-		await _ap_wait(0.5)
-
-	_end_day()                                # weather resolve + day transition
-	await _ap_wait(2.1)
+		var staged := _weather_dice_sign(current_weather) != 0
+		_cast()                               # catch card-fan (+ weather-die reveal)
+		await _ap_wait(3.8 if staged else 2.1)
 
 
-# Nearest fishable fish tile we can reach AND still get home from this turn,
-# preferring closer and shallower (higher-row) water.
-func _ap_best_fish_cell() -> Vector2i:
+# Nearest fishable fish tile we can reach this turn, preferring closer and
+# shallower (higher-row) water. When reserve_return is set, the cell must also
+# leave enough moves to get home and dock — so a sell trip is always possible.
+func _ap_best_fish_cell(reserve_return: bool = true) -> Vector2i:
 	var access := _ap_dock_access_cells()
 	var best := Vector2i(-1, -1)
 	var best_score := 1 << 30
@@ -628,7 +654,7 @@ func _ap_best_fish_cell() -> Vector2i:
 				continue
 			var cell := Vector2i(x, y)
 			var to_fish := _ap_cheb(boat_pos, cell)
-			var home := _ap_cheb(cell, _ap_nearest(access, cell)) + 1  # +1 to dock
+			var home := (_ap_cheb(cell, _ap_nearest(access, cell)) + 1) if reserve_return else 0
 			if to_fish + home > moves_remaining:
 				continue
 			var score := to_fish * 2 + (GRID_ROWS - y)
