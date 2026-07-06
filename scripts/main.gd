@@ -1708,6 +1708,21 @@ func _build_start_screen() -> void:
 	links_wrap.add_child(lc)
 	lc.add_child(links)
 
+	# Small build tag, bottom-right. CI stamps application/config/version from the
+	# tag; local builds read "dev". Helps confirm which APK is installed at a glance.
+	var ver := str(ProjectSettings.get_setting("application/config/version", "dev"))
+	var ver_label := _label("v%s" % ver if ver[0].is_valid_int() else ver, 16, _with_alpha(TEXT_DIM, 0.7), HORIZONTAL_ALIGNMENT_RIGHT)
+	ver_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ver_label.anchor_left = 1.0
+	ver_label.anchor_right = 1.0
+	ver_label.anchor_top = 1.0
+	ver_label.anchor_bottom = 1.0
+	ver_label.offset_left = -180.0
+	ver_label.offset_right = -14.0
+	ver_label.offset_top = -34.0
+	ver_label.offset_bottom = -10.0
+	overlay.add_child(ver_label)
+
 	var chooser := _build_solo_save_chooser()
 	overlay.add_child(chooser)
 	ui["start_solo_chooser"] = chooser
