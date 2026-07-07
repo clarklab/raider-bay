@@ -504,6 +504,7 @@ func _ready() -> void:
 	var balatro_font: Font = FONT_BALATRO
 	if ThemeDB.fallback_font and balatro_font.fallbacks.is_empty():
 		balatro_font.fallbacks = [ThemeDB.fallback_font]
+	_load_achievements()
 	_build_ui()
 	_build_start_screen()
 	_build_audio()  # before the start screen: the title intro plays a slam SFX
@@ -514,6 +515,7 @@ func _ready() -> void:
 	set_process(true)
 	_schedule_catch_preview_from_query()
 	_schedule_deck_preview_from_query()
+	_schedule_ach_preview_from_query()
 	# Promo/demo capture: `-- --autoplay` drives a full scripted playthrough for
 	# Movie Maker recording. Inert in every normal launch; suppresses the training
 	# and update overlays so nothing covers the reel.
@@ -1017,6 +1019,14 @@ var title_letters: Array = []
 var title_ebb_active: bool = false
 var title_ebb_time: float = 0.0
 
+# Background card drift behind the title — real library cards rising like slow
+# confetti with parallax depth, popping out/in to swap faces as they travel.
+# Cards render fully opaque; a translucent navy wash ABOVE the layer does the
+# fading so the white borders never go see-through.
+var swirl_layer: Control = null
+var swirl_cards: Array = []      # [{node, face, card, depth, vy, vx, spin, base_scale}]
+var _swirl_tex_cache: Array = []
+
 
 const BOARD_LONG_PRESS_SECONDS := 0.4
 var board_press_cell := Vector2i(-1, -1)
@@ -1042,6 +1052,8 @@ func _process(delta: float) -> void:
 			board_long_pressed = _show_board_card_tooltip(board_press_cell)
 	if title_ebb_active and ui.has("start_overlay") and (ui["start_overlay"] as Control).visible:
 		_update_title_ebb(delta)
+	if not swirl_cards.is_empty() and ui.has("start_overlay") and (ui["start_overlay"] as Control).visible:
+		_update_title_swirl(delta)
 
 
 func _build_audio() -> void:
@@ -1338,6 +1350,7 @@ func _build_ui() -> void:
 	_build_card_tooltip_overlay()
 	_build_game_over_screen()
 	_build_high_scores_screen()
+	_build_achievements_screen()
 	_build_deck_training_screen()
 	_build_boat_setup_screen()
 	_build_weather_card_preview_overlay()
@@ -1658,6 +1671,21 @@ func _build_start_screen() -> void:
 	_anchor_fill(bg)
 	overlay.add_child(bg)
 
+	# Card drift sits between the flat background and the title. Cards are opaque;
+	# the navy wash layered on top dims them into supporting art.
+	swirl_layer = Control.new()
+	swirl_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	swirl_layer.clip_contents = true
+	_anchor_fill(swirl_layer)
+	overlay.add_child(swirl_layer)
+	_build_title_swirl()
+
+	var swirl_wash := ColorRect.new()
+	swirl_wash.color = _with_alpha(Color("#0b1a3a"), 0.62)
+	swirl_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(swirl_wash)
+	overlay.add_child(swirl_wash)
+
 	var vp := get_viewport().get_visible_rect().size
 	var cx := vp.x * 0.5
 
@@ -1686,6 +1714,8 @@ func _build_start_screen() -> void:
 	links.add_child(_title_link("RULES", _show_rules_modal))
 	links.add_child(_title_link_sep())
 	links.add_child(_title_link("HIGH SCORES", _show_high_scores_screen))
+	links.add_child(_title_link_sep())
+	links.add_child(_title_link("ACHIEVEMENTS", _show_achievements_screen))
 	links.add_child(_title_link_sep())
 	links.add_child(_title_link("SETTINGS", _show_settings_screen))
 	links.add_child(_title_link_sep())
@@ -1855,6 +1885,505 @@ func _update_title_ebb(delta: float) -> void:
 		var ph: float = e["phase"]
 		g.position.y = float(e["base_y"]) + amp * sin(title_ebb_time * speed + ph)
 		g.rotation_degrees = float(e["base_rot"]) + rot_amp * sin(title_ebb_time * speed + ph + 0.6)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Title card drift — animated background art. Every face is a real library card
+# in the standard squarestep shell; cards rise with parallax depth and share a
+# per-card pop-out→swap→pop-in life so faces keep cycling as they travel.
+# ────────────────────────────────────────────────────────────────────────
+
+# The full deck of faces to draw from — everything the player can hold, plus the
+# back for variety. Cached because it's a fixed set.
+func _swirl_all_textures() -> Array:
+	if _swirl_tex_cache.is_empty():
+		_swirl_tex_cache = [
+			CARD_SALMON_TEXTURE, CARD_GROUPER_TEXTURE, CARD_HALIBUT_TEXTURE,
+			CARD_TUNA_TEXTURE, CARD_SWORDFISH_TEXTURE,
+			CARD_TREASURE_100_TEXTURE, CARD_TREASURE_200_TEXTURE, CARD_TREASURE_NIGHT_TEXTURE,
+			CARD_WEATHER_CALM, CARD_WEATHER_RAIN, CARD_WEATHER_SQUALL, CARD_WEATHER_HURRICANE,
+			CARD_BACK_TEXTURE,
+		]
+		_swirl_tex_cache.append_array(CARD_MOTOR_TEXTURES)
+		_swirl_tex_cache.append_array(CARD_FISH_FINDER_TEXTURES)
+		_swirl_tex_cache.append_array(CARD_NETS_TEXTURES)
+		_swirl_tex_cache.append_array(CARD_WELL_TEXTURES)
+	return _swirl_tex_cache
+
+
+func _swirl_random_texture() -> Texture2D:
+	var all := _swirl_all_textures()
+	return all[randi() % all.size()]
+
+
+# Build one card sized `size` in the standard squarestep shell (the same
+# construct as board/store cards), centred pivot for pop/spin. Returns
+# {node, face} so callers can swap the art without rebuilding the frame.
+func _swirl_make_card(size: Vector2) -> Dictionary:
+	var card := Control.new()
+	card.custom_minimum_size = size
+	card.size = size
+	card.pivot_offset = size * 0.5
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# #011244 = the card art's own background, so the fill meets the art seamlessly.
+	var inset := _add_squarestep_card_shell(card, size, Color("#011244"), {"show_shadow": false})
+	var face := _gallery_face(_swirl_random_texture())
+	face.position = Vector2(inset, inset)
+	face.size = size - Vector2(inset, inset) * 2.0
+	card.add_child(face)
+	return {"node": card, "face": face}
+
+
+# Per-card looping life: sit, pop out to nothing, swap to a new face, pop back in.
+# base_scale keeps parallax/orbit depth intact through the pop. Staggered starts
+# come from the random opening interval so the field ripples instead of blinking.
+func _swirl_start_pop(entry: Dictionary, base_scale: float) -> void:
+	var node: Control = entry["node"]
+	var face: Control = entry["face"]
+	node.scale = Vector2(base_scale, base_scale)
+	var t := node.create_tween()
+	t.set_loops()
+	t.tween_interval(randf_range(0.4, 3.6))
+	t.tween_property(node, "scale", Vector2(base_scale * 0.02, base_scale * 0.02), 0.18) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	t.tween_callback(func() -> void:
+		if is_instance_valid(face):
+			(face as TextureRect).texture = _swirl_random_texture())
+	t.tween_property(node, "scale", Vector2(base_scale, base_scale), 0.28) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_interval(randf_range(1.4, 4.2))
+
+
+# Rising drift. Cards float up like slow confetti with depth: near cards are
+# big and fast, far cards small and slow. Each spins gently and respawns at
+# the bottom (with a fresh face) once it clears the top.
+func _build_title_swirl() -> void:
+	if not swirl_layer:
+		return
+	for c in swirl_layer.get_children():
+		c.queue_free()
+	swirl_cards.clear()
+	var vp := get_viewport().get_visible_rect().size
+	var count := 12
+	for i in range(count):
+		var depth := randf()   # 0 far … 1 near
+		var card_scale := lerpf(0.5, 1.15, depth)
+		var card := Vector2(120.0, 162.0)
+		var entry := _swirl_make_card(card)
+		var node: Control = entry["node"]
+		node.position = Vector2(randf_range(0.0, vp.x), randf_range(-card.y, vp.y))
+		node.rotation_degrees = randf_range(0.0, 360.0)
+		swirl_layer.add_child(node)
+		entry["card"] = card
+		entry["depth"] = depth
+		entry["base_scale"] = card_scale
+		entry["vy"] = -lerpf(28.0, 78.0, depth)
+		entry["vx"] = randf_range(-16.0, 16.0)
+		entry["spin"] = randf_range(-34.0, 34.0)
+		swirl_cards.append(entry)
+		_swirl_start_pop(entry, card_scale)
+
+
+func _update_title_swirl(delta: float) -> void:
+	for e in swirl_cards:
+		var node: Control = e["node"]
+		var card: Vector2 = e["card"]
+		node.position += Vector2(float(e["vx"]), float(e["vy"])) * delta
+		node.rotation_degrees += float(e["spin"]) * delta
+		if node.position.y < -card.y:
+			var vp := get_viewport().get_visible_rect().size
+			node.position = Vector2(randf_range(0.0, vp.x), vp.y + card.y * 0.5)
+			if is_instance_valid(e["face"]):
+				(e["face"] as TextureRect).texture = _swirl_random_texture()
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Achievements — lifetime badges persisted on the device. Awarding pops a
+# slide-in tab from the right edge; the full inventory lives behind the
+# ACHIEVEMENTS title link. Descriptions only show in the inventory (review).
+# ────────────────────────────────────────────────────────────────────────
+
+const ACHIEVEMENTS_PATH := "user://achievements.cfg"
+const ACH_TOAST_W := 200.0
+const ACH_TOAST_H := 330.0
+
+# Canonical badge order — the inventory renders in this order, mystery slots
+# included, so players can see how many exist. Descriptions say how it's earned.
+const ACHIEVEMENT_DEFS: Array[Dictionary] = [
+	{"id": "first_trophy", "title": "WALL HANGER", "desc": "Lock in your first species trophy."},
+	{"id": "five_trophies", "title": "CLEAN SWEEP", "desc": "Collect all five species trophies in a single season."},
+	{"id": "double_trophy", "title": "DOUBLE MOUNT", "desc": "Lock in two trophies with a single sale."},
+	{"id": "haggle_hot", "title": "SILVER TONGUE", "desc": "Win three haggles in a row."},
+	{"id": "haggle_cold", "title": "SUCKER'S LUCK", "desc": "Lose three haggles in a row. Ouch."},
+	{"id": "treasure_set", "title": "X MARKS THE SPOT", "desc": "Find a $100, a $200, and a Paid Night treasure in one season."},
+	{"id": "big_haul", "title": "BOATLOAD", "desc": "Haul in 10 or more fish with a single cast."},
+	{"id": "top_10", "title": "MAKING WAVES", "desc": "Land a global top-10 season score."},
+	{"id": "top_5", "title": "BIG FISH", "desc": "Land a global top-5 season score."},
+	{"id": "number_1", "title": "KING OF THE BAY", "desc": "Set the #1 global season score."},
+	{"id": "first_spoil", "title": "SOMETHING'S FISHY", "desc": "Let fish spoil in your live well."},
+	{"id": "spoil_3", "title": "CHUM BUCKET", "desc": "Spoil fish on three separate occasions."},
+	{"id": "max_one_stat", "title": "DIALED IN", "desc": "Max out any upgrade."},
+	{"id": "max_all_stats", "title": "FULLY RIGGED", "desc": "Max out motor, fish finder, nets, and live well in one game."},
+	{"id": "days_21", "title": "SEA LEGS", "desc": "Stretch a single season to 21 days at sea."},
+	{"id": "days_40", "title": "FORTY DAYS & FORTY NIGHTS", "desc": "Stretch a single season to 40 days at sea."},
+]
+
+var ach_earned: Dictionary = {}          # id -> unix timestamp earned
+var ach_spoil_events := 0                # lifetime spoil occasions (persisted)
+var ach_haggle_win_streak := 0           # per-game (saved with the run)
+var ach_haggle_loss_streak := 0
+var ach_treasure_kinds: Dictionary = {}  # per-game: "100"/"200"/"night" -> true
+var ach_toast_queue: Array = []
+var ach_toast_active := false
+var ach_preview_active := false          # ?ach_preview: block persistence of fakes
+var last_submitted_entry_id := ""
+
+
+func _achievement_def(id: String) -> Dictionary:
+	for def in ACHIEVEMENT_DEFS:
+		if str(def["id"]) == id:
+			return def
+	return {}
+
+
+# Badge icon per achievement family — reuses shipped art, no new assets.
+func _achievement_icon(id: String) -> Texture2D:
+	match id:
+		"haggle_hot", "haggle_cold", "treasure_set":
+			return ICON_FUNDS_TEXTURE
+		"big_haul":
+			return ICON_CAST_TEXTURE
+		"first_spoil", "spoil_3":
+			return ICON_LIVE_WELL_TEXTURE
+		"max_one_stat", "max_all_stats":
+			return ICON_UPGRADES_TEXTURE
+		"days_21", "days_40":
+			return ICON_DAY_TEXTURE
+	return ICON_TROPHY_SOLID
+
+
+func _load_achievements() -> void:
+	var cf := ConfigFile.new()
+	if cf.load(ACHIEVEMENTS_PATH) != OK:
+		return
+	ach_earned = {}
+	if cf.has_section("earned"):
+		for id in cf.get_section_keys("earned"):
+			ach_earned[str(id)] = int(cf.get_value("earned", str(id), 0))
+	ach_spoil_events = int(cf.get_value("progress", "spoil_events", 0))
+
+
+func _save_achievements() -> void:
+	if ach_preview_active:
+		return
+	var cf := ConfigFile.new()
+	for id in ach_earned.keys():
+		cf.set_value("earned", str(id), int(ach_earned[id]))
+	cf.set_value("progress", "spoil_events", ach_spoil_events)
+	cf.save(ACHIEVEMENTS_PATH)
+
+
+# Idempotent: awarding twice is a no-op, so triggers can fire unguarded.
+func _award_achievement(id: String) -> void:
+	if ach_earned.has(id):
+		return
+	var def := _achievement_def(id)
+	if def.is_empty():
+		return
+	ach_earned[id] = int(Time.get_unix_time_from_system())
+	_save_achievements()
+	_log("Achievement unlocked: %s!" % str(def["title"]))
+	ach_toast_queue.append(def)
+	_drain_achievement_toasts()
+
+
+# Slide-in tab attached to the right screen edge (Balatro-style): a tall dark
+# panel with a big gold badge icon on top, the title beneath, and a small gold
+# "Achievement Unlocked!" kicker at the bottom. Fully animated in and out;
+# queued so simultaneous unlocks play one after another.
+func _drain_achievement_toasts() -> void:
+	if ach_toast_active or ach_toast_queue.is_empty():
+		return
+	ach_toast_active = true
+	var def: Dictionary = ach_toast_queue.pop_front()
+	var vp := get_viewport().get_visible_rect().size
+	var w := ACH_TOAST_W
+	var h := ACH_TOAST_H
+
+	var tab := Control.new()
+	tab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tab.z_index = 400
+	tab.size = Vector2(w, h)
+	tab.position = Vector2(vp.x, vp.y * 0.30)
+	add_child(tab)
+
+	# Chunky frame: dark outline all around except the attached (right) edge.
+	_gallery_rect(tab, 0.0, 0.0, w, h, Color("#0a0e14"))
+	_gallery_rect(tab, 3.0, 3.0, w - 3.0, h - 6.0, Color("#10254a"))
+
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_theme_constant_override("separation", 12)
+	col.position = Vector2(14.0, 0.0)
+	col.size = Vector2(w - 28.0, h)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	tab.add_child(col)
+
+	var icon := _icon_texture_rect(_achievement_icon(str(def["id"])), Vector2(96, 96), GOLD)
+	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(icon)
+
+	var title_lbl := _label(str(def["title"]), 24, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title_lbl)
+
+	var kicker := _label("ACHIEVEMENT\nUNLOCKED!", 13, _with_alpha(GOLD, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
+	kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(kicker)
+
+	_play_sfx("trophy")
+	var t := tab.create_tween()
+	t.tween_property(tab, "position:x", vp.x - w, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_interval(3.4)
+	t.tween_property(tab, "position:x", vp.x + 8.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+	t.tween_callback(func() -> void:
+		tab.queue_free()
+		ach_toast_active = false
+		_drain_achievement_toasts())
+
+
+# Per-game trigger trackers, reset with each new season.
+func _reset_achievement_run_state() -> void:
+	ach_haggle_win_streak = 0
+	ach_haggle_loss_streak = 0
+	ach_treasure_kinds = {}
+
+
+func _on_haggle_resolved(delta_per_fish: int) -> void:
+	if delta_per_fish > 0:
+		ach_haggle_win_streak += 1
+		ach_haggle_loss_streak = 0
+		if ach_haggle_win_streak >= 3:
+			_award_achievement("haggle_hot")
+	elif delta_per_fish < 0:
+		ach_haggle_loss_streak += 1
+		ach_haggle_win_streak = 0
+		if ach_haggle_loss_streak >= 3:
+			_award_achievement("haggle_cold")
+	else:
+		# A fair roll is neither a win nor a loss — it breaks both streaks.
+		ach_haggle_win_streak = 0
+		ach_haggle_loss_streak = 0
+
+
+func _on_treasure_found_achievement(kind: String) -> void:
+	ach_treasure_kinds[kind] = true
+	if ach_treasure_kinds.has("100") and ach_treasure_kinds.has("200") and ach_treasure_kinds.has("night"):
+		_award_achievement("treasure_set")
+
+
+func _on_spoil_achievement() -> void:
+	ach_spoil_events += 1
+	_award_achievement("first_spoil")
+	if ach_spoil_events >= 3:
+		_award_achievement("spoil_3")
+	_save_achievements()  # persists the counter even before spoil_3 unlocks
+
+
+func _check_stat_achievements() -> void:
+	var core_maxed := true
+	for key in ["motor", "fish_finder", "nets", "live_well"]:
+		if int(upgrades.get(key, 0)) < UPGRADE_MAX_LEVEL:
+			core_maxed = false
+	for key in UPGRADE_KEYS:
+		if int(upgrades.get(key, 0)) >= UPGRADE_MAX_LEVEL:
+			_award_achievement("max_one_stat")
+			break
+	if core_maxed:
+		_award_achievement("max_all_stats")
+
+
+func _on_global_rank_achievement(rank: int) -> void:
+	if rank <= 0:
+		return
+	if rank <= 10:
+		_award_achievement("top_10")
+	if rank <= 5:
+		_award_achievement("top_5")
+	if rank == 1:
+		_award_achievement("number_1")
+
+
+# ── Achievements inventory screen (title-link modal, high-scores pattern) ──
+
+func _build_achievements_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 210
+	add_child(overlay)
+	ui["achievements_overlay"] = overlay
+
+	var bg := ColorRect.new()
+	bg.color = REF_BG_NAVY
+	bg.anchor_right = 1.0
+	bg.anchor_bottom = 1.0
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(bg)
+
+	var root := VBoxContainer.new()
+	root.anchor_right = 1.0
+	root.anchor_bottom = 1.0
+	root.offset_left = 26
+	root.offset_right = -26
+	root.offset_top = 22
+	root.offset_bottom = -22
+	root.add_theme_constant_override("separation", 14)
+	overlay.add_child(root)
+
+	var header := HBoxContainer.new()
+	header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_theme_constant_override("separation", 16)
+	root.add_child(header)
+
+	var title_icon := _icon_texture_rect(ICON_TROPHY_SOLID, Vector2(48, 48), GOLD)
+	title_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(title_icon)
+
+	var title := _label("ACHIEVEMENTS", FONT_TITLE + 8, GOLD, HORIZONTAL_ALIGNMENT_LEFT)
+	title.add_theme_constant_override("shadow_offset_y", 4)
+	title.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	title.add_theme_constant_override("outline_size", 3)
+	title.add_theme_color_override("font_outline_color", Color("#3a2a00"))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	header.add_child(title)
+
+	var close_btn := _close_x_button()
+	close_btn.pressed.connect(func() -> void:
+		overlay.visible = false
+		_show_start_screen())
+	header.add_child(close_btn)
+
+	var status := _label("", FONT_BODY, TEXT_MUTED, HORIZONTAL_ALIGNMENT_LEFT)
+	status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.add_child(status)
+	ui["achievements_status"] = status
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(scroll)
+
+	var flow := HFlowContainer.new()
+	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	flow.alignment = FlowContainer.ALIGNMENT_CENTER
+	flow.add_theme_constant_override("h_separation", 16)
+	flow.add_theme_constant_override("v_separation", 16)
+	scroll.add_child(flow)
+	ui["achievements_flow"] = flow
+
+
+func _show_achievements_screen() -> void:
+	if not ui.has("achievements_overlay") or not ui.has("achievements_flow"):
+		return
+	_play_sfx("modal_open")
+	_render_achievements_screen()
+	var overlay := ui["achievements_overlay"] as Control
+	# Same input-picking gotcha as the high-scores screen: siblings are walked in
+	# tree order, so become the top-most sibling or clicks fall through.
+	overlay.move_to_front()
+	overlay.visible = true
+
+
+func _render_achievements_screen() -> void:
+	var flow := ui["achievements_flow"] as Container
+	for child in flow.get_children():
+		child.queue_free()
+	(ui["achievements_status"] as Label).text = "%d OF %d EARNED" % [ach_earned.size(), ACHIEVEMENT_DEFS.size()]
+	for def in ACHIEVEMENT_DEFS:
+		flow.add_child(_achievement_badge_card(def, ach_earned.has(str(def["id"]))))
+
+
+# One badge card. Earned: gold slab, title, how-it-was-earned description, date.
+# Unearned: a "???" mystery slot — count visible, contents secret.
+func _achievement_badge_card(def: Dictionary, earned: bool) -> Control:
+	var w := 396.0
+	var h := 132.0
+	var card := Control.new()
+	card.custom_minimum_size = Vector2(w, h)
+	card.size = Vector2(w, h)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	_gallery_rect(card, 0.0, 0.0, w, h, Color("#0a0e14"))
+	_gallery_rect(card, 3.0, 3.0, w - 6.0, h - 6.0, Color("#10254a") if earned else Color("#0c1830"))
+	var slab := h - 6.0
+	_gallery_rect(card, 3.0, 3.0, slab, slab, GOLD if earned else Color("#1c2a47"))
+
+	if earned:
+		var icon := _icon_texture_rect(_achievement_icon(str(def["id"])), Vector2(56, 56), Color("#3a2a00"))
+		icon.position = Vector2(3.0 + (slab - 56.0) * 0.5, 3.0 + (slab - 56.0) * 0.5)
+		card.add_child(icon)
+	else:
+		var q := _label("?", 52, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		q.position = Vector2(3.0, 3.0)
+		q.size = Vector2(slab, slab)
+		q.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		card.add_child(q)
+
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_theme_constant_override("separation", 2)
+	col.position = Vector2(slab + 16.0, 0.0)
+	col.size = Vector2(w - slab - 30.0, h)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	card.add_child(col)
+
+	if earned:
+		var title_lbl := _label(str(def["title"]), 24, GOLD)
+		title_lbl.clip_text = true
+		col.add_child(title_lbl)
+		var desc := _label(str(def["desc"]), 15, TEXT_MUTED)
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		col.add_child(desc)
+		col.add_child(_label(_achievement_date_text(int(ach_earned[str(def["id"])])), 12, TEXT_DIM))
+	else:
+		col.add_child(_label("???", 24, TEXT_DIM))
+
+	return card
+
+
+# ?ach_preview web hook: stages fake earned badges (never persisted) and fires
+# a queue of sample toasts so the tab animation + inventory can be reviewed.
+func _schedule_ach_preview_from_query() -> void:
+	if not OS.has_feature("web"):
+		return
+	var search := str(JavaScriptBridge.eval("window.location.search + window.location.hash", true))
+	if search.find("ach_preview") == -1:
+		return
+	call_deferred("_run_ach_preview")
+
+
+func _run_ach_preview() -> void:
+	ach_preview_active = true
+	var now := int(Time.get_unix_time_from_system())
+	for id in ["first_trophy", "big_haul", "haggle_hot", "first_spoil", "days_21"]:
+		ach_earned[id] = now
+	for id in ["big_haul", "haggle_hot", "first_trophy"]:
+		ach_toast_queue.append(_achievement_def(id))
+	_drain_achievement_toasts()
+
+
+func _achievement_date_text(ts: int) -> String:
+	if ts <= 0:
+		return ""
+	var d := Time.get_datetime_dict_from_unix_time(ts)
+	var months := ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+	return "EARNED %s %d, %d" % [months[int(d["month"]) - 1], int(d["day"]), int(d["year"])]
 
 
 func _pixel_button(text: String, accent: Color, fill: Color, text_color: Color, icon: Texture2D, on_pressed: Callable) -> Control:
@@ -4774,6 +5303,7 @@ func _checkout_upgrade_cart() -> void:
 	extra_nights += nights_bought
 	_stat_add("upgrades_bought", upgrade_count)
 	_stat_add("extra_nights_bought", nights_bought)
+	_check_stat_achievements()
 
 	var gained_moves: int = max(0, _daily_moves() - moves_before)
 	moves_remaining += gained_moves
@@ -4814,6 +5344,7 @@ func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
 	day = 1
 	game_over = false
 	_reset_game_stats()
+	_reset_achievement_run_state()
 	active_tab = "map"
 	active_tray = ""
 	boat_pos = Vector2i(DOCK_COL, GRID_ROWS)
@@ -4956,6 +5487,9 @@ func _save_game() -> void:
 		"sold_totals": sold_totals,
 		"trophies": trophies,
 		"extra_nights": extra_nights,
+		"ach_haggle_win_streak": ach_haggle_win_streak,
+		"ach_haggle_loss_streak": ach_haggle_loss_streak,
+		"ach_treasure_kinds": ach_treasure_kinds,
 		"weather_deck": weather_deck,
 		"forecast": forecast,
 		"current_weather": current_weather,
@@ -5027,6 +5561,9 @@ func _load_game() -> bool:
 	sold_totals = _dict_copy(data.get("sold_totals", {}))
 	trophies = _dict_copy(data.get("trophies", {}))
 	extra_nights = int(data.get("extra_nights", 0))
+	ach_haggle_win_streak = int(data.get("ach_haggle_win_streak", 0))
+	ach_haggle_loss_streak = int(data.get("ach_haggle_loss_streak", 0))
+	ach_treasure_kinds = _dict_copy(data.get("ach_treasure_kinds", {}))
 	_clear_upgrade_cart()
 	for species in SPECIES:
 		if not sold_totals.has(species):
@@ -5735,10 +6272,12 @@ func _cast() -> void:
 			extra_nights += 1
 			_stat_add("paid_nights_found", 1)
 			_log("Recovered a Paid Night. The season extends by 1 night.")
+			_on_treasure_found_achievement("night")
 		else:
 			money += int(tile["value"])
 			_stat_add("treasure_money", int(tile["value"]))
 			_log("Recovered treasure worth $%d." % int(tile["value"]))
+			_on_treasure_found_achievement(str(int(tile["value"])))
 		var treasure_origin := _board_card_global_center(boat_pos)
 		_show_treasure_card_fan(tile, treasure_origin)
 		cast_outcome = "catch"
@@ -5764,6 +6303,8 @@ func _cast() -> void:
 		var amount: int = maxi(1, catch_base + dice_delta)
 		dice_delta = amount - catch_base  # post-clamp, so the reveal matches state
 		_stat_add("fish_caught", amount)
+		if amount >= 10:
+			_award_achievement("big_haul")
 		live_well.append({"species": tile["species"], "quantity": amount, "age": 0})
 		tile["casts_remaining"] = max(0, int(tile["casts_remaining"]) - 1)
 		if int(tile["casts_remaining"]) <= 0:
@@ -5898,6 +6439,7 @@ func _reveal_haggle_result() -> void:
 	var roll := int(pending_haggle["roll"])
 	var delta_per_fish := int(pending_haggle["delta"])
 	pending_haggle = {}
+	_on_haggle_resolved(delta_per_fish)
 
 	var result := _complete_sale(delta_per_fish)
 	var adjustment_text := "$0"
@@ -6109,8 +6651,13 @@ func _complete_sale(delta_per_fish: int) -> Dictionary:
 	live_well = kept
 	sale_selection.clear()
 	money += total
+	if not earned_species.is_empty():
+		_award_achievement("first_trophy")
+	if earned_species.size() >= 2:
+		_award_achievement("double_trophy")
 	if _trophy_count() >= TROPHY_WIN_COUNT:
 		game_over = true
+		_award_achievement("five_trophies")
 	return {
 		"quantities": quantities,
 		"total": total,
@@ -6559,6 +7106,7 @@ func _try_buy_upgrade(key: String, refresh_after: bool = true) -> Dictionary:
 	money -= cost
 	upgrades[key] = current + 1
 	_stat_add("upgrades_bought", 1)
+	_check_stat_achievements()
 	_apply_upgrade_to_current_turn(key, moves_before)
 	_log("Upgraded %s to %d ($%d)." % [_upgrade_name(key), int(upgrades[key]), cost])
 	if refresh_after:
@@ -6668,6 +7216,12 @@ func _end_day() -> void:
 		_show_game_over_screen()
 		return
 
+	# Days-at-sea milestones only count days actually reached in play.
+	if day >= 21:
+		_award_achievement("days_21")
+	if day >= 40:
+		_award_achievement("days_40")
+
 	current_weather = forecast.pop_front()
 	forecast.append(_draw_weather())
 	_drift_market()
@@ -6747,6 +7301,7 @@ func _age_fish() -> void:
 	live_well = kept
 	if spoiled > 0:
 		_log("%d fish spoiled in the live well." % spoiled)
+		_on_spoil_achievement()
 
 
 func _age_bot_fish() -> void:
@@ -11253,6 +11808,7 @@ func _global_scores_enabled() -> bool:
 func _submit_global_high_score(entry: Dictionary) -> void:
 	if not _global_scores_enabled():
 		return
+	last_submitted_entry_id = str(entry.get("id", ""))
 	var headers := ["Content-Type: application/json", "Accept: application/json"]
 	var err := global_scores_submit_request.request(GLOBAL_SCORES_API, headers, HTTPClient.METHOD_POST, JSON.stringify(entry))
 	if err != OK:
@@ -11278,6 +11834,14 @@ func _on_global_score_submit_completed(result: int, response_code: int, _headers
 	var parsed := _global_scores_from_body(body)
 	if not parsed.is_empty():
 		global_scores = parsed
+		# Score achievements key off the GLOBAL board — the response tells us
+		# where the just-submitted run actually landed.
+		if last_submitted_entry_id != "":
+			for i in range(parsed.size()):
+				if parsed[i] is Dictionary and str((parsed[i] as Dictionary).get("id", "")) == last_submitted_entry_id:
+					_on_global_rank_achievement(i + 1)
+					break
+			last_submitted_entry_id = ""
 		if ui.has("high_scores_overlay") and (ui["high_scores_overlay"] as Control).visible:
 			_render_high_scores_screen(global_scores, "GLOBAL HIGH SCORES", "Shared Raider Bay scoreboard.")
 
