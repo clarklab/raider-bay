@@ -2026,7 +2026,31 @@ const ACHIEVEMENT_DEFS: Array[Dictionary] = [
 	{"id": "max_all_stats", "title": "FULLY RIGGED", "desc": "Max out motor, fish finder, nets, and live well in one game."},
 	{"id": "days_21", "title": "SEA LEGS", "desc": "Stretch a single season to 21 days at sea."},
 	{"id": "days_40", "title": "FORTY DAYS & FORTY NIGHTS", "desc": "Stretch a single season to 40 days at sea."},
+	{"id": "captain_king", "title": "CAPTAIN KING", "desc": "Unlock every other badge in the game."},
 ]
+
+# Badge art + each image's own background color, painted on the rounded slab
+# behind the art so the square PNG blends seamlessly into the stepped corners.
+# Colors are sampled from the shipped 256px files — resample if art regenerates.
+const ACHIEVEMENT_BADGES: Dictionary = {
+	"first_trophy": {"tex": preload("res://assets/badges/badge-wall-hanger.png"), "bg": Color("#010e2d")},
+	"five_trophies": {"tex": preload("res://assets/badges/badge-clean-sweep.png"), "bg": Color("#030922")},
+	"double_trophy": {"tex": preload("res://assets/badges/badge-double-mount.png"), "bg": Color("#010d30")},
+	"haggle_hot": {"tex": preload("res://assets/badges/badge-silver-tongue.png"), "bg": Color("#010a37")},
+	"haggle_cold": {"tex": preload("res://assets/badges/badge-suckers-luck.png"), "bg": Color("#030a31")},
+	"treasure_set": {"tex": preload("res://assets/badges/badge-x-marks.png"), "bg": Color("#030f3a")},
+	"big_haul": {"tex": preload("res://assets/badges/badge-boatload.png"), "bg": Color("#030f2e")},
+	"top_10": {"tex": preload("res://assets/badges/badge-making-waves.png"), "bg": Color("#010a2e")},
+	"top_5": {"tex": preload("res://assets/badges/badge-big-fish.png"), "bg": Color("#000936")},
+	"number_1": {"tex": preload("res://assets/badges/badge-king-of-the-bay.png"), "bg": Color("#02092a")},
+	"first_spoil": {"tex": preload("res://assets/badges/badge-somethings-fishy.png"), "bg": Color("#040e32")},
+	"spoil_3": {"tex": preload("res://assets/badges/badge-chum-bucket.png"), "bg": Color("#040c34")},
+	"max_one_stat": {"tex": preload("res://assets/badges/badge-dialed-in.png"), "bg": Color("#010925")},
+	"max_all_stats": {"tex": preload("res://assets/badges/badge-fully-rigged.png"), "bg": Color("#010831")},
+	"days_21": {"tex": preload("res://assets/badges/badge-sea-legs.png"), "bg": Color("#020b36")},
+	"days_40": {"tex": preload("res://assets/badges/badge-40-days.png"), "bg": Color("#020a2e")},
+	"captain_king": {"tex": preload("res://assets/badges/badge-captain-king.png"), "bg": Color("#02123b")},
+}
 
 var ach_earned: Dictionary = {}          # id -> unix timestamp earned
 var ach_spoil_events := 0                # lifetime spoil occasions (persisted)
@@ -2060,20 +2084,31 @@ func _achievement_def(id: String) -> Dictionary:
 	return {}
 
 
-# Badge icon per achievement family — reuses shipped art, no new assets.
-func _achievement_icon(id: String) -> Texture2D:
-	match id:
-		"haggle_hot", "haggle_cold", "treasure_set":
-			return ICON_FUNDS_TEXTURE
-		"big_haul":
-			return ICON_CAST_TEXTURE
-		"first_spoil", "spoil_3":
-			return ICON_LIVE_WELL_TEXTURE
-		"max_one_stat", "max_all_stats":
-			return ICON_UPGRADES_TEXTURE
-		"days_21", "days_40":
-			return ICON_DAY_TEXTURE
+func _achievement_badge_texture(id: String) -> Texture2D:
+	if ACHIEVEMENT_BADGES.has(id):
+		return (ACHIEVEMENT_BADGES[id] as Dictionary)["tex"]
 	return ICON_TROPHY_SOLID
+
+
+func _achievement_badge_bg(id: String) -> Color:
+	if ACHIEVEMENT_BADGES.has(id):
+		return (ACHIEVEMENT_BADGES[id] as Dictionary)["bg"]
+	return Color("#10254a")
+
+
+# A rounded badge tile: stepped slab painted in the art's own background color,
+# with the square badge art inset so its corners vanish into the slab.
+func _achievement_badge_tile(id: String, tile: float) -> Control:
+	var box := Control.new()
+	box.custom_minimum_size = Vector2(tile, tile)
+	box.size = Vector2(tile, tile)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ach_stepped_rect(box, 0.0, 0.0, tile, tile, _achievement_badge_bg(id), 2, 4.0)
+	var inset := 8.0
+	var art := _icon_texture_rect(_achievement_badge_texture(id), Vector2(tile - inset * 2.0, tile - inset * 2.0), Color(1, 1, 1))
+	art.position = Vector2(inset, inset)
+	box.add_child(art)
+	return box
 
 
 func _load_achievements() -> void:
@@ -2085,6 +2120,8 @@ func _load_achievements() -> void:
 		for id in cf.get_section_keys("earned"):
 			ach_earned[str(id)] = int(cf.get_value("earned", str(id), 0))
 	ach_spoil_events = int(cf.get_value("progress", "spoil_events", 0))
+	# Self-heal: a set completed before CAPTAIN KING existed earns it at boot.
+	_check_captain_king()
 
 
 func _save_achievements() -> void:
@@ -2108,7 +2145,18 @@ func _award_achievement(id: String) -> void:
 	_save_achievements()
 	_log("Achievement unlocked: %s!" % str(def["title"]))
 	ach_toast_queue.append(def)
+	if id != "captain_king":
+		_check_captain_king()  # before draining, so the capstone joins this stack
 	_drain_achievement_toasts()
+
+
+# Capstone: earning every other badge unlocks CAPTAIN KING itself.
+func _check_captain_king() -> void:
+	for d in ACHIEVEMENT_DEFS:
+		var other := str(d["id"])
+		if other != "captain_king" and not ach_earned.has(other):
+			return
+	_award_achievement("captain_king")
 
 
 # One unlock tab (Balatro-style): a tall dark panel with a big gold badge icon
@@ -2134,9 +2182,9 @@ func _make_achievement_tab(def: Dictionary) -> Control:
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	tab.add_child(col)
 
-	var icon := _icon_texture_rect(_achievement_icon(str(def["id"])), Vector2(96, 96), GOLD)
-	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	col.add_child(icon)
+	var badge := _achievement_badge_tile(str(def["id"]), 116.0)
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(badge)
 
 	var title_lbl := _label(str(def["title"]), 24, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
 	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2355,13 +2403,13 @@ func _achievement_badge_card(def: Dictionary, earned: bool) -> Control:
 	_ach_stepped_rect(card, 0.0, 0.0, w, h, Color("#0a0e14"), 2, 5.0)
 	_ach_stepped_rect(card, 3.0, 3.0, w - 6.0, h - 6.0, Color("#10254a") if earned else Color("#0c1830"), 2, 5.0)
 	var slab := h - 24.0
-	_ach_stepped_rect(card, 12.0, 12.0, slab, slab, GOLD if earned else Color("#1c2a47"), 2, 4.0)
 
 	if earned:
-		var icon := _icon_texture_rect(_achievement_icon(str(def["id"])), Vector2(56, 56), Color("#3a2a00"))
-		icon.position = Vector2(12.0 + (slab - 56.0) * 0.5, 12.0 + (slab - 56.0) * 0.5)
-		card.add_child(icon)
+		var badge := _achievement_badge_tile(str(def["id"]), slab)
+		badge.position = Vector2(12.0, 12.0)
+		card.add_child(badge)
 	else:
+		_ach_stepped_rect(card, 12.0, 12.0, slab, slab, Color("#1c2a47"), 2, 4.0)
 		var q := _label("?", 52, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
 		q.position = Vector2(12.0, 12.0)
 		q.size = Vector2(slab, slab)
