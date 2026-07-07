@@ -2111,28 +2111,18 @@ func _award_achievement(id: String) -> void:
 	_drain_achievement_toasts()
 
 
-# Slide-in tab attached to the right screen edge (Balatro-style): a tall dark
-# panel with a big gold badge icon on top, the title beneath, and a small gold
-# "Achievement Unlocked!" kicker at the bottom. Fully animated in and out;
-# queued so simultaneous unlocks play one after another.
-func _drain_achievement_toasts() -> void:
-	if ach_toast_active or ach_toast_queue.is_empty():
-		return
-	ach_toast_active = true
-	var def: Dictionary = ach_toast_queue.pop_front()
-	var vp := get_viewport().get_visible_rect().size
+# One unlock tab (Balatro-style): a tall dark panel with a big gold badge icon
+# on top, the title beneath, and a small gold "Achievement Unlocked!" kicker at
+# the bottom. Rounded on the free (left) corners only — the right edge stays
+# square where the tab attaches to the screen.
+func _make_achievement_tab(def: Dictionary) -> Control:
 	var w := ACH_TOAST_W
 	var h := ACH_TOAST_H
-
 	var tab := Control.new()
 	tab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tab.z_index = 400
 	tab.size = Vector2(w, h)
-	tab.position = Vector2(vp.x, vp.y * 0.30)
-	add_child(tab)
 
-	# Chunky frame, rounded on the free (left) corners only — the right edge
-	# stays square where the tab attaches to the screen.
 	_ach_stepped_rect(tab, 0.0, 0.0, w, h, Color("#0a0e14"), 2, 5.0, false)
 	_ach_stepped_rect(tab, 3.0, 3.0, w - 3.0, h - 6.0, Color("#10254a"), 2, 5.0, false)
 
@@ -2156,16 +2146,42 @@ func _drain_achievement_toasts() -> void:
 	var kicker := _label("ACHIEVEMENT\nUNLOCKED!", 13, _with_alpha(GOLD, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
 	kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(kicker)
+	return tab
 
-	_play_sfx("trophy")
-	var t := tab.create_tween()
-	t.tween_property(tab, "position:x", vp.x - w, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	t.tween_interval(3.4)
-	t.tween_property(tab, "position:x", vp.x + 8.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
-	t.tween_callback(func() -> void:
-		tab.queue_free()
-		ach_toast_active = false
-		_drain_achievement_toasts())
+
+# Unlocks earned together stack vertically and cascade: each tab slides in half
+# a second after the one above it, and — same hold for every tab — the exits
+# cascade in the same order. A batch bigger than the screen fits waits its turn.
+func _drain_achievement_toasts() -> void:
+	if ach_toast_active or ach_toast_queue.is_empty():
+		return
+	ach_toast_active = true
+	var vp := get_viewport().get_visible_rect().size
+	var gap := 16.0
+	var max_fit := maxi(1, int((vp.y - 40.0) / (ACH_TOAST_H + gap)))
+	var batch: Array = []
+	while not ach_toast_queue.is_empty() and batch.size() < max_fit:
+		batch.append(ach_toast_queue.pop_front())
+	var total_h := float(batch.size()) * ACH_TOAST_H + float(batch.size() - 1) * gap
+	var top := maxf(24.0, (vp.y - total_h) * 0.5)
+	var left := [batch.size()]  # array so the finish lambdas share one counter
+	for i in range(batch.size()):
+		var tab := _make_achievement_tab(batch[i])
+		tab.position = Vector2(vp.x, top + float(i) * (ACH_TOAST_H + gap))
+		add_child(tab)
+		var t := tab.create_tween()
+		t.tween_interval(0.5 * float(i))
+		# Each tab in the stack gets its own sting, stepping up in pitch.
+		t.tween_callback(_play_sfx.bind("trophy", 0.0, 1.0 + 0.05 * float(i), 40))
+		t.tween_property(tab, "position:x", vp.x - ACH_TOAST_W, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_interval(3.4)
+		t.tween_property(tab, "position:x", vp.x + 8.0, 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_IN)
+		t.tween_callback(func() -> void:
+			tab.queue_free()
+			left[0] -= 1
+			if left[0] <= 0:
+				ach_toast_active = false
+				_drain_achievement_toasts())
 
 
 # Per-game trigger trackers, reset with each new season.
@@ -5570,6 +5586,9 @@ func _load_game() -> bool:
 	boat_perk_key = str(data.get("boat_perk_key", ""))  # pre-perk saves: no discount
 	conditions = _dict_copy(data.get("conditions", {}))
 	_ensure_player_defaults()
+	# Self-heal: stats maxed before the achievements system existed (or in a
+	# session that missed the purchase-time check) still earn their badges.
+	_check_stat_achievements()
 	live_well = _dict_array(data.get("live_well", []))
 	market_prices = _dict_copy(data.get("market_prices", {}))
 	for species in SPECIES:
@@ -5581,6 +5600,15 @@ func _load_game() -> bool:
 	ach_haggle_win_streak = int(data.get("ach_haggle_win_streak", 0))
 	ach_haggle_loss_streak = int(data.get("ach_haggle_loss_streak", 0))
 	ach_treasure_kinds = _dict_copy(data.get("ach_treasure_kinds", {}))
+	# Same self-heal as stats: milestones already crossed in this save count.
+	if day >= 21:
+		_award_achievement("days_21")
+	if day >= 40:
+		_award_achievement("days_40")
+	for species in trophies:
+		if bool(trophies[species]):
+			_award_achievement("first_trophy")
+			break
 	_clear_upgrade_cart()
 	for species in SPECIES:
 		if not sold_totals.has(species):
