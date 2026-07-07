@@ -2039,6 +2039,20 @@ var ach_preview_active := false          # ?ach_preview: block persistence of fa
 var last_submitted_entry_id := ""
 
 
+# Stepped "rounded" rect in the pixel style (staircase corners, like the cards).
+# round_right=false keeps the right edge square — for the unlock tab, whose right
+# side sits attached flush against the screen edge.
+func _ach_stepped_rect(parent: Control, x: float, y: float, w: float, h: float, color: Color, steps: int, sp: float, round_right: bool = true) -> void:
+	var total := float(steps) * sp
+	_gallery_rect(parent, x, y + total, w, h - 2.0 * total, color)
+	for s in range(steps):
+		var inset := float(steps - s) * sp
+		var rx := x + inset
+		var rw := w - inset - (inset if round_right else 0.0)
+		_gallery_rect(parent, rx, y + float(s) * sp, rw, sp, color)
+		_gallery_rect(parent, rx, y + h - float(s) * sp - sp, rw, sp, color)
+
+
 func _achievement_def(id: String) -> Dictionary:
 	for def in ACHIEVEMENT_DEFS:
 		if str(def["id"]) == id:
@@ -2117,9 +2131,10 @@ func _drain_achievement_toasts() -> void:
 	tab.position = Vector2(vp.x, vp.y * 0.30)
 	add_child(tab)
 
-	# Chunky frame: dark outline all around except the attached (right) edge.
-	_gallery_rect(tab, 0.0, 0.0, w, h, Color("#0a0e14"))
-	_gallery_rect(tab, 3.0, 3.0, w - 3.0, h - 6.0, Color("#10254a"))
+	# Chunky frame, rounded on the free (left) corners only — the right edge
+	# stays square where the tab attaches to the screen.
+	_ach_stepped_rect(tab, 0.0, 0.0, w, h, Color("#0a0e14"), 2, 5.0, false)
+	_ach_stepped_rect(tab, 3.0, 3.0, w - 3.0, h - 6.0, Color("#10254a"), 2, 5.0, false)
 
 	var col := VBoxContainer.new()
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2319,18 +2334,20 @@ func _achievement_badge_card(def: Dictionary, earned: bool) -> Control:
 	card.size = Vector2(w, h)
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_gallery_rect(card, 0.0, 0.0, w, h, Color("#0a0e14"))
-	_gallery_rect(card, 3.0, 3.0, w - 6.0, h - 6.0, Color("#10254a") if earned else Color("#0c1830"))
-	var slab := h - 6.0
-	_gallery_rect(card, 3.0, 3.0, slab, slab, GOLD if earned else Color("#1c2a47"))
+	# Rounded (pixel-stepped) card frame, with the badge icon in its own rounded
+	# container inset from the card edge.
+	_ach_stepped_rect(card, 0.0, 0.0, w, h, Color("#0a0e14"), 2, 5.0)
+	_ach_stepped_rect(card, 3.0, 3.0, w - 6.0, h - 6.0, Color("#10254a") if earned else Color("#0c1830"), 2, 5.0)
+	var slab := h - 24.0
+	_ach_stepped_rect(card, 12.0, 12.0, slab, slab, GOLD if earned else Color("#1c2a47"), 2, 4.0)
 
 	if earned:
 		var icon := _icon_texture_rect(_achievement_icon(str(def["id"])), Vector2(56, 56), Color("#3a2a00"))
-		icon.position = Vector2(3.0 + (slab - 56.0) * 0.5, 3.0 + (slab - 56.0) * 0.5)
+		icon.position = Vector2(12.0 + (slab - 56.0) * 0.5, 12.0 + (slab - 56.0) * 0.5)
 		card.add_child(icon)
 	else:
 		var q := _label("?", 52, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
-		q.position = Vector2(3.0, 3.0)
+		q.position = Vector2(12.0, 12.0)
 		q.size = Vector2(slab, slab)
 		q.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		card.add_child(q)
@@ -2338,8 +2355,8 @@ func _achievement_badge_card(def: Dictionary, earned: bool) -> Control:
 	var col := VBoxContainer.new()
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_theme_constant_override("separation", 2)
-	col.position = Vector2(slab + 16.0, 0.0)
-	col.size = Vector2(w - slab - 30.0, h)
+	col.position = Vector2(12.0 + slab + 16.0, 0.0)
+	col.size = Vector2(w - slab - 54.0, h)
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
 	card.add_child(col)
 
