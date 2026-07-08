@@ -117,6 +117,16 @@ const CAPTAIN_LAST := [
 ]
 const ICON_TROPHY_OUTLINE: Texture2D = preload("res://assets/icons/trophy-outline.svg")
 const ICON_TROPHY_SOLID: Texture2D = preload("res://assets/icons/trophy-solid.svg")
+# Title-screen link icons — HackerNoon Pixel Icon Library (pixeliconlibrary.com,
+# CC BY 4.0; attributed at the end of the RULES text). White 48px solid PNGs,
+# tinted through the Button icon theme colors.
+const ICON_PX_TROPHY: Texture2D = preload("res://assets/icons/pixel/trophy-solid.png")
+const ICON_PX_BADGE: Texture2D = preload("res://assets/icons/pixel/badge-check-solid.png")
+const ICON_PX_GRAD_CAP: Texture2D = preload("res://assets/icons/pixel/graduation-cap-solid.png")
+const ICON_PX_BOOK: Texture2D = preload("res://assets/icons/pixel/book-solid.png")
+const ICON_PX_COG: Texture2D = preload("res://assets/icons/pixel/cog-solid.png")
+const ICON_PX_SOUND_ON: Texture2D = preload("res://assets/icons/pixel/sound-on-solid.png")
+const ICON_PX_SOUND_MUTE: Texture2D = preload("res://assets/icons/pixel/sound-mute-solid.png")
 const ICON_DAY_TEXTURE: Texture2D = preload("res://assets/icons/icon-day.svg")
 const ICON_FUNDS_TEXTURE: Texture2D = preload("res://assets/icons/icon-funds.svg")
 const ICON_MOVES_TEXTURE: Texture2D = preload("res://assets/icons/icon-moves.svg")
@@ -1709,20 +1719,18 @@ func _build_start_screen() -> void:
 	links.alignment = BoxContainer.ALIGNMENT_CENTER
 	links.add_theme_constant_override("separation", 14)
 	links.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	links.add_child(_title_link("DECK TRAINING", _show_deck_training))
+	links.add_child(_title_link("DECK TRAINING", _show_deck_training, ICON_PX_GRAD_CAP))
 	links.add_child(_title_link_sep())
-	links.add_child(_title_link("RULES", _show_rules_modal))
+	links.add_child(_title_link("RULES", _show_rules_modal, ICON_PX_BOOK))
 	links.add_child(_title_link_sep())
-	links.add_child(_title_link("HIGH SCORES", _show_high_scores_screen))
+	links.add_child(_title_link("HIGH SCORES", _show_high_scores_screen, ICON_PX_TROPHY))
 	links.add_child(_title_link_sep())
-	links.add_child(_title_link("ACHIEVEMENTS", _show_achievements_screen))
+	links.add_child(_title_link("ACHIEVEMENTS", _show_achievements_screen, ICON_PX_BADGE))
 	links.add_child(_title_link_sep())
-	links.add_child(_title_link("SETTINGS", _show_settings_screen))
+	links.add_child(_title_link("", _show_settings_screen, ICON_PX_COG))
 	links.add_child(_title_link_sep())
-	links.add_child(_title_link("CREDITS", _show_credits_screen))
-	links.add_child(_title_link_sep())
-	# The mute toggle previously lived only in dead code — this is its live home.
-	var mute_link := _title_link("MUTE", _toggle_audio_mute)
+	# Icon-only audio toggle; _toggle_audio_mute swaps the speaker icon.
+	var mute_link := _title_link("", _toggle_audio_mute, ICON_PX_SOUND_ON)
 	links.add_child(mute_link)
 	ui["mute_button"] = mute_link
 
@@ -2511,7 +2519,10 @@ func _pixel_button(text: String, accent: Color, fill: Color, text_color: Color, 
 	return card
 
 
-func _title_link(text: String, on_pressed: Callable) -> Button:
+# Title-screen link: text, icon, or icon+label. Icons are white pixel PNGs
+# tinted through the icon theme colors to match the text states; 48px sources
+# shown at 24px (exact 2:1) with NEAREST so the pixel grid stays crisp.
+func _title_link(text: String, on_pressed: Callable, icon: Texture2D = null) -> Button:
 	var b := Button.new()
 	b.flat = true
 	b.text = text
@@ -2522,6 +2533,14 @@ func _title_link(text: String, on_pressed: Callable) -> Button:
 	b.add_theme_color_override("font_color", _with_alpha(CYAN, 0.82))
 	b.add_theme_color_override("font_hover_color", TEXT_PRIMARY)
 	b.add_theme_color_override("font_pressed_color", CYAN)
+	if icon != null:
+		b.icon = icon
+		b.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		b.add_theme_constant_override("icon_max_width", 24)
+		b.add_theme_constant_override("h_separation", 8)
+		b.add_theme_color_override("icon_normal_color", _with_alpha(CYAN, 0.82))
+		b.add_theme_color_override("icon_hover_color", TEXT_PRIMARY)
+		b.add_theme_color_override("icon_pressed_color", CYAN)
 	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
 		b.add_theme_stylebox_override(st, _transparent_style())
 	b.button_down.connect(_play_button_sfx.bind(b))
@@ -2680,8 +2699,33 @@ func _on_solo_trip_pressed() -> void:
 
 
 func _show_solo_save_chooser() -> void:
-	if ui.has("start_solo_chooser"):
-		(ui["start_solo_chooser"] as Control).visible = true
+	if not ui.has("start_solo_chooser"):
+		return
+	(ui["start_solo_chooser"] as Control).visible = true
+	# Pop the two cards in from nothing with opposing over-rotations, staggered
+	# like a deal. Rewinds cleanly if the chooser is reopened mid-pop.
+	var cards: Array = ui.get("chooser_cards", [])
+	for i in range(cards.size()):
+		var card := cards[i] as Control
+		if not is_instance_valid(card):
+			continue
+		if card.has_meta("pop_tween"):
+			var old: Tween = card.get_meta("pop_tween") as Tween
+			if old:
+				old.kill()
+		var base_tilt := float(card.get_meta("base_tilt", 0.0))
+		var dir := -1.0 if base_tilt < 0.0 else 1.0
+		card.scale = Vector2(0.05, 0.05)
+		card.modulate = Color(1, 1, 1, 0)
+		card.rotation_degrees = base_tilt + dir * 26.0
+		var t := card.create_tween()
+		card.set_meta("pop_tween", t)
+		t.tween_interval(0.05 + 0.14 * float(i))
+		t.tween_callback(_play_sfx.bind("card_flip", -4.0, 1.0 + 0.05 * float(i), 40))
+		t.tween_property(card, "modulate:a", 1.0, 0.08)
+		t.parallel().tween_property(card, "scale", Vector2(1.08, 1.08), 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(card, "rotation_degrees", base_tilt, 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_property(card, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 func _hide_solo_save_chooser() -> void:
@@ -2741,56 +2785,89 @@ func _build_solo_save_chooser() -> Control:
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	chooser.add_child(shade)
 
-	var card := _panel_lifted(Color("#071521"), Color("#9fb8da"), 2, 4, 12)
-	card.anchor_left = 0.10
-	card.anchor_right = 0.90
-	card.anchor_top = 0.55
-	card.anchor_bottom = 0.76
-	card.mouse_filter = Control.MOUSE_FILTER_STOP
-	chooser.add_child(card)
+	var vp := get_viewport().get_visible_rect().size
+	var cx := vp.x * 0.5
 
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 22)
-	pad.add_theme_constant_override("margin_right", 22)
-	pad.add_theme_constant_override("margin_top", 18)
-	pad.add_theme_constant_override("margin_bottom", 18)
-	card.add_child(pad)
-
-	var col := VBoxContainer.new()
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 12)
-	pad.add_child(col)
-
-	var prompt := _label("SOLO SAVE FOUND", 31, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	var prompt := _label("SOLO SAVE FOUND", 34, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
 	prompt.add_theme_constant_override("shadow_offset_y", 5)
 	prompt.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.95))
-	prompt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(prompt)
+	prompt.anchor_right = 1.0
+	prompt.offset_top = vp.y * 0.12
+	prompt.offset_bottom = vp.y * 0.12 + 44.0
+	prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chooser.add_child(prompt)
 
-	var row := HBoxContainer.new()
-	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_theme_constant_override("separation", 10)
-	col.add_child(row)
-
-	var new_trip := _tactile_button("NEW TRIP", 0, 50, BG_PANEL_LIGHT, GOLD_DEEP, TEXT_PRIMARY)
-	new_trip.add_theme_font_size_override("font_size", 24)
-	new_trip.add_theme_color_override("font_color", TEXT_PRIMARY)
-	new_trip.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.95))
-	new_trip.add_theme_constant_override("shadow_offset_y", 5)
-	new_trip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	new_trip.pressed.connect(func(): _new_game(false))
-	row.add_child(new_trip)
-
-	var resume := _tactile_button("RESUME GAME", 0, 50, BG_PANEL_LIGHT, CYAN_DEEP, TEXT_PRIMARY)
-	resume.add_theme_font_size_override("font_size", 24)
-	resume.add_theme_color_override("font_color", TEXT_PRIMARY)
-	resume.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.95))
-	resume.add_theme_constant_override("shadow_offset_y", 5)
-	resume.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	resume.pressed.connect(_resume_solo_game)
-	row.add_child(resume)
+	# Two opposing cards: resume on the left leaning in, fresh start on the
+	# right leaning the other way. Art lands on the faces later.
+	var card_size := Vector2(320, 430)
+	var gap := 64.0
+	var cy := vp.y * 0.52 - card_size.y * 0.5
+	var cont := _chooser_card("CONTINUE\nSEASON", "Pick up where you left off", CYAN, -4.0, card_size, _resume_solo_game)
+	cont.position = Vector2(cx - card_size.x - gap * 0.5, cy)
+	chooser.add_child(cont)
+	var fresh := _chooser_card("NEW\nADVENTURE", "Cast off on a fresh season", GOLD, 4.0, card_size, func(): _new_game(false))
+	fresh.position = Vector2(cx + gap * 0.5, cy)
+	chooser.add_child(fresh)
+	ui["chooser_cards"] = [cont, fresh]
 
 	return chooser
+
+
+# One oversized choice card for the save chooser: squarestep shell, accent
+# kicker, big stacked title, subtitle. `tilt` gives the pair opposing leans.
+func _chooser_card(title: String, sub: String, accent: Color, tilt: float, card_size: Vector2, on_pressed: Callable) -> Button:
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	b.custom_minimum_size = card_size
+	b.size = card_size
+	b.pivot_offset = card_size * 0.5
+	b.rotation_degrees = tilt
+	b.set_meta("base_tilt", tilt)
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(st, _transparent_style())
+
+	var face := Control.new()
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face.size = card_size
+	b.add_child(face)
+	var inset := _add_squarestep_card_shell(face, card_size, Color("#011244"))
+
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 14)
+	col.position = Vector2(inset + 10.0, inset)
+	col.size = Vector2(card_size.x - (inset + 10.0) * 2.0, card_size.y - inset * 2.0)
+	b.add_child(col)
+
+	var kicker := _label("SOLO TRIP", 15, _with_alpha(accent, 0.85), HORIZONTAL_ALIGNMENT_CENTER)
+	kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(kicker)
+
+	var title_lbl := _label(title, 40, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	title_lbl.add_theme_constant_override("shadow_offset_y", 4)
+	title_lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title_lbl)
+
+	var sub_lbl := _label(sub, 16, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	sub_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(sub_lbl)
+
+	b.button_down.connect(_play_button_sfx.bind(b))
+	b.pressed.connect(on_pressed)
+
+	# Gentle hover lift, returning to the base lean on exit.
+	b.mouse_entered.connect(func() -> void:
+		var t := b.create_tween()
+		t.tween_property(b, "scale", Vector2(1.04, 1.04), 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
+	b.mouse_exited.connect(func() -> void:
+		var t := b.create_tween()
+		t.tween_property(b, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
+
+	return b
 
 
 func _add_start_button_text(parent: Control, text: String, size: int, y_offset: int = 0) -> void:
@@ -3040,7 +3117,7 @@ func _toggle_audio_mute() -> void:
 	AudioServer.set_bus_mute(0, audio_muted)
 	if ui.has("mute_button"):
 		var b: Button = ui["mute_button"]
-		b.text = "UNMUTE" if audio_muted else "MUTE"
+		b.icon = ICON_PX_SOUND_MUTE if audio_muted else ICON_PX_SOUND_ON
 
 
 func _rules_text() -> String:
@@ -3107,7 +3184,8 @@ func _rules_text() -> String:
 		+ "  • Deep water is worth the risk only if your hull and live well can handle a setback.\n"
 		+ "  • Sell often — spoiled fish are a wasted catch.\n"
 		+ "  • In Pirate Battle, watch the rival's distance; Cannons are useless once they dock.\n"
-		+ "  • Save a few casts for a known fish hole before END DAY in case weather damage strands you tomorrow.\n")
+		+ "  • Save a few casts for a known fish hole before END DAY in case weather damage strands you tomorrow.\n\n"
+		+ "[i]Pixel icons by HackerNoon — pixeliconlibrary.com (CC BY 4.0).[/i]\n")
 
 
 func _build_board(parent: Container) -> void:
