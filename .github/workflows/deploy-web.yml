@@ -66,6 +66,11 @@ jobs:
           name: site
           path: public
 
+      # The scores function imports @netlify/blobs — esbuild needs it present
+      # in node_modules to bundle it, or the lambda dies on cold start (502).
+      - name: Install function dependencies
+        run: npm ci --omit=dev
+
       - name: Deploy to Netlify
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
