@@ -93,6 +93,9 @@ function sanitizeScore(raw) {
     treasures_found: clampInt(raw.treasures_found, 0, 9999),
     mode: safeEnum(raw.mode, ["solo", "versus"], "solo"),
     outcome: safeText(raw.outcome, 32) || "SEASON OVER",
+    captain: safeText(raw.captain, 40),
+    boat_name: safeText(raw.boat_name, 40),
+    boat: clampInt(raw.boat, 0, 15),
     timestamp: clampInt(raw.timestamp || Math.floor(Date.now() / 1000), 0, 9999999999),
   };
 

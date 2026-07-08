@@ -6540,9 +6540,14 @@ func _find_fish() -> void:
 		_log("No fish-finder uses left.")
 		return
 
+	var tile: Dictionary = board[_cell_index(boat_pos)]
+	# Already-charted water (revealed, known empty, or fished out): the tap is
+	# a no-op — no find consumed, no re-ping. The button stays visually live.
+	if bool(tile["found"]) or bool(tile["depleted"]):
+		return
+
 	finds_remaining -= 1
 	_stat_add("finds_used", 1)
-	var tile: Dictionary = board[_cell_index(boat_pos)]
 	tile["found"] = true
 	if bool(tile["depleted"]) or str(tile["content"]) == "empty":
 		_log("Finder reads empty water.")
@@ -12045,6 +12050,9 @@ func _record_high_score() -> int:
 		"treasures_found": int(game_stats.get("treasures_found", 0)),
 		"mode": MODE_VERSUS if versus_mode else MODE_SOLO,
 		"outcome": outcome["title"],
+		"captain": captain_name,
+		"boat_name": boat_name,
+		"boat": boat_choice,
 		"timestamp": int(Time.get_unix_time_from_system()),
 	}
 	scores.append(entry)
@@ -13943,8 +13951,9 @@ func _render_high_scores_screen(scores: Array, title_text: String, status_text: 
 		card.add_child(row)
 
 		row.add_child(_hs_rank_badge(rank))
+		row.add_child(_hs_identity_block(entry))
 
-		# The ranking metric leads the row — this is the number the list sorts by.
+		# The ranking metric leads the stats — this is the number the list sorts by.
 		# (Trend-arrow icon: white-fill, so the gold tint applies cleanly.)
 		row.add_child(_hs_stat_block(ICON_MOVES_TEXTURE, _format_thousands(_entry_season_score(entry)), GOLD if is_top else GOLD.darkened(0.12), 138))
 
@@ -13966,6 +13975,48 @@ func _render_high_scores_screen(scores: Array, title_text: String, status_text: 
 
 		var is_vs := str(entry.get("mode", MODE_SOLO)) == MODE_VERSUS
 		row.add_child(_hs_result_chip(str(entry.get("outcome", "")), is_vs))
+
+
+# Who sailed the run: boat avatar + captain over boat name. Legacy entries
+# (pre-identity) render a dimmed generic boat and an UNKNOWN CAPTAIN line.
+func _hs_identity_block(entry: Dictionary) -> Control:
+	var wrap := HBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 10)
+	wrap.custom_minimum_size = Vector2(230, 0)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var captain := str(entry.get("captain", ""))
+	var boat_label := str(entry.get("boat_name", ""))
+	var boat_idx := clampi(int(entry.get("boat", 0)), 0, BOAT_TEXTURES.size() - 1)
+	var known := captain != "" or boat_label != ""
+
+	var avatar := TextureRect.new()
+	avatar.texture = BOAT_TEXTURES[boat_idx]
+	avatar.custom_minimum_size = Vector2(44, 44)
+	avatar.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	avatar.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	avatar.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	avatar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	avatar.modulate = Color(1, 1, 1, 1.0 if known else 0.35)
+	avatar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(avatar)
+
+	var names := VBoxContainer.new()
+	names.alignment = BoxContainer.ALIGNMENT_CENTER
+	names.add_theme_constant_override("separation", 0)
+	names.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(names)
+	var cap_lbl := _label(captain.to_upper() if captain != "" else "UNKNOWN CAPTAIN", 16, TEXT_PRIMARY if known else TEXT_DIM)
+	cap_lbl.clip_text = true
+	cap_lbl.custom_minimum_size = Vector2(176, 0)
+	names.add_child(cap_lbl)
+	if boat_label != "":
+		var boat_lbl := _label(boat_label, 12, TEXT_DIM)
+		boat_lbl.clip_text = true
+		boat_lbl.custom_minimum_size = Vector2(176, 0)
+		names.add_child(boat_lbl)
+
+	return wrap
 
 
 func _return_from_high_scores() -> void:
