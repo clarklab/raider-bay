@@ -15,8 +15,8 @@ const DOCK_END_COL := DOCK_COL + 1
 const DOCK_ACCESS_START_COL := DOCK_START_COL - 1
 const DOCK_ACCESS_END_COL := DOCK_END_COL + 1
 const BOARD_CARD_GAP := 4
-const BOARD_CELL_WIDTH := 68
-const BOARD_CELL_HEIGHT := 94
+const BOARD_CELL_WIDTH := 72
+const BOARD_CELL_HEIGHT := 99
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
 const BOARD_WRAP_WIDTH := BOARD_GRID_WIDTH + 54
@@ -240,6 +240,7 @@ const SFX_STREAMS: Dictionary = {
 	"haggle_avg": preload("res://assets/sounds/sfx-haggle-avg.mp3"),
 	"trophy": preload("res://assets/sounds/sfx-trophy.mp3"),
 	"title_slam": preload("res://assets/sounds/sfx-title-slam.mp3"),
+	"radar_blip": preload("res://assets/sounds/sfx-radar-blip.mp3"),
 }
 # Per-sound base volume: taps sit under the ambience; celebrations get the stage.
 const SFX_BASE_DB: Dictionary = {
@@ -255,6 +256,7 @@ const SFX_BASE_DB: Dictionary = {
 	"haggle_avg": -4.0,
 	"trophy": -3.0,
 	"title_slam": -4.0,
+	"radar_blip": -8.0,
 }
 
 # Birds cycle: distant → near → close → gone, on a rolling loop. Volumes are
@@ -6485,6 +6487,7 @@ func _move(delta: Vector2i) -> void:
 	moves_remaining -= cost
 	_stat_add("move_actions", 1)
 	_stat_add("moves_used", cost)
+	var from_cell := boat_pos
 	boat_pos = target
 	if going_to_dock:
 		cast_holes_today.clear()
@@ -6494,6 +6497,37 @@ func _move(delta: Vector2i) -> void:
 		tile["visited"] = true
 		_log("Moved into %s water." % str(tile["zone"]))
 	_update_ui()
+	_play_sfx("radar_blip", 0.0, randf_range(0.96, 1.06))
+	_animate_board_move(from_cell, target, going_to_dock)
+
+
+# Move juice: the card the boat left dips down for a beat; the card it enters
+# swells up and snaps back. Dock rows sit outside the grid and stay still.
+func _animate_board_move(from_cell: Vector2i, to_cell: Vector2i, to_dock: bool) -> void:
+	if from_cell.y >= 0 and from_cell.y < GRID_ROWS:
+		_pulse_board_cell(cell_buttons[_cell_index(from_cell)], Vector2(0.86, 0.86))
+	if not to_dock and to_cell.y >= 0 and to_cell.y < GRID_ROWS:
+		_pulse_board_cell(cell_buttons[_cell_index(to_cell)], Vector2(1.14, 1.14))
+
+
+func _pulse_board_cell(btn: Button, peak: Vector2) -> void:
+	if not is_instance_valid(btn):
+		return
+	var shell := _board_card_shell(btn)
+	var nodes: Array = [btn]
+	if shell != null:
+		nodes.append(shell)
+	for node in nodes:
+		var n := node as Control
+		if n.has_meta("move_pulse"):
+			var old: Tween = n.get_meta("move_pulse") as Tween
+			if old:
+				old.kill()
+		n.scale = Vector2.ONE
+		var t := n.create_tween()
+		n.set_meta("move_pulse", t)
+		t.tween_property(n, "scale", peak, 0.10).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.tween_property(n, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _find_fish() -> void:
