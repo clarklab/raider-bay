@@ -54,6 +54,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # The repo checkout supplies netlify.toml (redirect rules) and the
+      # functions source — without it the CLI shipped a static site only,
+      # so the /api/scores function 404'd and global scores went dark.
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download site artifact
         uses: actions/download-artifact@v4
         with:
@@ -65,8 +71,11 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
         run: |
+          # Belt and suspenders: the redirect also travels inside the publish dir.
+          printf '/api/scores  /.netlify/functions/scores  200\n' > public/_redirects
           npx --yes netlify-cli@17 deploy --prod \
             --dir public \
+            --functions netlify/functions \
             --site "$NETLIFY_SITE_ID" \
             --auth "$NETLIFY_AUTH_TOKEN" \
             --message "deploy ${GITHUB_SHA::7}"
