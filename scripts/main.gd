@@ -2374,6 +2374,48 @@ func _build_achievements_screen() -> void:
 	scroll.add_child(flow)
 	ui["achievements_flow"] = flow
 
+	# Detail overlay: tap a badge to zoom it full-size with its story beside it.
+	# Swipe (or the < > buttons) carousels through every slot in order.
+	var detail := Control.new()
+	detail.anchor_right = 1.0
+	detail.anchor_bottom = 1.0
+	detail.mouse_filter = Control.MOUSE_FILTER_STOP
+	detail.visible = false
+	overlay.add_child(detail)
+	ui["ach_detail_overlay"] = detail
+
+	var detail_shade := ColorRect.new()
+	detail_shade.color = Color(0, 0, 0, 0.62)
+	detail_shade.anchor_right = 1.0
+	detail_shade.anchor_bottom = 1.0
+	detail_shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	detail_shade.gui_input.connect(_on_ach_detail_shade_input)
+	detail.add_child(detail_shade)
+
+	var detail_content := Control.new()
+	detail_content.anchor_right = 1.0
+	detail_content.anchor_bottom = 1.0
+	detail_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	detail.add_child(detail_content)
+	ui["ach_detail_content"] = detail_content
+
+	var vp := get_viewport().get_visible_rect().size
+	var prev_btn := _tactile_button("<", 64, 64, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
+	prev_btn.add_theme_font_size_override("font_size", 30)
+	prev_btn.position = Vector2(26.0, vp.y * 0.5 - 32.0)
+	prev_btn.pressed.connect(_swipe_achievement_detail.bind(-1))
+	detail.add_child(prev_btn)
+	var next_btn := _tactile_button(">", 64, 64, BG_PANEL_LIGHT, BORDER_HI, TEXT_PRIMARY)
+	next_btn.add_theme_font_size_override("font_size", 30)
+	next_btn.position = Vector2(vp.x - 90.0, vp.y * 0.5 - 32.0)
+	next_btn.pressed.connect(_swipe_achievement_detail.bind(1))
+	detail.add_child(next_btn)
+
+	var detail_close := _close_x_button()
+	detail_close.position = Vector2(vp.x - 86.0, 22.0)
+	detail_close.pressed.connect(_close_achievement_detail)
+	detail.add_child(detail_close)
+
 
 func _show_achievements_screen() -> void:
 	if not ui.has("achievements_overlay") or not ui.has("achievements_flow"):
@@ -2392,19 +2434,26 @@ func _render_achievements_screen() -> void:
 	for child in flow.get_children():
 		child.queue_free()
 	(ui["achievements_status"] as Label).text = "%d OF %d EARNED" % [ach_earned.size(), ACHIEVEMENT_DEFS.size()]
-	for def in ACHIEVEMENT_DEFS:
-		flow.add_child(_achievement_badge_card(def, ach_earned.has(str(def["id"]))))
+	for i in range(ACHIEVEMENT_DEFS.size()):
+		var def: Dictionary = ACHIEVEMENT_DEFS[i]
+		flow.add_child(_achievement_badge_card(def, ach_earned.has(str(def["id"])), i))
 
 
-# One badge card. Earned: gold slab, title, how-it-was-earned description, date.
-# Unearned: a "???" mystery slot — count visible, contents secret.
-func _achievement_badge_card(def: Dictionary, earned: bool) -> Control:
+# One badge card. Earned: badge art, title, how-it-was-earned description, date.
+# Unearned: a "???" mystery slot — count visible, contents secret. Tapping any
+# card zooms it into the detail overlay.
+func _achievement_badge_card(def: Dictionary, earned: bool, index: int) -> Control:
 	var w := 396.0
 	var h := 132.0
-	var card := Control.new()
+	var card := Button.new()
+	card.focus_mode = Control.FOCUS_NONE
+	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	card.custom_minimum_size = Vector2(w, h)
 	card.size = Vector2(w, h)
-	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
+		card.add_theme_stylebox_override(st, _transparent_style())
+	card.button_down.connect(_play_button_sfx.bind(card))
+	card.pressed.connect(_open_achievement_detail.bind(index))
 
 	# Rounded (pixel-stepped) card frame, with the badge icon in its own rounded
 	# container inset from the card edge.
@@ -2444,6 +2493,124 @@ func _achievement_badge_card(def: Dictionary, earned: bool) -> Control:
 		col.add_child(_label("???", 24, TEXT_DIM))
 
 	return card
+
+
+# ── Achievement detail view: zoomed badge + story, swipeable carousel ──
+
+var ach_detail_index := -1
+var ach_swipe_start_x := -1.0
+
+
+func _open_achievement_detail(index: int) -> void:
+	if not ui.has("ach_detail_overlay"):
+		return
+	ach_detail_index = wrapi(index, 0, ACHIEVEMENT_DEFS.size())
+	_play_sfx("modal_open")
+	var overlay := ui["ach_detail_overlay"] as Control
+	overlay.move_to_front()
+	overlay.visible = true
+	_render_achievement_detail(0)
+
+
+func _close_achievement_detail() -> void:
+	if ui.has("ach_detail_overlay"):
+		(ui["ach_detail_overlay"] as Control).visible = false
+
+
+func _swipe_achievement_detail(dir: int) -> void:
+	ach_detail_index = wrapi(ach_detail_index + dir, 0, ACHIEVEMENT_DEFS.size())
+	_play_sfx("card_slide", -6.0, 1.0, 40)
+	_render_achievement_detail(dir)
+
+
+# Shade input: horizontal drag past the threshold is a swipe (mouse and touch —
+# web emulates mouse from touch); a near-still tap closes, like most lightboxes.
+func _on_ach_detail_shade_input(ev: InputEvent) -> void:
+	if not (ev is InputEventMouseButton) or (ev as InputEventMouseButton).button_index != MOUSE_BUTTON_LEFT:
+		return
+	var mb := ev as InputEventMouseButton
+	if mb.pressed:
+		ach_swipe_start_x = mb.position.x
+		return
+	if ach_swipe_start_x < 0.0:
+		return
+	var dx := mb.position.x - ach_swipe_start_x
+	ach_swipe_start_x = -1.0
+	if absf(dx) > 60.0:
+		_swipe_achievement_detail(-1 if dx > 0.0 else 1)
+	elif absf(dx) < 12.0:
+		_close_achievement_detail()
+
+
+# Rebuild the zoomed badge + story column. slide_dir animates the content in
+# from the swipe direction (0 = fresh open, pops instead).
+func _render_achievement_detail(slide_dir: int) -> void:
+	var content := ui["ach_detail_content"] as Control
+	for c in content.get_children():
+		c.queue_free()
+	var def: Dictionary = ACHIEVEMENT_DEFS[ach_detail_index]
+	var id := str(def["id"])
+	var earned := ach_earned.has(id)
+	var vp := get_viewport().get_visible_rect().size
+	var tile := minf(400.0, vp.y * 0.52)
+	var gap := 52.0
+	var col_w := 470.0
+	var x0 := (vp.x - (tile + gap + col_w)) * 0.5
+	var cy := vp.y * 0.5
+
+	var badge: Control
+	if earned:
+		badge = _achievement_badge_tile(id, tile)
+	else:
+		badge = Control.new()
+		badge.custom_minimum_size = Vector2(tile, tile)
+		badge.size = Vector2(tile, tile)
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_ach_stepped_rect(badge, 0.0, 0.0, tile, tile, Color("#1c2a47"), 2, 6.0)
+		var q := _label("?", int(tile * 0.42), TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+		q.size = Vector2(tile, tile)
+		q.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		q.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.add_child(q)
+	badge.position = Vector2(x0, cy - tile * 0.5)
+	content.add_child(badge)
+
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 14)
+	col.position = Vector2(x0 + tile + gap, cy - tile * 0.5)
+	col.size = Vector2(col_w, tile)
+	content.add_child(col)
+
+	col.add_child(_label("ACHIEVEMENT %d OF %d" % [ach_detail_index + 1, ACHIEVEMENT_DEFS.size()], 15, TEXT_DIM))
+	var title_lbl := _label(str(def["title"]) if earned else "???", 42, GOLD if earned else TEXT_DIM)
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title_lbl)
+	var desc_text := str(def["desc"]) if earned else "Keep playing, captain — this badge is still out there."
+	var desc := _label(desc_text, 21, TEXT_MUTED)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(desc)
+	if earned:
+		col.add_child(_label(_achievement_date_text(int(ach_earned[id])), 14, TEXT_DIM))
+
+	# Entrance: fresh opens pop from the middle; swipes slide in from the side.
+	if slide_dir == 0:
+		content.pivot_offset = vp * 0.5
+		content.scale = Vector2(0.6, 0.6)
+		content.modulate = Color(1, 1, 1, 0)
+		var t := content.create_tween()
+		t.tween_property(content, "modulate:a", 1.0, 0.1)
+		t.parallel().tween_property(content, "scale", Vector2.ONE, 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	else:
+		content.scale = Vector2.ONE
+		content.position.x = 90.0 * float(slide_dir)
+		content.modulate = Color(1, 1, 1, 0)
+		var t := content.create_tween()
+		t.tween_property(content, "modulate:a", 1.0, 0.1)
+		t.parallel().tween_property(content, "position:x", 0.0, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 # ?ach_preview web hook: stages fake earned badges (never persisted) and fires
