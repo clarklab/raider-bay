@@ -4311,18 +4311,18 @@ func _build_extra_night_column() -> Control:
 
 const BOOSTER_COST := 250
 const BOOSTER_CARDS: Array[Dictionary] = [
-	{"id": "night_1", "title": "ONE MORE NIGHT", "desc": "+1 night at sea. The season isn't done with you yet.", "accent": Color("#fcba00")},
-	{"id": "night_2", "title": "SECOND WIND", "desc": "+2 nights at sea. The coffee is working.", "accent": Color("#fcba00")},
-	{"id": "night_3", "title": "THE LONG HAUL", "desc": "+3 nights at sea. Practically a second season.", "accent": Color("#fcba00")},
-	{"id": "catch_5", "title": "CHUM SLICK", "desc": "+5 fish on your next catch. They can smell it.", "accent": Color("#84ea72")},
-	{"id": "catch_6", "title": "FEEDING FRENZY", "desc": "+6 fish on your next catch. The water boils.", "accent": Color("#84ea72")},
-	{"id": "double_sale", "title": "GOLD RUSH", "desc": "Double money on your next sale. The dealer weeps.", "accent": Color("#fcba00")},
-	{"id": "price_up", "title": "MARKET SURGE", "desc": "+$5 on every fish price, every day, all season.", "accent": Color("#7fd6f2")},
-	{"id": "hurricane_triple", "title": "EYE OF THE STORM", "desc": "Triple catch during the next hurricane. Sail into it.", "accent": Color("#c684fc")},
-	{"id": "loaded_dice", "title": "LOADED DICE", "desc": "Your next haggle rolls a perfect 6. Shhh.", "accent": Color("#c684fc")},
-	{"id": "repair", "title": "SHIPSHAPE", "desc": "Full repairs, on the house. She's brand new again.", "accent": Color("#84ea72")},
-	{"id": "moves", "title": "COFFEE & DIESEL", "desc": "+3 moves today. Get going, captain.", "accent": Color("#ff6b6b")},
-	{"id": "cash", "title": "SUNKEN CHANGE", "desc": "$150 cash, right now. Found it in the couch.", "accent": Color("#fcba00")},
+	{"id": "night_1", "title": "ONE MORE NIGHT", "desc": "+1 night at sea. The season isn't done with you yet.", "accent": Color("#fcba00"), "tex": preload("res://assets/boosters/booster-night-1.png")},
+	{"id": "night_2", "title": "SECOND WIND", "desc": "+2 nights at sea. The coffee is working.", "accent": Color("#fcba00"), "tex": preload("res://assets/boosters/booster-night-2.png")},
+	{"id": "night_3", "title": "THE LONG HAUL", "desc": "+3 nights at sea. Practically a second season.", "accent": Color("#fcba00"), "tex": preload("res://assets/boosters/booster-night-3.png")},
+	{"id": "catch_5", "title": "CHUM SLICK", "desc": "+5 fish on your next catch. They can smell it.", "accent": Color("#84ea72"), "tex": preload("res://assets/boosters/booster-catch-5.png")},
+	{"id": "catch_6", "title": "FEEDING FRENZY", "desc": "+6 fish on your next catch. The water boils.", "accent": Color("#84ea72"), "tex": preload("res://assets/boosters/booster-catch-6.png")},
+	{"id": "double_sale", "title": "GOLD RUSH", "desc": "Double money on your next sale. The dealer weeps.", "accent": Color("#fcba00"), "tex": preload("res://assets/boosters/booster-double-sale.png")},
+	{"id": "price_up", "title": "MARKET SURGE", "desc": "+$5 on every fish price, every day, all season.", "accent": Color("#7fd6f2"), "tex": preload("res://assets/boosters/booster-price-up.png")},
+	{"id": "hurricane_triple", "title": "EYE OF THE STORM", "desc": "Triple catch during the next hurricane. Sail into it.", "accent": Color("#c684fc"), "tex": preload("res://assets/boosters/booster-hurricane-triple.png")},
+	{"id": "loaded_dice", "title": "LOADED DICE", "desc": "Your next haggle rolls a perfect 6. Shhh.", "accent": Color("#c684fc"), "tex": preload("res://assets/boosters/booster-loaded-dice.png")},
+	{"id": "repair", "title": "SHIPSHAPE", "desc": "Full repairs, on the house. She's brand new again.", "accent": Color("#84ea72"), "tex": preload("res://assets/boosters/booster-repair.png")},
+	{"id": "moves", "title": "COFFEE & DIESEL", "desc": "+3 moves today. Get going, captain.", "accent": Color("#ff6b6b"), "tex": preload("res://assets/boosters/booster-moves.png")},
+	{"id": "cash", "title": "SUNKEN CHANGE", "desc": "$150 cash, right now. Found it in the couch.", "accent": Color("#fcba00"), "tex": preload("res://assets/boosters/booster-cash.png")},
 ]
 
 # Pending redemptions (persisted with the save; reset each new game).
@@ -4656,10 +4656,10 @@ func _booster_phase_reveal(ctx: Dictionary) -> void:
 		pulse.tween_property(glow, "scale", Vector2(1.3, 1.3), 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT))
 
 
-# The revealed booster card: squarestep shell, accent header band, big title,
-# story text. 320x430, pivot centered for the pop.
+# The revealed booster card: squarestep shell, full-bleed art up top, big
+# title and story text beneath. 340x470, pivot centered for the pop.
 func _booster_reveal_card(def: Dictionary) -> Control:
-	var size := Vector2(320, 430)
+	var size := Vector2(340, 470)
 	var card := Control.new()
 	card.custom_minimum_size = size
 	card.size = size
@@ -4667,36 +4667,42 @@ func _booster_reveal_card(def: Dictionary) -> Control:
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var accent: Color = def["accent"]
 	var inset := _add_squarestep_card_shell(card, size, Color("#011244"))
+	var inner_w := size.x - inset * 2.0
 
-	var band := ColorRect.new()
-	band.color = accent.darkened(0.25)
-	band.position = Vector2(inset, inset)
-	band.size = Vector2(size.x - inset * 2.0, 74.0)
-	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(band)
-	var kicker := _label("BOOSTER PACK", 15, _with_alpha(Color("#ffffff"), 0.82), HORIZONTAL_ALIGNMENT_CENTER)
-	kicker.position = Vector2(inset, inset + 12.0)
-	kicker.size = Vector2(size.x - inset * 2.0, 20)
+	var art_h := 232.0
+	var tex: Texture2D = def.get("tex", null)
+	if tex != null:
+		var art := TextureRect.new()
+		art.texture = tex
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		art.clip_contents = true
+		art.position = Vector2(inset, inset)
+		art.size = Vector2(inner_w, art_h)
+		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(art)
+	else:
+		art_h = 60.0
+
+	var kicker := _label("BOOSTER PACK", 13, _with_alpha(accent, 0.9), HORIZONTAL_ALIGNMENT_CENTER)
+	kicker.position = Vector2(inset, inset + art_h + 10.0)
+	kicker.size = Vector2(inner_w, 18)
 	kicker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(kicker)
-	var star := _label("★", 26, Color("#ffffff"), HORIZONTAL_ALIGNMENT_CENTER)
-	star.position = Vector2(inset, inset + 34.0)
-	star.size = Vector2(size.x - inset * 2.0, 32)
-	star.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(star)
 
 	var col := VBoxContainer.new()
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 16)
-	col.position = Vector2(inset + 14.0, inset + 82.0)
-	col.size = Vector2(size.x - (inset + 14.0) * 2.0, size.y - inset * 2.0 - 90.0)
+	col.add_theme_constant_override("separation", 10)
+	col.position = Vector2(inset + 12.0, inset + art_h + 30.0)
+	col.size = Vector2(inner_w - 24.0, size.y - inset - (inset + art_h + 30.0) - 8.0)
 	card.add_child(col)
-	var title := _label(str(def["title"]), 34, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	var title := _label(str(def["title"]), 28, accent, HORIZONTAL_ALIGNMENT_CENTER)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(title)
-	var desc := _label(str(def["desc"]), 18, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var desc := _label(str(def["desc"]), 15, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(desc)
