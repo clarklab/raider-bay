@@ -528,6 +528,7 @@ func _ready() -> void:
 	_schedule_catch_preview_from_query()
 	_schedule_deck_preview_from_query()
 	_schedule_ach_preview_from_query()
+	_schedule_booster_preview_from_query()
 	# Promo/demo capture: `-- --autoplay` drives a full scripted playthrough for
 	# Movie Maker recording. Inert in every normal launch; suppresses the training
 	# and update overlays so nothing covers the reel.
@@ -2639,6 +2640,34 @@ func _render_achievement_detail(slide_dir: int) -> void:
 		t.parallel().tween_property(content, "position:x", 0.0, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
+# ?booster_preview web hook: fires the pack-open scene (no charge, effect not
+# applied — CLAIM applies to a title-screen no-op state) plus a redemption chip,
+# so the whole spectacle can be reviewed without $250. ?booster_preview=<id>
+# pins a specific card.
+func _schedule_booster_preview_from_query() -> void:
+	if not OS.has_feature("web"):
+		return
+	var search := str(JavaScriptBridge.eval("window.location.search + window.location.hash", true))
+	if search.find("booster_preview") == -1:
+		return
+	var key := ""
+	for part in search.replace("?", "&").replace("#", "&").split("&"):
+		if part.begins_with("booster_preview="):
+			key = part.get_slice("booster_preview=", 1).to_lower()
+	call_deferred("_run_booster_preview", key)
+
+
+func _run_booster_preview(key: String) -> void:
+	var def: Dictionary = BOOSTER_CARDS[randi() % BOOSTER_CARDS.size()]
+	for candidate in BOOSTER_CARDS:
+		if str(candidate["id"]) == key:
+			def = candidate
+	_show_booster_open_scene(def)
+	var sched := create_tween()
+	sched.tween_interval(7.0)
+	sched.tween_callback(_show_booster_redemption.bind("GOLD RUSH!", "Sale doubled — $412!"))
+
+
 # ?ach_preview web hook: stages fake earned badges (never persisted) and fires
 # a queue of sample toasts so the tab animation + inventory can be reviewed.
 func _schedule_ach_preview_from_query() -> void:
@@ -4273,8 +4302,141 @@ func _build_extra_night_column() -> Control:
 	return panel
 
 
+# ────────────────────────────────────────────────────────────────────────
+# Booster packs — $250 blind card buys. The pack-open scene is the show:
+# shake, sparkles, vibration, a flash, and a glowing reveal. Effects either
+# fire instantly (nights, cash, repairs) or arm a pending redemption that
+# celebrates itself at catch/sale time.
+# ────────────────────────────────────────────────────────────────────────
+
+const BOOSTER_COST := 250
+const BOOSTER_CARDS: Array[Dictionary] = [
+	{"id": "night_1", "title": "ONE MORE NIGHT", "desc": "+1 night at sea. The season isn't done with you yet.", "accent": Color("#fcba00")},
+	{"id": "night_2", "title": "SECOND WIND", "desc": "+2 nights at sea. The coffee is working.", "accent": Color("#fcba00")},
+	{"id": "night_3", "title": "THE LONG HAUL", "desc": "+3 nights at sea. Practically a second season.", "accent": Color("#fcba00")},
+	{"id": "catch_5", "title": "CHUM SLICK", "desc": "+5 fish on your next catch. They can smell it.", "accent": Color("#84ea72")},
+	{"id": "catch_6", "title": "FEEDING FRENZY", "desc": "+6 fish on your next catch. The water boils.", "accent": Color("#84ea72")},
+	{"id": "double_sale", "title": "GOLD RUSH", "desc": "Double money on your next sale. The dealer weeps.", "accent": Color("#fcba00")},
+	{"id": "price_up", "title": "MARKET SURGE", "desc": "+$5 on every fish price, every day, all season.", "accent": Color("#7fd6f2")},
+	{"id": "hurricane_triple", "title": "EYE OF THE STORM", "desc": "Triple catch during the next hurricane. Sail into it.", "accent": Color("#c684fc")},
+	{"id": "loaded_dice", "title": "LOADED DICE", "desc": "Your next haggle rolls a perfect 6. Shhh.", "accent": Color("#c684fc")},
+	{"id": "repair", "title": "SHIPSHAPE", "desc": "Full repairs, on the house. She's brand new again.", "accent": Color("#84ea72")},
+	{"id": "moves", "title": "COFFEE & DIESEL", "desc": "+3 moves today. Get going, captain.", "accent": Color("#ff6b6b")},
+	{"id": "cash", "title": "SUNKEN CHANGE", "desc": "$150 cash, right now. Found it in the couch.", "accent": Color("#fcba00")},
+]
+
+# Pending redemptions (persisted with the save; reset each new game).
+var booster_next_catch_bonus := 0
+var booster_double_sale := false
+var booster_price_bonus := 0
+var booster_hurricane_triple := false
+var booster_haggle_win := false
+
+
+# Haptic nudge, guarded behind a script method so tween Callables stay plain
+# (binding native singleton methods into tweens misbehaves on the web export).
+func _buzz(ms: int) -> void:
+	Input.vibrate_handheld(ms)
+
+
+func _buy_booster_pack() -> void:
+	if game_over:
+		return
+	if not _is_docked():
+		_log("Buy booster packs at the docks.")
+		return
+	if money < BOOSTER_COST:
+		_log("A booster pack costs $%d. You only have $%d." % [BOOSTER_COST, money])
+		return
+	money -= BOOSTER_COST
+	_stat_add("boosters_bought", 1)
+	var def: Dictionary = BOOSTER_CARDS[rng.randi_range(0, BOOSTER_CARDS.size() - 1)]
+	_log("Bought a booster pack for $%d. Tear it open..." % BOOSTER_COST)
+	_update_ui()
+	_show_booster_open_scene(def)
+
+
+# Applies when the player CLAIMS the revealed card, so numbers change on-beat.
+func _apply_booster_card(def: Dictionary) -> void:
+	var id := str(def["id"])
+	match id:
+		"night_1":
+			extra_nights += 1
+		"night_2":
+			extra_nights += 2
+		"night_3":
+			extra_nights += 3
+		"catch_5":
+			booster_next_catch_bonus += 5
+		"catch_6":
+			booster_next_catch_bonus += 6
+		"double_sale":
+			booster_double_sale = true
+		"price_up":
+			booster_price_bonus += 5
+			market_flip.clear()
+			for species in SPECIES:
+				market_flip[species] = int(market_prices[species])
+				market_prices[species] = int(market_prices[species]) + 5
+		"hurricane_triple":
+			booster_hurricane_triple = true
+		"loaded_dice":
+			booster_haggle_win = true
+		"repair":
+			for key in CONDITION_KEYS:
+				conditions[key] = CONDITION_MAX
+		"moves":
+			moves_remaining += 3
+		"cash":
+			money += 150
+	_log("Booster: %s — %s" % [str(def["title"]), str(def["desc"])])
+	_update_ui()
+
+
+# A pending booster paying off mid-play: a gold chip pops top-center with a
+# sting and a buzz, hangs for a beat, and fades. Non-blocking.
+func _show_booster_redemption(title: String, sub: String) -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var w := 420.0
+	var h := 86.0
+	var chip := Control.new()
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.z_index = 350
+	chip.size = Vector2(w, h)
+	chip.pivot_offset = Vector2(w * 0.5, h * 0.5)
+	chip.position = Vector2((vp.x - w) * 0.5, vp.y * 0.09)
+	add_child(chip)
+	_ach_stepped_rect(chip, 0.0, 0.0, w, h, Color("#0a0e14"), 2, 5.0)
+	_ach_stepped_rect(chip, 3.0, 3.0, w - 6.0, h - 6.0, GOLD, 2, 5.0)
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 0)
+	col.position = Vector2(14.0, 0.0)
+	col.size = Vector2(w - 28.0, h)
+	chip.add_child(col)
+	var t_lbl := _label(title, 26, Color("#241a02"), HORIZONTAL_ALIGNMENT_CENTER)
+	t_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(t_lbl)
+	var s_lbl := _label(sub, 15, Color("#5a4310"), HORIZONTAL_ALIGNMENT_CENTER)
+	s_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(s_lbl)
+
+	_play_sfx("confetti", -6.0)
+	_buzz(80)
+	chip.scale = Vector2(0.2, 0.2)
+	chip.modulate = Color(1, 1, 1, 0)
+	var t := chip.create_tween()
+	t.tween_property(chip, "modulate:a", 1.0, 0.08)
+	t.parallel().tween_property(chip, "scale", Vector2(1.08, 1.08), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(chip, "scale", Vector2.ONE, 0.1)
+	t.tween_interval(2.2)
+	t.tween_property(chip, "modulate:a", 0.0, 0.3)
+	t.tween_callback(chip.queue_free)
+
+
 # Bottom half of the shop's left stack: the Booster Pack — a blind card buy.
-# Placeholder for now; the face-down card back sells the mystery.
+# The face-down card back sells the mystery.
 func _build_booster_pack_panel() -> Control:
 	var panel := _panel_lifted(BG_PANEL_LIGHT, BG_PANEL_LIGHT, 0, 10, 5)
 	panel.custom_minimum_size = Vector2(284, 0)
@@ -4324,17 +4486,247 @@ func _build_booster_pack_panel() -> Control:
 	# card spills over the title/blurb in the stack.
 	stage.custom_minimum_size = Vector2(0, 112)
 
-	var blurb := _label("Blind-buy a sealed card. Any upgrade could be inside.", 15, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	var blurb := _label("Blind-buy a sealed card. Fortune favors the bold.", 15, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
 	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	blurb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(blurb)
 
-	var chip := _tactile_button("COMING SOON", 0, 60, Color("#241a3a"), PURPLE_DEEP, _with_alpha(PURPLE, 0.75))
-	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	chip.disabled = true
-	col.add_child(chip)
+	ui["booster_buy"] = _tactile_button("BUY  $%d" % BOOSTER_COST, 0, 60, Color("#3a2560"), PURPLE, Color("#efe2ff"))
+	ui["booster_buy"].size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ui["booster_buy"].pressed.connect(_buy_booster_pack)
+	col.add_child(ui["booster_buy"])
 
 	return panel
+
+
+# ── The pack-open scene: the whole point of buying one ──────────────────
+# Pack pops in, rattles harder and harder (sparks flying, phone buzzing),
+# then a white flash tears it open and the card floats up in a golden glow.
+func _show_booster_open_scene(def: Dictionary) -> void:
+	var vp := get_viewport().get_visible_rect().size
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 300
+	add_child(overlay)
+	overlay.move_to_front()
+
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.8)
+	shade.anchor_right = 1.0
+	shade.anchor_bottom = 1.0
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(shade)
+
+	var stage := Control.new()
+	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.anchor_right = 1.0
+	stage.anchor_bottom = 1.0
+	overlay.add_child(stage)
+	var center := vp * 0.5
+
+	# Golden glow behind everything — a radial gradient that swells as the
+	# pack builds up, then blazes for the reveal.
+	var glow_grad := Gradient.new()
+	glow_grad.set_color(0, _with_alpha(GOLD, 0.85))
+	glow_grad.set_color(1, _with_alpha(GOLD, 0.0))
+	var glow_tex := GradientTexture2D.new()
+	glow_tex.gradient = glow_grad
+	glow_tex.fill = GradientTexture2D.FILL_RADIAL
+	glow_tex.fill_from = Vector2(0.5, 0.5)
+	glow_tex.fill_to = Vector2(0.5, 0.0)
+	glow_tex.width = 640
+	glow_tex.height = 640
+	var glow := TextureRect.new()
+	glow.texture = glow_tex
+	glow.size = Vector2(640, 640)
+	glow.position = center - Vector2(320, 320)
+	glow.pivot_offset = Vector2(320, 320)
+	glow.modulate = Color(1, 1, 1, 0)
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(glow)
+
+	# The sealed pack: the card back, big.
+	var pack := TextureRect.new()
+	pack.texture = CARD_BACK_TEXTURE
+	pack.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pack.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pack.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	pack.size = Vector2(264, 354)
+	pack.position = center - Vector2(132, 177)
+	pack.pivot_offset = Vector2(132, 177)
+	pack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(pack)
+
+	# The tear-flash and the prize, built now, shown by the later phases.
+	var flash := ColorRect.new()
+	flash.color = Color(1, 1, 1, 0)
+	flash.anchor_right = 1.0
+	flash.anchor_bottom = 1.0
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(flash)
+
+	var reveal := _booster_reveal_card(def)
+	reveal.position = center - reveal.pivot_offset
+	reveal.scale = Vector2(0.3, 0.3)
+	reveal.modulate = Color(1, 1, 1, 0)
+	stage.add_child(reveal)
+
+	var claim := _tactile_button("CLAIM", 0, 64, GOLD_DEEP, GOLD, Color("#241a02"))
+	claim.custom_minimum_size = Vector2(320, 64)
+	claim.position = Vector2(center.x - 160, center.y + 250)
+	claim.modulate = Color(1, 1, 1, 0)
+	claim.pressed.connect(func() -> void:
+		_apply_booster_card(def)
+		overlay.queue_free())
+	overlay.add_child(claim)
+
+	# Sequenced as small phase tweens chained on `finished` — one mega-chain
+	# proved fragile on the web export.
+	var ctx := {"stage": stage, "center": center, "pack": pack, "glow": glow,
+		"flash": flash, "reveal": reveal, "claim": claim}
+
+	# Phase 1 — entrance: the pack pops in, the glow wakes up.
+	pack.scale = Vector2(0.1, 0.1)
+	pack.modulate = Color(1, 1, 1, 0)
+	_play_sfx("card_slide", -4.0, 0.9, 40)
+	var p1 := stage.create_tween()
+	p1.tween_property(pack, "modulate:a", 1.0, 0.1)
+	p1.parallel().tween_property(pack, "scale", Vector2.ONE, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	p1.parallel().tween_property(glow, "modulate:a", 0.5, 0.5)
+	p1.finished.connect(_booster_phase_rattle.bind(ctx))
+
+
+# Phase 2 — the rattle: swings grow while sparks fly and the phone buzzes.
+func _booster_phase_rattle(ctx: Dictionary) -> void:
+	var stage: Control = ctx["stage"]
+	if not is_instance_valid(stage):
+		return
+	var pack: Control = ctx["pack"]
+	var glow: Control = ctx["glow"]
+	var center: Vector2 = ctx["center"]
+	_buzz(40)
+	var t := stage.create_tween()
+	var swings := [2.0, -3.0, 4.0, -5.5, 7.0, -8.5, 10.0, -12.0]
+	for i in range(swings.size()):
+		t.tween_property(pack, "rotation_degrees", swings[i], 0.09).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		if i % 2 == 0:
+			t.parallel().tween_callback(_play_sfx.bind("card_flip", -8.0, 0.8 + 0.09 * float(i), 30))
+			t.parallel().tween_callback(_buzz.bind(30 + i * 10))
+			t.parallel().tween_callback(_booster_sparkles.bind(stage, center, 6 + i))
+	t.tween_property(pack, "scale", Vector2(1.12, 0.94), 0.1).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	t.parallel().tween_property(glow, "modulate:a", 0.9, 0.2)
+	t.finished.connect(_booster_phase_reveal.bind(ctx))
+
+
+# Phase 3 — the tear: white flash, pack gone, prize card in a breathing glow.
+func _booster_phase_reveal(ctx: Dictionary) -> void:
+	var stage: Control = ctx["stage"]
+	if not is_instance_valid(stage):
+		return
+	var pack: Control = ctx["pack"]
+	var glow: Control = ctx["glow"]
+	var flash: ColorRect = ctx["flash"]
+	var reveal: Control = ctx["reveal"]
+	var claim: Control = ctx["claim"]
+	var center: Vector2 = ctx["center"]
+	var t := stage.create_tween()
+	t.tween_property(flash, "color:a", 0.92, 0.09).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	t.tween_callback(func() -> void:
+		pack.visible = false
+		_buzz(220)
+		_play_sfx("trophy", 0.0, 1.1)
+		_play_sfx("confetti", -4.0)
+		_burst_confetti(false)
+		_booster_sparkles(stage, center, 22)
+		reveal.modulate = Color(1, 1, 1, 1))
+	t.tween_property(flash, "color:a", 0.0, 0.3)
+	t.parallel().tween_property(reveal, "scale", Vector2(1.1, 1.1), 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(glow, "modulate:a", 0.62, 0.4)
+	t.tween_property(reveal, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(claim, "modulate:a", 1.0, 0.2)
+	t.finished.connect(func() -> void:
+		if not is_instance_valid(glow):
+			return
+		# The glow breathes behind the revealed card until the scene closes.
+		var pulse := glow.create_tween()
+		pulse.set_loops()
+		pulse.tween_property(glow, "scale", Vector2(1.5, 1.5), 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		pulse.tween_property(glow, "scale", Vector2(1.3, 1.3), 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT))
+
+
+# The revealed booster card: squarestep shell, accent header band, big title,
+# story text. 320x430, pivot centered for the pop.
+func _booster_reveal_card(def: Dictionary) -> Control:
+	var size := Vector2(320, 430)
+	var card := Control.new()
+	card.custom_minimum_size = size
+	card.size = size
+	card.pivot_offset = size * 0.5
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var accent: Color = def["accent"]
+	var inset := _add_squarestep_card_shell(card, size, Color("#011244"))
+
+	var band := ColorRect.new()
+	band.color = accent.darkened(0.25)
+	band.position = Vector2(inset, inset)
+	band.size = Vector2(size.x - inset * 2.0, 74.0)
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(band)
+	var kicker := _label("BOOSTER PACK", 15, _with_alpha(Color("#ffffff"), 0.82), HORIZONTAL_ALIGNMENT_CENTER)
+	kicker.position = Vector2(inset, inset + 12.0)
+	kicker.size = Vector2(size.x - inset * 2.0, 20)
+	kicker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(kicker)
+	var star := _label("★", 26, Color("#ffffff"), HORIZONTAL_ALIGNMENT_CENTER)
+	star.position = Vector2(inset, inset + 34.0)
+	star.size = Vector2(size.x - inset * 2.0, 32)
+	star.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(star)
+
+	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 16)
+	col.position = Vector2(inset + 14.0, inset + 82.0)
+	col.size = Vector2(size.x - (inset + 14.0) * 2.0, size.y - inset * 2.0 - 90.0)
+	card.add_child(col)
+	var title := _label(str(def["title"]), 34, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title)
+	var desc := _label(str(def["desc"]), 18, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(desc)
+	return card
+
+
+# A burst of little gold sparks flying out from the pack.
+func _booster_sparkles(stage: Control, center: Vector2, count: int) -> void:
+	if not is_instance_valid(stage):
+		return
+	for i in range(count):
+		var s := ColorRect.new()
+		s.color = GOLD if i % 3 != 0 else Color("#fff6d8")
+		var sz := 4.0 + 4.0 * randf()
+		s.size = Vector2(sz, sz)
+		s.pivot_offset = s.size * 0.5
+		s.rotation_degrees = 45.0
+		s.position = center - s.size * 0.5
+		s.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stage.add_child(s)
+		var ang := randf() * TAU
+		var dist := randf_range(130.0, 300.0)
+		var dest := center + Vector2(cos(ang), sin(ang)) * dist - s.size * 0.5
+		var dur := randf_range(0.45, 0.8)
+		var st := s.create_tween()
+		st.set_parallel(true)
+		st.tween_property(s, "position", dest, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		st.tween_property(s, "modulate:a", 0.0, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		st.tween_property(s, "rotation_degrees", s.rotation_degrees + randf_range(-180.0, 180.0), dur)
+		st.chain().tween_callback(s.queue_free)
 
 
 func _build_tray_body_repair() -> void:
@@ -5765,6 +6157,11 @@ func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
 	game_over = false
 	_reset_game_stats()
 	_reset_achievement_run_state()
+	booster_next_catch_bonus = 0
+	booster_double_sale = false
+	booster_price_bonus = 0
+	booster_hurricane_triple = false
+	booster_haggle_win = false
 	active_tab = "map"
 	active_tray = ""
 	boat_pos = Vector2i(DOCK_COL, GRID_ROWS)
@@ -5910,6 +6307,11 @@ func _save_game() -> void:
 		"ach_haggle_win_streak": ach_haggle_win_streak,
 		"ach_haggle_loss_streak": ach_haggle_loss_streak,
 		"ach_treasure_kinds": ach_treasure_kinds,
+		"booster_next_catch_bonus": booster_next_catch_bonus,
+		"booster_double_sale": booster_double_sale,
+		"booster_price_bonus": booster_price_bonus,
+		"booster_hurricane_triple": booster_hurricane_triple,
+		"booster_haggle_win": booster_haggle_win,
 		"weather_deck": weather_deck,
 		"forecast": forecast,
 		"current_weather": current_weather,
@@ -5987,6 +6389,11 @@ func _load_game() -> bool:
 	ach_haggle_win_streak = int(data.get("ach_haggle_win_streak", 0))
 	ach_haggle_loss_streak = int(data.get("ach_haggle_loss_streak", 0))
 	ach_treasure_kinds = _dict_copy(data.get("ach_treasure_kinds", {}))
+	booster_next_catch_bonus = int(data.get("booster_next_catch_bonus", 0))
+	booster_double_sale = bool(data.get("booster_double_sale", false))
+	booster_price_bonus = int(data.get("booster_price_bonus", 0))
+	booster_hurricane_triple = bool(data.get("booster_hurricane_triple", false))
+	booster_haggle_win = bool(data.get("booster_haggle_win", false))
 	# Same self-heal as stats: milestones already crossed in this save count.
 	if day >= 21:
 		_award_achievement("days_21")
@@ -6168,7 +6575,10 @@ func _drift_market() -> void:
 		var old_price := int(market_prices[species])
 		var base := int(BASE_PRICES[species])
 		var drift := rng.randi_range(-6, 7)
-		var next_price := clampi(old_price + drift, maxi(8, base - 8), base + 14)
+		var next_price := clampi(old_price - booster_price_bonus + drift, maxi(8, base - 8), base + 14)
+		# MARKET SURGE: the booster's flat bonus rides on top of the drift band,
+		# reapplied fresh every day so it never compounds.
+		next_price += booster_price_bonus
 		if next_price != old_price:
 			market_flip[species] = old_price
 		market_prices[species] = next_price
@@ -6771,6 +7181,16 @@ func _cast() -> void:
 			dice_delta = -int(floor(float(rng.randi_range(1, 6) - 1) / 2.0))
 		var amount: int = maxi(1, catch_base + dice_delta)
 		dice_delta = amount - catch_base  # post-clamp, so the reveal matches state
+		# Booster redemptions fire here, at the moment the line comes up.
+		if booster_next_catch_bonus > 0:
+			amount += booster_next_catch_bonus
+			_show_booster_redemption("BONUS CATCH!", "+%d booster fish join the haul" % booster_next_catch_bonus)
+			booster_next_catch_bonus = 0
+		if booster_hurricane_triple and str(current_weather.get("name", "")) == "Hurricane":
+			amount *= 3
+			booster_hurricane_triple = false
+			_show_booster_redemption("EYE OF THE STORM!", "Triple catch in the hurricane!")
+		catch_base = amount - dice_delta  # keep the card-fan stage math honest
 		_stat_add("fish_caught", amount)
 		if amount >= 10:
 			_award_achievement("big_haul")
@@ -6856,10 +7276,13 @@ func _confirm_sale() -> void:
 	var earned: Array = result["earned_species"]
 	(ui["sell_title"] as Label).text = "TROPHY EARNED!" if not earned.is_empty() else "SOLD"
 	(ui["sell_total"] as Label).text = "SOLD FOR $%d" % int(result["total"])
+	var sold_note := "Market price, cash on the barrel."
+	if bool(result.get("boosted", false)):
+		sold_note = "GOLD RUSH doubled the take! " + sold_note
 	if earned.is_empty():
-		(ui["sell_result"] as Label).text = "Market price, cash on the barrel."
+		(ui["sell_result"] as Label).text = sold_note
 	else:
-		(ui["sell_result"] as Label).text = "The %s trophy is yours! Market price, cash on the barrel." % _trophy_earned_text(earned)
+		(ui["sell_result"] as Label).text = "The %s trophy is yours! %s" % [_trophy_earned_text(earned), sold_note]
 	(ui["sell_action_row"] as Control).visible = false
 	(ui["sell_ok"] as Control).visible = true
 	if audio_catch:
@@ -6881,6 +7304,12 @@ func _haggle_sale() -> void:
 		return
 
 	var roll := rng.randi_range(1, 6)
+	# LOADED DICE: an armed booster forces the perfect roll, once.
+	var loaded := false
+	if booster_haggle_win:
+		roll = 6
+		booster_haggle_win = false
+		loaded = true
 	var delta_per_fish := 0
 	if roll <= 2:
 		delta_per_fish = -2
@@ -6889,7 +7318,7 @@ func _haggle_sale() -> void:
 
 	# Lock the roll in, then roll the dice across the screen; the sale is only
 	# completed + revealed once the dice finishes (sale_selection stays intact).
-	pending_haggle = {"roll": roll, "delta": delta_per_fish}
+	pending_haggle = {"roll": roll, "delta": delta_per_fish, "loaded": loaded}
 	var rows: Container = ui["sell_rows"]
 	for child in rows.get_children():
 		child.queue_free()
@@ -6907,7 +7336,10 @@ func _reveal_haggle_result() -> void:
 		return
 	var roll := int(pending_haggle["roll"])
 	var delta_per_fish := int(pending_haggle["delta"])
+	var loaded_roll := bool(pending_haggle.get("loaded", false))
 	pending_haggle = {}
+	if loaded_roll:
+		_show_booster_redemption("LOADED DICE!", "The dealer never stood a chance.")
 	_on_haggle_resolved(delta_per_fish)
 
 	var result := _complete_sale(delta_per_fish)
@@ -6919,6 +7351,10 @@ func _reveal_haggle_result() -> void:
 	var haggle_text := "Roll %d: %s per fish. Auto-accepted." % [roll, adjustment_text]
 	if delta_per_fish == 0:
 		haggle_text = "Roll %d: market price. Auto-accepted." % roll
+	if loaded_roll:
+		haggle_text = "LOADED DICE! " + haggle_text
+	if bool(result.get("boosted", false)):
+		haggle_text += "  ·  GOLD RUSH doubled the take!"
 	if not (result["earned_species"] as Array).is_empty():
 		haggle_text += "  ·  %s TROPHY EARNED!" % _trophy_earned_text(result["earned_species"])
 
@@ -7119,6 +7555,13 @@ func _complete_sale(delta_per_fish: int) -> Dictionary:
 		kept.append(kept_batch)
 	live_well = kept
 	sale_selection.clear()
+	# GOLD RUSH: an armed booster doubles the take, once.
+	var boosted := false
+	if booster_double_sale and total > 0:
+		total *= 2
+		booster_double_sale = false
+		boosted = true
+		_show_booster_redemption("GOLD RUSH!", "Sale doubled — $%d!" % total)
 	money += total
 	if not earned_species.is_empty():
 		_award_achievement("first_trophy")
@@ -7132,6 +7575,7 @@ func _complete_sale(delta_per_fish: int) -> Dictionary:
 		"total": total,
 		"earned_species": earned_species,
 		"delta_per_fish": delta_per_fish,
+		"boosted": boosted,
 	}
 
 
@@ -8501,6 +8945,9 @@ func _update_upgrade_cart_ui() -> void:
 	if ui.has("extra_night_buy"):
 		var buy: Button = ui["extra_night_buy"]
 		buy.disabled = game_over or not _is_docked() or money < EXTRA_NIGHT_COST
+	if ui.has("booster_buy"):
+		var pack_buy: Button = ui["booster_buy"]
+		pack_buy.disabled = game_over or not _is_docked() or money < BOOSTER_COST
 
 
 func _update_live_well_tab() -> void:
