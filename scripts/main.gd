@@ -4393,6 +4393,120 @@ func _apply_booster_card(def: Dictionary) -> void:
 	_update_ui()
 
 
+func _booster_def(id: String) -> Dictionary:
+	for def in BOOSTER_CARDS:
+		if str(def["id"]) == id:
+			return def
+	return {}
+
+
+# Armed-and-waiting booster effects, shaped for display: art + title + status.
+func _pending_boosters() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if booster_next_catch_bonus > 0:
+		var src := _booster_def("catch_6" if booster_next_catch_bonus >= 6 else "catch_5")
+		out.append({"tex": src.get("tex", null), "accent": src["accent"],
+			"title": "BONUS CATCH +%d" % booster_next_catch_bonus, "desc": "Joins your next catch, wherever it bites."})
+	if booster_hurricane_triple:
+		var src := _booster_def("hurricane_triple")
+		out.append({"tex": src.get("tex", null), "accent": src["accent"],
+			"title": "EYE OF THE STORM", "desc": "Triple catch during the next hurricane."})
+	if booster_double_sale:
+		var src := _booster_def("double_sale")
+		out.append({"tex": src.get("tex", null), "accent": src["accent"],
+			"title": "GOLD RUSH", "desc": "Your next sale pays double."})
+	if booster_haggle_win:
+		var src := _booster_def("loaded_dice")
+		out.append({"tex": src.get("tex", null), "accent": src["accent"],
+			"title": "LOADED DICE", "desc": "Your next haggle rolls a perfect 6."})
+	if booster_price_bonus > 0:
+		var src := _booster_def("price_up")
+		out.append({"tex": src.get("tex", null), "accent": src["accent"],
+			"title": "MARKET SURGE +$%d" % booster_price_bonus, "desc": "On every fish price, refreshed daily, all season."})
+	return out
+
+
+# Tap the BOOST meter: a modal listing every armed booster and what it will do.
+func _show_pending_boosters_view() -> void:
+	if ui.has("info_overlay") and is_instance_valid(ui["info_overlay"]):
+		(ui["info_overlay"] as Control).queue_free()
+	_play_sfx("modal_open")
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 260
+	add_child(overlay)
+	overlay.move_to_front()
+	ui["info_overlay"] = overlay
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.5)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	_anchor_fill(shade)
+	overlay.add_child(shade)
+	var cc := CenterContainer.new()
+	cc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_anchor_fill(cc)
+	overlay.add_child(cc)
+	var panel := _panel_lifted(Color("#0a1730"), BORDER_FRAME, 2, 6, 10)
+	panel.custom_minimum_size = Vector2(560, 0)
+	cc.add_child(panel)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 28)
+	pad.add_theme_constant_override("margin_right", 28)
+	pad.add_theme_constant_override("margin_top", 24)
+	pad.add_theme_constant_override("margin_bottom", 24)
+	panel.add_child(pad)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 14)
+	pad.add_child(col)
+	col.add_child(_label("BOOSTERS ON DECK", 30, PURPLE, HORIZONTAL_ALIGNMENT_CENTER))
+
+	var pending := _pending_boosters()
+	if pending.is_empty():
+		var empty := _label("Nothing armed. Buy booster packs at the docks —\nfortune favors the bold.", 17, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		empty.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(empty)
+	for entry in pending:
+		var row := HBoxContainer.new()
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_theme_constant_override("separation", 16)
+		col.add_child(row)
+		var tex: Texture2D = entry.get("tex", null)
+		if tex != null:
+			var art := TextureRect.new()
+			art.texture = tex
+			art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+			art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+			art.clip_contents = true
+			art.custom_minimum_size = Vector2(58, 78)
+			art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(art)
+		var text_col := VBoxContainer.new()
+		text_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text_col.alignment = BoxContainer.ALIGNMENT_CENTER
+		text_col.add_theme_constant_override("separation", 3)
+		row.add_child(text_col)
+		text_col.add_child(_label(str(entry["title"]), 22, entry["accent"]))
+		var desc := _label(str(entry["desc"]), 15, TEXT_MUTED)
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text_col.add_child(desc)
+
+	var close := _tactile_button("CLOSE", 0, 48, BG_PANEL, BORDER_HI, TEXT_PRIMARY)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	close.pressed.connect(func() -> void: overlay.queue_free())
+	col.add_child(close)
+
+
+# Delay a redemption chip so it lands as the catch fan resolves, not under it.
+func _schedule_booster_toast(delay: float, title: String, sub: String) -> void:
+	var sched := create_tween()
+	sched.tween_interval(delay)
+	sched.tween_callback(_show_booster_redemption.bind(title, sub))
+
+
 # A pending booster paying off mid-play: a gold chip pops top-center with a
 # sting and a buzz, hangs for a beat, and fades. Non-blocking.
 func _show_booster_redemption(title: String, sub: String) -> void:
@@ -7187,16 +7301,20 @@ func _cast() -> void:
 			dice_delta = -int(floor(float(rng.randi_range(1, 6) - 1) / 2.0))
 		var amount: int = maxi(1, catch_base + dice_delta)
 		dice_delta = amount - catch_base  # post-clamp, so the reveal matches state
-		# Booster redemptions fire here, at the moment the line comes up.
+		# Booster redemptions fire here, at the moment the line comes up. The
+		# card fan stages the RAW roll (base + die); the boosted difference
+		# lands in the well, and the toast — timed to arrive as the fan
+		# resolves — spells out the math so the mult is unmistakable.
 		if booster_next_catch_bonus > 0:
+			var pre_bonus := amount
 			amount += booster_next_catch_bonus
-			_show_booster_redemption("BONUS CATCH!", "+%d booster fish join the haul" % booster_next_catch_bonus)
+			_schedule_booster_toast(1.5, "BONUS CATCH!", "+%d booster fish — %d becomes %d!" % [booster_next_catch_bonus, pre_bonus, amount])
 			booster_next_catch_bonus = 0
 		if booster_hurricane_triple and str(current_weather.get("name", "")) == "Hurricane":
+			var pre_triple := amount
 			amount *= 3
 			booster_hurricane_triple = false
-			_show_booster_redemption("EYE OF THE STORM!", "Triple catch in the hurricane!")
-		catch_base = amount - dice_delta  # keep the card-fan stage math honest
+			_schedule_booster_toast(2.1, "EYE OF THE STORM!", "Triple catch — %d becomes %d!" % [pre_triple, amount])
 		_stat_add("fish_caught", amount)
 		if amount >= 10:
 			_award_achievement("big_haul")
@@ -8690,7 +8808,7 @@ func _update_forecast() -> void:
 	for child in strip.get_children():
 		child.queue_free()
 	strip.add_child(_weather_day_card(current_weather, 0, true))
-	for i in range(min(3, forecast.size())):
+	for i in range(min(4, forecast.size())):
 		strip.add_child(_weather_day_card(forecast[i], i + 1, false))
 	# The face-down deck hugs the inset's right edge, like the reference sheet.
 	var push := Control.new()
@@ -9075,6 +9193,9 @@ func _update_compact_ship_cards() -> void:
 		(cols[0] as Control).add_child(_boat_status_meter(str(BOAT_STATUS_UP_LABELS[key]), int(upgrades.get(key, 0)), UPGRADE_MAX_LEVEL, 5, BOAT_METER_BLUE, ""))
 	for key in ["cannons", "defense"]:
 		(cols[1] as Control).add_child(_boat_status_meter(str(BOAT_STATUS_UP_LABELS[key]), int(upgrades.get(key, 0)), UPGRADE_MAX_LEVEL, 5, BOAT_METER_BLUE, ""))
+	# BOOST: armed booster cards riding along — tap to see what's on deck.
+	var pending := _pending_boosters()
+	(cols[1] as Control).add_child(_boat_status_meter("BOOST", pending.size(), 5, 5, PURPLE, "", _show_pending_boosters_view))
 	for key in CONDITION_KEYS:
 		var value := int(conditions.get(key, CONDITION_MAX))
 		var ratio := float(value) / float(CONDITION_MAX)
@@ -9084,7 +9205,7 @@ func _update_compact_ship_cards() -> void:
 
 # A little card that doubles as a power meter: label + segmented bar. Condition cards
 # (repair_key set) are tappable at the docks to repair one segment.
-func _boat_status_meter(label_text: String, value: int, max_v: int, segs: int, accent: Color, repair_key: String) -> Control:
+func _boat_status_meter(label_text: String, value: int, max_v: int, segs: int, accent: Color, repair_key: String, on_tap: Callable = Callable()) -> Control:
 	# No card background — the label + meter sit directly on the slate panel.
 	var card := PanelContainer.new()
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -9111,7 +9232,7 @@ func _boat_status_meter(label_text: String, value: int, max_v: int, segs: int, a
 	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(bar)
 
-	if repair_key != "":
+	if repair_key != "" or on_tap.is_valid():
 		var btn := Button.new()
 		btn.flat = true
 		btn.focus_mode = Control.FOCUS_NONE
@@ -9119,7 +9240,10 @@ func _boat_status_meter(label_text: String, value: int, max_v: int, segs: int, a
 		for st in ["normal", "hover", "pressed", "focus", "disabled"]:
 			btn.add_theme_stylebox_override(st, _transparent_style())
 		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		btn.pressed.connect(_on_status_repair_pressed.bind(repair_key))
+		if repair_key != "":
+			btn.pressed.connect(_on_status_repair_pressed.bind(repair_key))
+		else:
+			btn.pressed.connect(on_tap)
 		card.add_child(btn)
 	return card
 
@@ -12266,23 +12390,39 @@ func _close_weather_card_preview() -> void:
 
 # A stack of light-blue cards peeking off the edge — "more days ahead".
 func _weather_peek_card() -> Control:
+	# The face-down draw deck: three stacked cards whose bottom edges peek out
+	# beneath the front card, which wears the Raider Bay logo back.
 	var holder := Control.new()
 	holder.custom_minimum_size = Vector2(WEATHER_DAY_CARD_WIDTH, 0)
 	holder.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	for i in range(3):
+	for d in [2, 1, 0]:
 		var c := Panel.new()
 		c.add_theme_stylebox_override("panel", _styled_shadow(Color("#6696d8"), REF_BORDER, 4, 12, 1))
 		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var off := float(2 - i) * 7.0
 		c.anchor_right = 1.0
 		c.anchor_bottom = 1.0
-		c.offset_left = off
-		c.offset_top = off
-		c.offset_right = off
-		c.offset_bottom = off
+		c.offset_left = float(d) * 2.0
+		c.offset_right = -float(d) * 2.0
+		c.offset_top = float(d) * 6.0
+		c.offset_bottom = -12.0 + float(d) * 6.0
 		holder.add_child(c)
+		if d == 0:
+			var back := TextureRect.new()
+			back.texture = CARD_BACK_TEXTURE
+			back.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			back.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+			back.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+			back.clip_contents = true
+			back.anchor_right = 1.0
+			back.anchor_bottom = 1.0
+			back.offset_left = 4
+			back.offset_top = 4
+			back.offset_right = -4
+			back.offset_bottom = -4
+			back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			c.add_child(back)
 	return holder
 
 
