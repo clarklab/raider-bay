@@ -3492,6 +3492,11 @@ func _build_board(parent: Container) -> void:
 	board_wrap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	parent.add_child(board_wrap)
 	ui["board_wrap"] = board_wrap
+	# The board is laid out at its 16:9 design size, then scaled up to fill
+	# whatever extra room this device's center pane really has (wide phones
+	# leave a lot of water around a fixed-size grid).
+	parent.resized.connect(_update_board_scale)
+	call_deferred("_update_board_scale")
 
 	var pad := MarginContainer.new()
 	pad.anchor_right = 1.0
@@ -3565,6 +3570,35 @@ func _build_board(parent: Container) -> void:
 	_build_board_toast(board_wrap)
 
 
+# Scale the board to the largest uniform fit inside the center pane. The
+# CenterContainer keeps the wrap centered at its design-size rect, so an
+# equal scale around the rect's middle swallows the slack evenly. Never
+# below 1 (the design size is the floor — that's the 16:9 budget), snapped
+# to 1 when the gain is under 2% so the narrowest layouts stay pixel-exact.
+func _update_board_scale() -> void:
+	var wrap := ui.get("board_wrap", null) as Control
+	if wrap == null or not is_instance_valid(wrap):
+		return
+	var center := wrap.get_parent() as Control
+	if center == null:
+		return
+	if center.size.x <= 0.0 or center.size.y <= 0.0:
+		return
+	var s := minf(center.size.x / float(BOARD_WRAP_WIDTH), center.size.y / float(BOARD_WRAP_HEIGHT))
+	s = clampf(s, 1.0, 1.5)
+	if s < 1.02:
+		s = 1.0
+	wrap.pivot_offset = Vector2(BOARD_WRAP_WIDTH, BOARD_WRAP_HEIGHT) * 0.5
+	wrap.scale = Vector2(s, s)
+
+
+func _board_render_scale() -> float:
+	var wrap := ui.get("board_wrap", null) as Control
+	if wrap == null or not is_instance_valid(wrap):
+		return 1.0
+	return maxf(wrap.scale.x, 0.01)
+
+
 func _setup_board_card_button(btn: Button, cell: Vector2i) -> void:
 	btn.text = ""
 	btn.icon = null
@@ -3635,7 +3669,8 @@ func _deal_board_cards() -> void:
 		var start := home + Vector2(-64.0 + randf_range(-22.0, 22.0), -52.0 + randf_range(-16.0, 16.0))
 		var slot: Control = (btn.get_meta("board_slot") as Control) if btn.has_meta("board_slot") else null
 		if has_deck and slot != null and is_instance_valid(slot):
-			start = deck_from_global - slot.get_global_rect().position - Vector2(BOARD_CELL_WIDTH, BOARD_CELL_HEIGHT) * 0.5
+			# Global delta -> slot-local: divide by the board's render scale.
+			start = (deck_from_global - slot.get_global_rect().position) / _board_render_scale() - Vector2(BOARD_CELL_WIDTH, BOARD_CELL_HEIGHT) * 0.5
 			start += Vector2(randf_range(-18.0, 18.0), randf_range(-10.0, 10.0))
 		btn.position = start
 		btn.scale = Vector2(0.46, 0.46)
