@@ -4,21 +4,24 @@ extends Control
 # Game constants
 # ────────────────────────────────────────────────────────────────────────
 
-const GRID_COLS := 10
+const GRID_COLS := 9
 const GRID_ROWS := 6
-const DOCK_COL := 4
-const DOCK_WIDTH_CELLS := 2
-# THE DOCKS is a two-cell labelled gateway at cols DOCK_START_COL..DOCK_END_COL.
+const DOCK_COL := 3
+const DOCK_WIDTH_CELLS := 3
+# THE DOCKS is a three-cell labelled gateway at cols DOCK_START_COL..DOCK_END_COL,
+# dead center under the 9-column board.
 const DOCK_START_COL := DOCK_COL
-const DOCK_END_COL := DOCK_COL + 1
+const DOCK_END_COL := DOCK_COL + DOCK_WIDTH_CELLS - 1
 # Entered/left via the water cells above it (straight up or diagonal); boats park in the dotted side zones.
 const DOCK_ACCESS_START_COL := DOCK_START_COL - 1
 const DOCK_ACCESS_END_COL := DOCK_END_COL + 1
 const BOARD_CARD_GAP := 4
-# 10 columns must fit the same table footprint 8 did — cells keep the 72:99
-# card aspect at a smaller deal.
-const BOARD_CELL_WIDTH := 56
-const BOARD_CELL_HEIGHT := 77
+# Cells keep the 72:99 card aspect, sized so 9 columns land the wrap at
+# 592px — inside the 600px the table row actually has (1450 usable minus
+# side rail 232, command rail 578, separations 28, center pads 12), with
+# zero overflow into the command rail's off-screen bleed.
+const BOARD_CELL_WIDTH := 60
+const BOARD_CELL_HEIGHT := 82
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
 const BOARD_WRAP_WIDTH := BOARD_GRID_WIDTH + 20
@@ -9511,7 +9514,7 @@ func _update_board() -> void:
 			_render_board_card_shell(btn, base_color, is_dead_card)
 			btn.add_theme_color_override("font_color", label_color)
 
-			# Text sizes scaled to the 56px card, not the shared FONT_CELL consts.
+			# Text sizes scaled to the 60px card, not the shared FONT_CELL consts.
 			var font_size := 12
 			if player_here:
 				font_size = FONT_BOAT
