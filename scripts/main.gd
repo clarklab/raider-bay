@@ -529,6 +529,7 @@ func _ready() -> void:
 	_schedule_deck_preview_from_query()
 	_schedule_ach_preview_from_query()
 	_schedule_booster_preview_from_query()
+	_schedule_battle_preview_from_query()
 	# Promo/demo capture: `-- --autoplay` drives a full scripted playthrough for
 	# Movie Maker recording. Inert in every normal launch; suppresses the training
 	# and update overlays so nothing covers the reel.
@@ -2668,6 +2669,59 @@ func _run_booster_preview(key: String) -> void:
 	var sched := create_tween()
 	sched.tween_interval(7.0)
 	sched.tween_callback(_show_booster_redemption.bind("GOLD RUSH!", "Sale doubled — $412!"))
+
+
+# ?battle_preview web hook: fires the head-to-head raid dice scene with
+# staged rolls (no game state touched). ?battle_preview=<variant> pins one:
+# hit | miss | tie | raided | sink | dice2 (future multi-dice demo).
+func _schedule_battle_preview_from_query() -> void:
+	if not OS.has_feature("web"):
+		return
+	var search := str(JavaScriptBridge.eval("window.location.search + window.location.hash", true))
+	if search.find("battle_preview") == -1:
+		return
+	var key := ""
+	for part in search.replace("?", "&").replace("#", "&").split("&"):
+		if part.begins_with("battle_preview="):
+			key = part.get_slice("battle_preview=", 1).to_lower()
+	call_deferred("_run_battle_preview", key)
+
+
+func _run_battle_preview(key: String) -> void:
+	var spec := {
+		"attacker": _battle_side(true, 5, 2, "CANNONS"),
+		"defender": _battle_side(false, 3, 1, "DEFENSE"),
+		"hit": true, "good_news": true,
+		"headline": "DIRECT HIT!",
+		"detail": "%s takes 3 damage — catch plundered!" % BOT_NAME,
+	}
+	match key:
+		"miss":
+			spec["attacker"] = _battle_side(true, 2, 1, "CANNONS")
+			spec["defender"] = _battle_side(false, 4, 2, "DEFENSE")
+			spec["hit"] = false
+			spec["good_news"] = false
+			spec["headline"] = "RAID REPELLED!"
+			spec["detail"] = "%s's defenses hold. Your shots splash wide." % BOT_NAME
+		"tie":
+			spec["attacker"] = _battle_side(true, 4, 1, "CANNONS")
+			spec["defender"] = _battle_side(false, 5, 0, "DEFENSE")
+			spec["hit"] = false
+			spec["good_news"] = false
+			spec["headline"] = "DEAD HEAT!"
+			spec["detail"] = "Ties go to the defender — %s holds fast." % BOT_NAME
+		"raided":
+			spec["attacker"] = _battle_side(false, 6, 1, "CANNONS")
+			spec["defender"] = _battle_side(true, 3, 1, "DEFENSE")
+			spec["good_news"] = false
+			spec["detail"] = "Your boat takes 3 damage — your catch is stolen!"
+		"sink":
+			spec["headline"] = "SHIP SUNK!"
+			spec["detail"] = "%s goes down — catch plundered and limps back to dock!" % BOT_NAME
+		"dice2":
+			spec["attacker"]["rolls"] = [5, 3]
+			spec["detail"] = "%s takes 3 damage — extra die bonus!" % BOT_NAME
+	_show_battle_scene(spec)
 
 
 # ?ach_preview web hook: stages fake earned badges (never persisted) and fires
@@ -4936,6 +4990,376 @@ func _booster_sparkles(stage: Control, center: Vector2, count: int) -> void:
 		st.chain().tween_callback(s.queue_free)
 
 
+# ────────────────────────────────────────────────────────────────────────
+# Pirate battle scene — Risk-style head-to-head raid dice. Each captain
+# gets a dice pit; dice are tossed in over the rim, ricochet off the
+# walls, and settle on the roll. Mult chips (+cannons / +defense) land
+# after the dice do, then a verdict banner calls the fight. Purely
+# presentational: callers resolve the raid first and hand over a spec.
+# Sides carry a `rolls` ARRAY so future bonuses can add extra dice.
+# ────────────────────────────────────────────────────────────────────────
+
+func _battle_side(is_player: bool, roll: int, bonus: int, bonus_label: String) -> Dictionary:
+	var display := BOT_NAME
+	var tex: Texture2D = ICON_CARD_SHIP_TEXTURE
+	var tint := Color(1.0, 0.24, 0.18, 0.96)
+	if is_player:
+		display = boat_name.strip_edges()
+		if display == "":
+			display = "YOUR BOAT"
+		tex = BOAT_TEXTURES[clampi(boat_choice, 0, BOAT_TEXTURES.size() - 1)]
+		tint = Color.WHITE
+	return {"name": display.to_upper(), "tex": tex, "tint": tint,
+		"rolls": [roll], "bonus": bonus, "bonus_label": bonus_label}
+
+
+func _show_battle_scene(spec: Dictionary) -> Control:
+	var vp := get_viewport().get_visible_rect().size
+	var cx := vp.x * 0.5
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.z_index = 300
+	overlay.modulate = Color(1, 1, 1, 0)
+	add_child(overlay)
+	overlay.move_to_front()
+
+	var shade := ColorRect.new()
+	shade.color = Color(0.004, 0.02, 0.078, 0.92)
+	shade.anchor_right = 1.0
+	shade.anchor_bottom = 1.0
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(shade)
+
+	var kicker := _label("PIRATE RAID", 16, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	kicker.position = Vector2(0, 58)
+	kicker.size = Vector2(vp.x, 24)
+	overlay.add_child(kicker)
+	var title := _label("%s ATTACKS!" % str(spec["attacker"]["name"]), 40, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	title.position = Vector2(0, 88)
+	title.size = Vector2(vp.x, 52)
+	title.pivot_offset = Vector2(cx, 26)
+	title.scale = Vector2(1.5, 1.5)
+	title.modulate = Color(1, 1, 1, 0)
+	overlay.add_child(title)
+
+	var panel_w := 340.0
+	var panels_top := 168.0
+	var att_bits := _battle_side_panel(spec["attacker"], "ATTACKER", RED, panel_w)
+	var def_bits := _battle_side_panel(spec["defender"], "DEFENDER", CYAN, panel_w)
+	var att_x := cx - 85.0 - panel_w
+	var def_x := cx + 85.0
+	var att_root: Control = att_bits["root"]
+	var def_root: Control = def_bits["root"]
+	att_root.position = Vector2(att_x - 240.0, panels_top)
+	def_root.position = Vector2(def_x + 240.0, panels_top)
+	overlay.add_child(att_root)
+	overlay.add_child(def_root)
+
+	var vs := _label("VS", 42, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	vs.position = Vector2(cx - 60.0, panels_top + 262.0)
+	vs.size = Vector2(120, 60)
+	vs.modulate = Color(1, 1, 1, 0)
+	overlay.add_child(vs)
+
+	# Verdict banner — built with the final call, revealed last.
+	var hit := bool(spec["hit"])
+	var v_accent := RED if hit else CYAN
+	var verdict := Control.new()
+	verdict.size = Vector2(660, 168)
+	verdict.position = Vector2(cx - 330.0, panels_top + 212.0)
+	verdict.pivot_offset = verdict.size * 0.5
+	verdict.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var v_panel := Panel.new()
+	v_panel.size = verdict.size
+	v_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v_panel.add_theme_stylebox_override("panel", _styled(Color("#0a1731"), v_accent, 4, 20))
+	verdict.add_child(v_panel)
+	var v_head := _label(str(spec["headline"]), 40, v_accent, HORIZONTAL_ALIGNMENT_CENTER)
+	v_head.position = Vector2(0, 32)
+	v_head.size = Vector2(660, 48)
+	verdict.add_child(v_head)
+	var v_detail := _label(str(spec["detail"]), 18, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	v_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v_detail.position = Vector2(30, 92)
+	v_detail.size = Vector2(600, 56)
+	verdict.add_child(v_detail)
+	verdict.modulate = Color(1, 1, 1, 0)
+	verdict.scale = Vector2(1.45, 1.45)
+	overlay.add_child(verdict)
+
+	var cont := _tactile_button("CONTINUE", 0, 58, GOLD_DEEP, GOLD, Color("#241a02"))
+	cont.custom_minimum_size = Vector2(260, 58)
+	cont.position = Vector2(cx - 130.0, vp.y - 92.0)
+	cont.visible = false
+	cont.modulate = Color(1, 1, 1, 0)
+	cont.pressed.connect(overlay.queue_free)
+	overlay.add_child(cont)
+
+	var ctx := {"overlay": overlay, "spec": spec,
+		"attacker": att_bits, "defender": def_bits,
+		"verdict": verdict, "continue": cont}
+
+	# Phase 1 — arrival: ships slide in from their corners, title slams.
+	_play_sfx("title_slam", -2.0, 1.05)
+	var t := overlay.create_tween()
+	t.tween_property(overlay, "modulate:a", 1.0, 0.16)
+	t.parallel().tween_property(att_root, "position:x", att_x, 0.42).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(def_root, "position:x", def_x, 0.42).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(title, "modulate:a", 1.0, 0.2)
+	t.parallel().tween_property(title, "scale", Vector2.ONE, 0.34).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(vs, "modulate:a", 1.0, 0.4)
+	t.tween_interval(0.25)
+	t.finished.connect(_battle_phase_roll.bind(ctx, "attacker"))
+	return overlay
+
+
+func _battle_side_panel(side: Dictionary, role: String, accent: Color, panel_w: float) -> Dictionary:
+	var root := VBoxContainer.new()
+	root.custom_minimum_size = Vector2(panel_w, 0)
+	root.size = Vector2(panel_w, 520)
+	root.add_theme_constant_override("separation", 8)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var chip_center := CenterContainer.new()
+	chip_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var role_chip := PanelContainer.new()
+	role_chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var chip_style := _styled(_with_alpha(accent, 0.14), accent, 2, 999)
+	chip_style.content_margin_left = 16.0
+	chip_style.content_margin_right = 16.0
+	chip_style.content_margin_top = 4.0
+	chip_style.content_margin_bottom = 4.0
+	role_chip.add_theme_stylebox_override("panel", chip_style)
+	role_chip.add_child(_label(role, 14, accent))
+	chip_center.add_child(role_chip)
+	root.add_child(chip_center)
+
+	var av_center := CenterContainer.new()
+	av_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	av_center.add_child(_icon_texture_rect(side["tex"], Vector2(84, 84), side["tint"]))
+	root.add_child(av_center)
+
+	var name_lbl := _label(str(side["name"]), 21, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.add_child(name_lbl)
+
+	# The dice pit — a walled box the dice get tossed into.
+	var box_center := CenterContainer.new()
+	box_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := Panel.new()
+	box.custom_minimum_size = Vector2(252, 252)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_theme_stylebox_override("panel", _styled(Color("#071129"), accent, 3, 18))
+	box_center.add_child(box)
+	root.add_child(box_center)
+	var pit := Control.new()
+	pit.position = Vector2(8, 8)
+	pit.size = Vector2(236, 236)
+	pit.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(pit)
+
+	# Readout row: mult chip above, running total below. Fixed height so
+	# nothing reflows when they pop in.
+	var res := Control.new()
+	res.custom_minimum_size = Vector2(panel_w, 96)
+	res.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(res)
+	var chip_wrap := CenterContainer.new()
+	chip_wrap.position = Vector2.ZERO
+	chip_wrap.size = Vector2(panel_w, 34)
+	chip_wrap.pivot_offset = Vector2(panel_w * 0.5, 17.0)
+	chip_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip_wrap.visible = false
+	var bonus_chip := PanelContainer.new()
+	bonus_chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bonus_style := _styled(GOLD_DIM, GOLD, 2, 999)
+	bonus_style.content_margin_left = 14.0
+	bonus_style.content_margin_right = 14.0
+	bonus_style.content_margin_top = 3.0
+	bonus_style.content_margin_bottom = 3.0
+	bonus_chip.add_theme_stylebox_override("panel", bonus_style)
+	bonus_chip.add_child(_label("+%d %s" % [int(side["bonus"]), str(side["bonus_label"])], 15, GOLD))
+	chip_wrap.add_child(bonus_chip)
+	res.add_child(chip_wrap)
+	var total_lbl := _label("", 46, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	total_lbl.position = Vector2(0, 36)
+	total_lbl.size = Vector2(panel_w, 56)
+	total_lbl.pivot_offset = Vector2(panel_w * 0.5, 28.0)
+	total_lbl.modulate = Color(1, 1, 1, 0)
+	res.add_child(total_lbl)
+
+	return {"root": root, "pit": pit, "chip": chip_wrap, "total": total_lbl}
+
+
+func _battle_die(px: float) -> Control:
+	var die := Control.new()
+	die.size = Vector2(px, px)
+	die.pivot_offset = die.size * 0.5
+	die.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var body := Panel.new()
+	body.size = die.size
+	body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_theme_stylebox_override("panel", _styled(Color("#f2f6ff"), Color("#c2cfe4"), 2, 14))
+	die.add_child(body)
+	var norm := {"tl": Vector2(0.26, 0.26), "tr": Vector2(0.74, 0.26),
+		"ml": Vector2(0.26, 0.5), "mr": Vector2(0.74, 0.5),
+		"bl": Vector2(0.26, 0.74), "br": Vector2(0.74, 0.74), "c": Vector2(0.5, 0.5)}
+	var pip_px := px * 0.17
+	var pips := {}
+	for k in norm:
+		var pip := Panel.new()
+		pip.add_theme_stylebox_override("panel", _styled(Color("#101c38"), Color("#101c38"), 0, 99))
+		pip.size = Vector2(pip_px, pip_px)
+		pip.position = (norm[k] as Vector2) * px - pip.size * 0.5
+		pip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pip.visible = false
+		die.add_child(pip)
+		pips[k] = pip
+	die.set_meta("pips", pips)
+	_battle_die_face(die, 1)
+	return die
+
+
+func _battle_die_face(die: Control, value: int) -> void:
+	var pips: Dictionary = die.get_meta("pips")
+	var patterns := {1: ["c"], 2: ["tl", "br"], 3: ["tl", "c", "br"],
+		4: ["tl", "tr", "bl", "br"], 5: ["tl", "tr", "c", "bl", "br"],
+		6: ["tl", "tr", "ml", "mr", "bl", "br"]}
+	var show: Array = patterns.get(clampi(value, 1, 6), ["c"])
+	for k in pips:
+		(pips[k] as Control).visible = show.has(k)
+
+
+func _battle_phase_roll(ctx: Dictionary, key: String) -> void:
+	var overlay: Control = ctx["overlay"]
+	if not is_instance_valid(overlay):
+		return
+	var bits: Dictionary = ctx[key]
+	var side: Dictionary = ctx["spec"][key]
+	var rolls: Array = side["rolls"]
+	var pit: Control = bits["pit"]
+	ctx[key + "_pending"] = rolls.size()
+	for i in range(rolls.size()):
+		var die := _battle_die(76.0)
+		pit.add_child(die)
+		# Single die rests centered; a future multi-die hand spreads wall
+		# to wall so the dice never stack on the same patch of floor.
+		var rest_x := (pit.size.x - die.size.x) * 0.5
+		if rolls.size() > 1:
+			rest_x = (pit.size.x - die.size.x) * (float(i) / float(rolls.size() - 1))
+		if i == 0:
+			_battle_roll_die(pit, die, int(rolls[i]), rest_x, _battle_die_settled.bind(ctx, key))
+		else:
+			var stagger := overlay.create_tween()
+			stagger.tween_interval(0.28 * float(i))
+			stagger.tween_callback(_battle_roll_die.bind(pit, die, int(rolls[i]), rest_x, _battle_die_settled.bind(ctx, key)))
+
+
+# The physical toss: over the rim, floor slam, off the walls, skid to rest.
+func _battle_roll_die(pit: Control, die: Control, final_value: int, rest_x: float, on_done: Callable) -> void:
+	var span := pit.size - die.size
+	die.position = Vector2(randf_range(0.1, 0.45) * span.x, -die.size.y - 26.0)
+	die.rotation_degrees = randf_range(-50.0, -20.0)
+	_battle_die_face(die, 1 + (randi() % 6))
+	_play_sfx("dice_roll", -2.0, randf_range(0.95, 1.08))
+	var pts := [
+		Vector2(randf_range(0.55, 0.9) * span.x, span.y),
+		Vector2(randf_range(0.78, 1.0) * span.x, randf_range(0.1, 0.35) * span.y),
+		Vector2(randf_range(0.0, 0.2) * span.x, randf_range(0.5, 0.75) * span.y),
+		Vector2(clampf(rest_x + randf_range(-26.0, 26.0), 0.0, span.x), span.y),
+		Vector2(rest_x, span.y),
+	]
+	var durs := [0.17, 0.15, 0.16, 0.13, 0.1]
+	var spins := [150.0, -130.0, 150.0, -90.0, 45.0]
+	var t := pit.create_tween()
+	for i in range(pts.size()):
+		t.tween_property(die, "position", pts[i], durs[i]).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(die, "rotation_degrees", spins[i], durs[i]).as_relative()
+		if i < pts.size() - 1:
+			t.tween_callback(_battle_die_bounce.bind(die, i))
+	t.tween_callback(func() -> void:
+		if not is_instance_valid(die):
+			return
+		_battle_die_face(die, final_value)
+		die.scale = Vector2(1.3, 0.72)
+		_play_sfx("card_flip", -4.0, 0.9, 40)
+		_buzz(50))
+	t.tween_property(die, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(die, "rotation_degrees", 0.0, 0.14).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_callback(on_done)
+
+
+func _battle_die_bounce(die: Control, i: int) -> void:
+	if not is_instance_valid(die):
+		return
+	_battle_die_face(die, 1 + (randi() % 6))
+	_play_sfx("bonk_1" if i % 2 == 0 else "bonk_2", -12.0, 1.05 + 0.1 * float(i), 30)
+
+
+func _battle_die_settled(ctx: Dictionary, key: String) -> void:
+	if not is_instance_valid(ctx["overlay"]):
+		return
+	ctx[key + "_pending"] = int(ctx.get(key + "_pending", 1)) - 1
+	if int(ctx[key + "_pending"]) > 0:
+		return
+	_battle_phase_totals(ctx, key)
+
+
+# After a side's dice settle: pop the mult chip, thump the total, hand off.
+func _battle_phase_totals(ctx: Dictionary, key: String) -> void:
+	var overlay: Control = ctx["overlay"]
+	if not is_instance_valid(overlay):
+		return
+	var bits: Dictionary = ctx[key]
+	var side: Dictionary = ctx["spec"][key]
+	var total := int(side["bonus"])
+	for r in side["rolls"]:
+		total += int(r)
+	var total_lbl: Label = bits["total"]
+	total_lbl.text = str(total)
+	var chip: Control = bits["chip"]
+	var t := overlay.create_tween()
+	if int(side["bonus"]) > 0:
+		chip.visible = true
+		chip.scale = Vector2(0.2, 0.2)
+		chip.modulate = Color(1, 1, 1, 0)
+		t.tween_callback(_play_sfx.bind("card_flip", -6.0, 1.25, 40))
+		t.tween_property(chip, "modulate:a", 1.0, 0.08)
+		t.parallel().tween_property(chip, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_interval(0.12)
+	total_lbl.scale = Vector2(1.5, 1.5)
+	t.tween_callback(_play_sfx.bind("tap", -2.0, 1.1, 40))
+	t.tween_property(total_lbl, "modulate:a", 1.0, 0.08)
+	t.parallel().tween_property(total_lbl, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_interval(0.4)
+	if key == "attacker":
+		t.finished.connect(_battle_phase_roll.bind(ctx, "defender"))
+	else:
+		t.finished.connect(_battle_phase_verdict.bind(ctx))
+
+
+func _battle_phase_verdict(ctx: Dictionary) -> void:
+	var overlay: Control = ctx["overlay"]
+	if not is_instance_valid(overlay):
+		return
+	var spec: Dictionary = ctx["spec"]
+	var verdict: Control = ctx["verdict"]
+	var cont: Control = ctx["continue"]
+	var hit := bool(spec["hit"])
+	_play_sfx("title_slam", 0.0, 0.9 if hit else 1.12)
+	_buzz(160 if hit else 60)
+	var t := overlay.create_tween()
+	t.tween_property(verdict, "modulate:a", 1.0, 0.1)
+	t.parallel().tween_property(verdict, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if bool(spec["good_news"]):
+		t.parallel().tween_callback(_play_sfx.bind("confetti", -4.0))
+		t.parallel().tween_callback(_burst_confetti.bind(false))
+	t.tween_callback(func() -> void: cont.visible = true)
+	t.tween_property(cont, "modulate:a", 1.0, 0.25)
+
+
 func _build_tray_body_repair() -> void:
 	var body := VBoxContainer.new()
 	body.name = "RepairBody"
@@ -5909,9 +6333,9 @@ func _upgrade_effect_text(key: String, level: int) -> String:
 		"live_well":
 			return "%d fresh days" % (BASE_LIVE_WELL_DAYS + level)
 		"cannons":
-			return "Attack roll max %d" % (5 + level)
+			return "+%d to every attack roll" % level
 		"defense":
-			return "Defense roll max %d" % (6 + level)
+			return "+%d to every defense roll" % level
 	return "Level %d" % level
 
 
@@ -8297,9 +8721,9 @@ func _row_description(key: String, is_upgrade: bool) -> String:
 			"live_well":
 				return "Base 2 days. Fish stay alive for one extra day."
 			"cannons":
-				return "Max attack roll is one value larger."
+				return "Add plus one to every attack roll."
 			"defense":
-				return "Max defense roll is one value larger."
+				return "Add plus one to every defense roll."
 	else:
 		match key:
 			"hull":
@@ -8477,7 +8901,7 @@ func _run_bot_turn() -> void:
 	var guard := 0
 	while bot_moves_remaining > 0 and guard < 12 and not game_over:
 		guard += 1
-		if _bot_try_attack(0.70):
+		if await _bot_try_attack(0.70):
 			await _bot_step_pause()
 			break
 
@@ -8504,7 +8928,7 @@ func _run_bot_turn() -> void:
 			else:
 				break
 
-	if not game_over and _bot_try_attack(0.35):
+	if not game_over and await _bot_try_attack(0.35):
 		await _bot_step_pause()
 
 	active_tray = prior_tray
@@ -8719,12 +9143,16 @@ func _bot_buy_upgrade() -> bool:
 	return false
 
 
+# Awaits the battle scene so the bot's turn holds until the player has
+# seen the dice and tapped CONTINUE.
 func _bot_try_attack(chance: float) -> bool:
 	if not _can_bot_attack_player():
 		return false
 	if rng.randf() > chance:
 		return false
-	_bot_attack_player()
+	var overlay := _bot_attack_player()
+	if is_instance_valid(overlay):
+		await overlay.tree_exited
 	return true
 
 
@@ -8742,61 +9170,99 @@ func _can_bot_attack_player() -> bool:
 	return versus_mode and not _is_docked() and not _bot_is_docked() and _distance_to_bot() <= 2 and int(bot_upgrades.get("cannons", 0)) > 0
 
 
+# Risk-style raid: both captains roll a d6, cannons boost the attacker,
+# defense boosts the defender, and ties go to the defender. The battle
+# scene replays the pre-computed rolls, so state is settled before it
+# ever appears on screen.
 func _player_attack_bot() -> void:
-	var attack_roll := rng.randi_range(1, _attack_roll_max(upgrades))
-	var defense_roll := rng.randi_range(1, _defense_roll_max(bot_upgrades))
-	if attack_roll <= defense_roll:
-		_log("Raid failed. You rolled %d, %s defended with %d." % [attack_roll, BOT_NAME, defense_roll])
+	var attack_roll := rng.randi_range(1, 6)
+	var defense_roll := rng.randi_range(1, 6)
+	var attack_bonus := int(upgrades.get("cannons", 0))
+	var defense_bonus := int(bot_upgrades.get("defense", 0))
+	var attack_total := attack_roll + attack_bonus
+	var defense_total := defense_roll + defense_bonus
+	var spec := {
+		"attacker": _battle_side(true, attack_roll, attack_bonus, "CANNONS"),
+		"defender": _battle_side(false, defense_roll, defense_bonus, "DEFENSE"),
+		"hit": attack_total > defense_total,
+		"good_news": attack_total > defense_total,
+	}
+	if attack_total <= defense_total:
+		if attack_total == defense_total:
+			spec["headline"] = "DEAD HEAT!"
+			spec["detail"] = "Ties go to the defender — %s holds fast." % BOT_NAME
+		else:
+			spec["headline"] = "RAID REPELLED!"
+			spec["detail"] = "%s's defenses hold. Your shots splash wide." % BOT_NAME
+		_log("Raid failed. You rolled %d, %s defended with %d." % [attack_total, BOT_NAME, defense_total])
 		_update_ui()
+		_show_battle_scene(spec)
 		return
 
-	var damage := clampi(attack_roll - defense_roll, 1, 3)
+	var damage := clampi(attack_total - defense_total, 1, 3)
 	_stat_add("raids_won", 1)
 	_damage_bot(damage)
-	if not bot_live_well.is_empty():
+	var plundered := not bot_live_well.is_empty()
+	if plundered:
 		for batch in bot_live_well:
 			live_well.append(batch)
 		bot_live_well.clear()
 		_log("Raid success: stole %s's fish and dealt %d damage." % [BOT_NAME, damage])
 	else:
 		_log("Raid success: dealt %d damage to %s." % [damage, BOT_NAME])
+	spec["headline"] = "DIRECT HIT!"
+	spec["detail"] = "%s takes %d damage%s" % [BOT_NAME, damage, " — catch plundered!" if plundered else "!"]
 	if int(bot_conditions.get("hull", 0)) <= 0:
+		spec["headline"] = "SHIP SUNK!"
+		spec["detail"] = "%s goes down%s and limps back to dock!" % [BOT_NAME, " — catch plundered" if plundered else ""]
 		_sink_bot("You sank %s." % BOT_NAME)
 	_update_ui()
+	_show_battle_scene(spec)
 
 
-func _bot_attack_player() -> void:
-	var attack_roll := rng.randi_range(1, _attack_roll_max(bot_upgrades))
-	var defense_roll := rng.randi_range(1, _defense_roll_max(upgrades))
-	if attack_roll <= defense_roll:
-		_log("%s raids and misses. Attack %d vs defense %d." % [BOT_NAME, attack_roll, defense_roll])
-		return
+func _bot_attack_player() -> Control:
+	var attack_roll := rng.randi_range(1, 6)
+	var defense_roll := rng.randi_range(1, 6)
+	var attack_bonus := int(bot_upgrades.get("cannons", 0))
+	var defense_bonus := int(upgrades.get("defense", 0))
+	var attack_total := attack_roll + attack_bonus
+	var defense_total := defense_roll + defense_bonus
+	var spec := {
+		"attacker": _battle_side(false, attack_roll, attack_bonus, "CANNONS"),
+		"defender": _battle_side(true, defense_roll, defense_bonus, "DEFENSE"),
+		"hit": attack_total > defense_total,
+		"good_news": attack_total <= defense_total,
+	}
+	if attack_total <= defense_total:
+		if attack_total == defense_total:
+			spec["headline"] = "DEAD HEAT!"
+			spec["detail"] = "Ties go to the defender — you hold fast!"
+		else:
+			spec["headline"] = "RAID REPELLED!"
+			spec["detail"] = "Your defenses hold. %s's shots splash wide." % BOT_NAME
+		_log("%s raids and misses. Attack %d vs defense %d." % [BOT_NAME, attack_total, defense_total])
+		return _show_battle_scene(spec)
 
-	var damage := clampi(attack_roll - defense_roll, 1, 3)
+	var damage := clampi(attack_total - defense_total, 1, 3)
 	_stat_add("raids_lost", 1)
 	_stat_add("damage_taken", damage)
 	_damage_player(damage)
-	if not live_well.is_empty():
+	var plundered := not live_well.is_empty()
+	if plundered:
 		for batch in live_well:
 			bot_live_well.append(batch)
 		live_well.clear()
 		_log("%s raids successfully, steals your fish, and deals %d damage." % [BOT_NAME, damage])
 	else:
 		_log("%s raids successfully and deals %d damage." % [BOT_NAME, damage])
+	spec["headline"] = "DIRECT HIT!"
+	spec["detail"] = "Your boat takes %d damage%s" % [damage, " — your catch is stolen!" if plundered else "!"]
 	if int(conditions.get("hull", 0)) <= 0:
 		game_over = true
 		_log("%s sank your boat." % BOT_NAME)
-
-
-func _attack_roll_max(upgrade_dict: Dictionary) -> int:
-	var cannons := int(upgrade_dict.get("cannons", 0))
-	if cannons <= 0:
-		return 0
-	return 5 + cannons
-
-
-func _defense_roll_max(upgrade_dict: Dictionary) -> int:
-	return 6 + int(upgrade_dict.get("defense", 0))
+		spec["headline"] = "YOUR SHIP SINKS!"
+		spec["detail"] = "%s sends you to the bottom of the bay." % BOT_NAME
+	return _show_battle_scene(spec)
 
 
 func _damage_player(amount: int) -> void:
