@@ -4,9 +4,9 @@ extends Control
 # Game constants
 # ────────────────────────────────────────────────────────────────────────
 
-const GRID_COLS := 8
+const GRID_COLS := 10
 const GRID_ROWS := 6
-const DOCK_COL := 3
+const DOCK_COL := 4
 const DOCK_WIDTH_CELLS := 2
 # THE DOCKS is a two-cell labelled gateway at cols DOCK_START_COL..DOCK_END_COL.
 const DOCK_START_COL := DOCK_COL
@@ -15,8 +15,10 @@ const DOCK_END_COL := DOCK_COL + 1
 const DOCK_ACCESS_START_COL := DOCK_START_COL - 1
 const DOCK_ACCESS_END_COL := DOCK_END_COL + 1
 const BOARD_CARD_GAP := 4
-const BOARD_CELL_WIDTH := 72
-const BOARD_CELL_HEIGHT := 99
+# 10 columns must fit the same table footprint 8 did — cells keep the 72:99
+# card aspect at a smaller deal.
+const BOARD_CELL_WIDTH := 56
+const BOARD_CELL_HEIGHT := 77
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
 const BOARD_WRAP_WIDTH := BOARD_GRID_WIDTH + 20
@@ -32,18 +34,18 @@ const REPAIR_COST_PER_SEGMENT := 8
 const EXTRA_NIGHT_COST := 250
 const TROPHY_REQUIRED := 10
 const TROPHY_WIN_COUNT := 5
-const TREASURE_VALUES: Array[int] = [100, 100, 200, 200]
 const TREASURE_KIND_CASH := "cash"
 const TREASURE_KIND_PAID_NIGHT := "paid_night"
-const SHOAL_TARGET_RANGE := Vector2i(5, 6)
-const MID_TARGET_RANGE := Vector2i(8, 8)
-const DEEP_TARGET_RANGE := Vector2i(10, 11)
-const SHOAL_ITEM_COUNT := 2
-const MID_ITEM_COUNT := 3
-const DEEP_ITEM_COUNT := 3
-const SHOAL_CASH_ITEM_COUNT := 1
-const MID_CASH_ITEM_COUNT := 1
-const DEEP_CASH_ITEM_COUNT := 2
+# Board seeding plan — the recipe for a 10x6 season. Each depth band rolls a
+# hit budget (fish + treasure tiles) from its range, carries a FIXED treasure
+# mix (cash values + free nights), and shuffles placement within its rows.
+# Every board is random, but the economy always lands the same: 18-20 fish
+# holes richer with depth, $800 of prize cash (200s run deep), 5 free nights.
+const BAND_PLANS: Array[Dictionary] = [
+	{"rows": Vector2i(4, 5), "hits": Vector2i(6, 7), "cash": [100], "nights": 1},
+	{"rows": Vector2i(2, 3), "hits": Vector2i(10, 10), "cash": [100], "nights": 3},
+	{"rows": Vector2i(0, 1), "hits": Vector2i(12, 13), "cash": [200, 200, 200], "nights": 1},
+]
 const CASTS_PER_HOLE: Array[int] = [1, 2, 3, 5]
 const CAST_DIE_SIDES := 6
 const TABLE_SIDE_WIDTH := 232
@@ -530,6 +532,7 @@ func _ready() -> void:
 	_schedule_ach_preview_from_query()
 	_schedule_booster_preview_from_query()
 	_schedule_battle_preview_from_query()
+	_schedule_board_reveal_from_query()
 	# Promo/demo capture: `-- --autoplay` drives a full scripted playthrough for
 	# Movie Maker recording. Inert in every normal launch; suppresses the training
 	# and update overlays so nothing covers the reel.
@@ -2097,6 +2100,7 @@ var ach_treasure_kinds: Dictionary = {}  # per-game: "100"/"200"/"night" -> true
 var ach_toast_queue: Array = []
 var ach_toast_active := false
 var ach_preview_active := false          # ?ach_preview: block persistence of fakes
+var board_reveal_debug := false          # ?board_reveal: deal boards face-up (seed QA)
 var last_submitted_entry_id := ""
 
 
@@ -2669,6 +2673,17 @@ func _run_booster_preview(key: String) -> void:
 	var sched := create_tween()
 	sched.tween_interval(7.0)
 	sched.tween_callback(_show_booster_redemption.bind("GOLD RUSH!", "Sale doubled — $412!"))
+
+
+# ?board_reveal web hook: every generated board comes up with all tiles
+# face-up, so a fresh game shows the whole seed at a glance — QA for the
+# band plans (fish per depth, cash values, free nights).
+func _schedule_board_reveal_from_query() -> void:
+	if not OS.has_feature("web"):
+		return
+	var search := str(JavaScriptBridge.eval("window.location.search + window.location.hash", true))
+	if search.find("board_reveal") != -1:
+		board_reveal_debug = true
 
 
 # ?battle_preview web hook: fires the head-to-head raid dice scene with
@@ -3557,9 +3572,9 @@ func _setup_board_card_button(btn: Button, cell: Vector2i) -> void:
 	btn.size = Vector2(BOARD_CELL_WIDTH, BOARD_CELL_HEIGHT)
 	btn.pivot_offset = Vector2(BOARD_CELL_WIDTH, BOARD_CELL_HEIGHT) * 0.5
 	btn.add_theme_font_override("font", FONT_BALATRO)
-	btn.add_theme_font_size_override("font_size", FONT_CELL)
+	btn.add_theme_font_size_override("font_size", 14)
 	btn.add_theme_color_override("font_color", TEXT_PRIMARY)
-	btn.add_theme_constant_override("icon_max_width", 32)
+	btn.add_theme_constant_override("icon_max_width", 26)
 	btn.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_apply_transparent_button_style(btn)
 	_anchor_fill(btn)
@@ -4366,7 +4381,7 @@ func _build_extra_night_column() -> Control:
 # celebrates itself at catch/sale time.
 # ────────────────────────────────────────────────────────────────────────
 
-const BOOSTER_COST := 250
+const BOOSTER_COST := 100
 const BOOSTER_CARDS: Array[Dictionary] = [
 	{"id": "night_1", "title": "ONE MORE NIGHT", "desc": "+1 night at sea. The season isn't done with you yet.", "accent": Color("#fcba00"), "tex": preload("res://assets/boosters/booster-night-1.png")},
 	{"id": "night_2", "title": "SECOND WIND", "desc": "+2 nights at sea. The coffee is working.", "accent": Color("#fcba00"), "tex": preload("res://assets/boosters/booster-night-2.png")},
@@ -4911,34 +4926,9 @@ func _booster_pack_node() -> Dictionary:
 	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pack.add_child(back)
 
-	# Foil crimp: a silver band across the top, serrated below by a row of
-	# 45-degree diamonds, with two darker crimp score-lines pressed into it.
-	var foil := Color("#cdd8f0")
-	var band_h := 56.0
-	var band := ColorRect.new()
-	band.color = foil
-	band.anchor_right = 1.0
-	band.offset_bottom = band_h
-	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pack.add_child(band)
-	var teeth_n := int(ceil(size.x / 22.0)) + 1
-	for i in range(teeth_n):
-		var tooth := ColorRect.new()
-		tooth.color = foil
-		tooth.size = Vector2(16, 16)
-		tooth.pivot_offset = Vector2(8, 8)
-		tooth.rotation_degrees = 45.0
-		tooth.position = Vector2(float(i) * 22.0 - 8.0, band_h - 8.0)
-		tooth.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		pack.add_child(tooth)
-	for line_y in [16.0, 30.0]:
-		var crimp := ColorRect.new()
-		crimp.color = Color("#9fb0d8")
-		crimp.anchor_right = 1.0
-		crimp.offset_top = line_y
-		crimp.offset_bottom = line_y + 3.0
-		crimp.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		pack.add_child(crimp)
+	# Foil crimps top AND bottom, so the sealed pouch has a full silhouette.
+	_booster_crimp_band(pack, size, 56.0, true)
+	_booster_crimp_band(pack, size, 40.0, false)
 
 	# The shimmer: a soft white gradient band, tilted, swept by the rattle.
 	var sh_grad := Gradient.new()
@@ -4962,6 +4952,43 @@ func _booster_pack_node() -> Dictionary:
 	pack.add_child(shimmer)
 
 	return {"pack": pack, "shimmer": shimmer}
+
+
+# One foil crimp: a silver band pressed with two score-lines, serrated by a
+# row of 45-degree diamonds that tile the band's inner edge exactly — half a
+# tooth hangs past each side and the pack's clip trims it flush.
+func _booster_crimp_band(pack: Control, size: Vector2, band_h: float, at_top: bool) -> void:
+	var foil := Color("#cdd8f0")
+	var band := ColorRect.new()
+	band.color = foil
+	band.anchor_right = 1.0
+	band.offset_top = 0.0 if at_top else size.y - band_h
+	band.offset_bottom = band_h if at_top else size.y
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pack.add_child(band)
+
+	var teeth_n := int(round(size.x / 22.0))
+	var step := size.x / float(teeth_n)
+	var edge_y := band_h if at_top else size.y - band_h
+	for i in range(teeth_n + 1):
+		var tooth := ColorRect.new()
+		tooth.color = foil
+		tooth.size = Vector2(16, 16)
+		tooth.pivot_offset = Vector2(8, 8)
+		tooth.rotation_degrees = 45.0
+		tooth.position = Vector2(step * float(i) - 8.0, edge_y - 8.0)
+		tooth.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pack.add_child(tooth)
+
+	for line_off in [16.0, 30.0]:
+		var line_y: float = line_off if at_top else size.y - line_off - 3.0
+		var crimp := ColorRect.new()
+		crimp.color = Color("#9fb0d8")
+		crimp.anchor_right = 1.0
+		crimp.offset_top = line_y
+		crimp.offset_bottom = line_y + 3.0
+		crimp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pack.add_child(crimp)
 
 
 # A burst of little gold sparks flying out from the pack.
@@ -7247,21 +7274,27 @@ func _generate_board() -> void:
 		for col in range(GRID_COLS):
 			board.append(_empty_tile(row))
 
-	var shoal_hits := rng.randi_range(SHOAL_TARGET_RANGE.x, SHOAL_TARGET_RANGE.y)
-	var mid_hits := rng.randi_range(MID_TARGET_RANGE.x, MID_TARGET_RANGE.y)
-	var deep_hits := rng.randi_range(DEEP_TARGET_RANGE.x, DEEP_TARGET_RANGE.y)
+	# Roll every band's hit budget first so the species deck can be balanced
+	# across the whole board, then deal each band its planned contents.
+	var band_hits: Array[int] = []
 	var fish_total := 0
-	fish_total += max(0, shoal_hits - SHOAL_ITEM_COUNT)
-	fish_total += max(0, mid_hits - MID_ITEM_COUNT)
-	fish_total += max(0, deep_hits - DEEP_ITEM_COUNT)
+	for plan in BAND_PLANS:
+		var hits_range: Vector2i = plan["hits"]
+		var hits := rng.randi_range(hits_range.x, hits_range.y)
+		band_hits.append(hits)
+		fish_total += maxi(0, hits - _band_treasure_count(plan))
 
 	var fish_deck := _balanced_species_deck(fish_total)
-	var cash_values: Array[int] = TREASURE_VALUES.duplicate()
-	_shuffle_indices(cash_values)
+	for i in range(BAND_PLANS.size()):
+		_seed_band(BAND_PLANS[i], band_hits[i], fish_deck)
 
-	_seed_band_contents(4, 5, shoal_hits, SHOAL_ITEM_COUNT, SHOAL_CASH_ITEM_COUNT, fish_deck, cash_values)
-	_seed_band_contents(2, 3, mid_hits, MID_ITEM_COUNT, MID_CASH_ITEM_COUNT, fish_deck, cash_values)
-	_seed_band_contents(0, 1, deep_hits, DEEP_ITEM_COUNT, DEEP_CASH_ITEM_COUNT, fish_deck, cash_values)
+	if board_reveal_debug:
+		for i in range(board.size()):
+			board[i]["found"] = true
+
+
+func _band_treasure_count(plan: Dictionary) -> int:
+	return (plan["cash"] as Array).size() + int(plan["nights"])
 
 
 func _empty_tile(row: int) -> Dictionary:
@@ -7282,40 +7315,28 @@ func _empty_tile(row: int) -> Dictionary:
 	}
 
 
-func _seed_band_contents(row_start: int, row_end: int, target_count: int, item_count: int, cash_item_count: int, fish_deck: Array[String], cash_values: Array[int]) -> void:
+func _seed_band(plan: Dictionary, hit_count: int, fish_deck: Array[String]) -> void:
+	var rows: Vector2i = plan["rows"]
 	var candidates: Array[int] = []
-	for row in range(row_start, row_end + 1):
+	for row in range(rows.x, rows.y + 1):
 		for col in range(GRID_COLS):
 			candidates.append(row * GRID_COLS + col)
-
 	_shuffle_indices(candidates)
-	var hit_count: int = clampi(target_count, 0, candidates.size())
-	var treasure_count: int = clampi(item_count, 0, hit_count)
-	var treasures := _treasure_specs_for_band(treasure_count, cash_item_count, cash_values)
 
-	for i in range(treasures.size()):
-		_populate_treasure_tile(candidates[i], treasures[i])
-
-	var fish_count := hit_count - treasures.size()
-	for i in range(fish_count):
-		var index := candidates[treasures.size() + i]
-		_populate_fish_tile(index, _draw_species_from_deck(fish_deck))
-
-
-func _treasure_specs_for_band(item_count: int, cash_item_count: int, cash_values: Array[int]) -> Array[Dictionary]:
+	# The band's treasure mix is fixed by the plan; only placement (and which
+	# hidden tile holds which prize) is left to the shuffle.
 	var specs: Array[Dictionary] = []
-	var cash_count: int = clampi(cash_item_count, 0, item_count)
-	for i in range(cash_count):
-		var cash_value := 100
-		if not cash_values.is_empty():
-			cash_value = cash_values.pop_back()
-		specs.append({"type": TREASURE_KIND_CASH, "value": cash_value})
-
-	for i in range(item_count - cash_count):
+	for value in (plan["cash"] as Array):
+		specs.append({"type": TREASURE_KIND_CASH, "value": int(value)})
+	for i in range(int(plan["nights"])):
 		specs.append({"type": TREASURE_KIND_PAID_NIGHT, "value": 0})
-
 	_shuffle_treasure_specs(specs)
-	return specs
+
+	var total: int = clampi(hit_count, specs.size(), candidates.size())
+	for i in range(specs.size()):
+		_populate_treasure_tile(candidates[i], specs[i])
+	for i in range(total - specs.size()):
+		_populate_fish_tile(candidates[specs.size() + i], _draw_species_from_deck(fish_deck))
 
 
 func _populate_treasure_tile(index: int, treasure: Dictionary) -> void:
@@ -9490,11 +9511,12 @@ func _update_board() -> void:
 			_render_board_card_shell(btn, base_color, is_dead_card)
 			btn.add_theme_color_override("font_color", label_color)
 
-			var font_size := 14
+			# Text sizes scaled to the 56px card, not the shared FONT_CELL consts.
+			var font_size := 12
 			if player_here:
 				font_size = FONT_BOAT
 			elif known and not is_dead_card:
-				font_size = FONT_CELL_BIG if is_treasure else FONT_CELL
+				font_size = 18 if is_treasure else 14
 			btn.add_theme_font_size_override("font_size", font_size)
 			_update_cell_cast_dots(btn, tile, known and is_fish and not is_depleted, player_here or bot_here, label_color)
 			_update_cell_markers(btn, tile, show_fish_icon, is_dead_card, player_here, bot_here)
