@@ -1692,6 +1692,7 @@ func _make_rail_scrollable(node: Node) -> void:
 
 const WEATHER_DAY_CARD_WIDTH := 73
 const WEATHER_DAY_CARD_GAP := 9
+var forecast_render_day := -1  # last day the forecast strip was rendered for
 
 func _build_start_screen() -> void:
 	var overlay := Control.new()
@@ -2464,6 +2465,7 @@ func _render_achievements_screen() -> void:
 	for i in range(ACHIEVEMENT_DEFS.size()):
 		var def: Dictionary = ACHIEVEMENT_DEFS[i]
 		flow.add_child(_achievement_badge_card(def, ach_earned.has(str(def["id"])), i))
+	_stagger_in_children(flow)
 
 
 # One badge card. Earned: badge art, title, how-it-was-earned description, date.
@@ -3146,6 +3148,7 @@ func _build_sell_modal() -> void:
 	card.offset_top = -348
 	card.offset_bottom = 348
 	overlay.add_child(card)
+	ui["sell_panel"] = card
 
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", 26)
@@ -6139,6 +6142,7 @@ func _open_upgrade_tray() -> void:
 		(ui["tray_hint"] as Label).text = "Tap a category row to reveal its next upgrade card."
 	if ui.has("tray_overlay"):
 		(ui["tray_overlay"] as Control).visible = true
+		_animate_modal_open(ui["tray_overlay"], ui.get("tray_panel", null))
 	_show_tray_body("upgrade", true)
 	_show_tray_body("repair", false)
 	_update_ui()
@@ -6156,6 +6160,7 @@ func _open_repair_tray() -> void:
 		(ui["tray_hint"] as Label).text = "Tap the next damaged segment to repair it."
 	if ui.has("tray_overlay"):
 		(ui["tray_overlay"] as Control).visible = true
+		_animate_modal_open(ui["tray_overlay"], ui.get("tray_panel", null))
 	_show_tray_body("upgrade", false)
 	_show_tray_body("repair", true)
 	_update_ui()
@@ -7685,6 +7690,7 @@ func _open_sell_modal() -> void:
 	var overlay := ui["sell_overlay"] as Control
 	overlay.move_to_front()  # top-most sibling so clicks reach the modal
 	overlay.visible = true
+	_animate_modal_open(overlay, ui.get("sell_panel", null))
 	_play_sfx("modal_open")
 
 
@@ -8900,6 +8906,13 @@ func _update_forecast() -> void:
 	push.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	strip.add_child(push)
 	strip.add_child(_weather_peek_card())
+	# A new day: the whole strip slides one card-width left, as if dealt on.
+	if forecast_render_day != -1 and forecast_render_day != day:
+		strip.position.x = float(WEATHER_DAY_CARD_WIDTH + WEATHER_DAY_CARD_GAP)
+		var slide := strip.create_tween()
+		slide.tween_property(strip, "position:x", 0.0, 0.34).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		slide.parallel().tween_callback(_play_sfx.bind("card_slide", -12.0, 1.1, 40))
+	forecast_render_day = day
 
 
 func _update_top_market() -> void:
@@ -11930,13 +11943,58 @@ func _counter_set(key: String, value_text: String, enabled: bool = true, title_o
 	var card: Control = ui[key]
 	if not is_instance_valid(card):
 		return
-	(card.get_meta("value_label") as Label).text = value_text
+	var value_label := card.get_meta("value_label") as Label
+	if value_label.text != value_text:
+		value_label.text = value_text
+		# The number changed — thump it so the eye catches the delta.
+		value_label.pivot_offset = value_label.size * 0.5
+		value_label.scale = Vector2(1.25, 1.25)
+		var t := value_label.create_tween()
+		t.tween_property(value_label, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	if title_override != "":
 		(card.get_meta("title_label") as Label).text = title_override
 	var btn := card.get_meta("button") as Button
 	if btn != null:
 		btn.disabled = not enabled
 	card.modulate = Color(1, 1, 1, 1) if enabled else Color(0.5, 0.56, 0.64, 0.8)
+
+
+# Modal entrance: the overlay fades while its panel pops from a slight shrink.
+func _animate_modal_open(overlay: Control, panel: Control) -> void:
+	if not is_instance_valid(overlay) or not is_instance_valid(panel):
+		return
+	overlay.modulate = Color(1, 1, 1, 0)
+	panel.pivot_offset = panel.size * 0.5
+	panel.scale = Vector2(0.93, 0.93)
+	var t := overlay.create_tween()
+	t.tween_property(overlay, "modulate:a", 1.0, 0.13)
+	t.parallel().tween_property(panel, "scale", Vector2.ONE, 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+# Deal a freshly-populated list in: children fade up with a quick stagger.
+# Waits one frame so containers have laid the children out (pivot needs size).
+func _stagger_in_children(container: Control) -> void:
+	if not is_instance_valid(container):
+		return
+	var kids := container.get_children()
+	var step := clampf(0.5 / maxf(1.0, float(kids.size())), 0.02, 0.05)
+	for i in range(kids.size()):
+		var c := kids[i] as Control
+		if c != null:
+			c.modulate = Color(1, 1, 1, 0)
+	await get_tree().process_frame
+	if not is_instance_valid(container):
+		return
+	for i in range(kids.size()):
+		var c := kids[i] as Control
+		if c == null or not is_instance_valid(c):
+			continue
+		c.pivot_offset = c.size * 0.5
+		c.scale = Vector2(0.94, 0.94)
+		var t := c.create_tween()
+		t.tween_interval(float(i) * step)
+		t.tween_property(c, "modulate:a", 1.0, 0.16)
+		t.parallel().tween_property(c, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 # Physical "push/pop" — scale down on press, overshoot back on release. The
@@ -14737,6 +14795,7 @@ func _render_high_scores_screen(scores: Array, title_text: String, status_text: 
 
 		var is_vs := str(entry.get("mode", MODE_SOLO)) == MODE_VERSUS
 		row.add_child(_hs_result_chip(str(entry.get("outcome", "")), is_vs))
+	_stagger_in_children(col)
 
 
 # Who sailed the run: boat avatar + captain over boat name. Legacy entries
