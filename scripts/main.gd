@@ -4661,16 +4661,10 @@ func _show_booster_open_scene(def: Dictionary) -> void:
 	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(glow)
 
-	# The sealed pack: the card back, big.
-	var pack := TextureRect.new()
-	pack.texture = CARD_BACK_TEXTURE
-	pack.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	pack.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	pack.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	pack.size = Vector2(264, 354)
-	pack.position = center - Vector2(132, 177)
-	pack.pivot_offset = Vector2(132, 177)
-	pack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# The sealed foil pack, bigger than the prize inside it.
+	var pack_bits := _booster_pack_node()
+	var pack: Control = pack_bits["pack"]
+	pack.position = center - pack.pivot_offset
 	stage.add_child(pack)
 
 	# The tear-flash and the prize, built now, shown by the later phases.
@@ -4681,25 +4675,57 @@ func _show_booster_open_scene(def: Dictionary) -> void:
 	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(flash)
 
-	var reveal := _booster_reveal_card(def)
+	# The prize spread: pure-art card on the left, all the words beside it —
+	# the same card-plus-story layout the rest of the game uses.
+	var card := _booster_reveal_card(def)
+	var col_w := 360.0
+	var gap := 40.0
+	var group_size := Vector2(card.size.x + gap + col_w, card.size.y)
+	var reveal := Control.new()
+	reveal.size = group_size
+	reveal.pivot_offset = group_size * 0.5
+	reveal.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	reveal.position = center - reveal.pivot_offset
-	reveal.scale = Vector2(0.3, 0.3)
-	reveal.modulate = Color(1, 1, 1, 0)
 	stage.add_child(reveal)
+	card.position = Vector2.ZERO
+	reveal.add_child(card)
 
-	var claim := _tactile_button("CLAIM", 0, 64, GOLD_DEEP, GOLD, Color("#241a02"))
-	claim.custom_minimum_size = Vector2(320, 64)
-	claim.position = Vector2(center.x - 160, center.y + 250)
+	var accent: Color = def["accent"]
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 14)
+	col.position = Vector2(card.size.x + gap, 0)
+	col.size = Vector2(col_w, group_size.y)
+	reveal.add_child(col)
+	col.add_child(_label("BOOSTER PACK", 15, _with_alpha(accent, 0.9)))
+	var title := _label(str(def["title"]), 38, accent)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title)
+	var desc := _label(str(def["desc"]), 19, TEXT_MUTED)
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(desc)
+	var claim_pad := Control.new()
+	claim_pad.custom_minimum_size = Vector2(0, 8)
+	col.add_child(claim_pad)
+	var claim := _tactile_button("CLAIM", 0, 62, GOLD_DEEP, GOLD, Color("#241a02"))
+	claim.custom_minimum_size = Vector2(260, 62)
+	claim.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	claim.modulate = Color(1, 1, 1, 0)
 	claim.pressed.connect(func() -> void:
 		_apply_booster_card(def)
 		overlay.queue_free())
-	overlay.add_child(claim)
+	col.add_child(claim)
+	reveal.scale = Vector2(0.3, 0.3)
+	reveal.modulate = Color(1, 1, 1, 0)
 
 	# Sequenced as small phase tweens chained on `finished` — one mega-chain
 	# proved fragile on the web export.
 	var ctx := {"stage": stage, "center": center, "pack": pack, "glow": glow,
-		"flash": flash, "reveal": reveal, "claim": claim}
+		"flash": flash, "reveal": reveal, "claim": claim,
+		"shimmer": pack_bits["shimmer"],
+		"glow_target": center + Vector2(-(gap + col_w) * 0.5, 0.0)}
 
 	# Phase 1 — entrance: the pack pops in, the glow wakes up.
 	pack.scale = Vector2(0.1, 0.1)
@@ -4729,6 +4755,14 @@ func _booster_phase_rattle(ctx: Dictionary) -> void:
 			t.parallel().tween_callback(_play_sfx.bind("card_flip", -8.0, 0.8 + 0.09 * float(i), 30))
 			t.parallel().tween_callback(_buzz.bind(30 + i * 10))
 			t.parallel().tween_callback(_booster_sparkles.bind(stage, center, 6 + i))
+	# Foil catch-light: a bright band rakes across the pack right before it tears.
+	var shimmer: Control = ctx.get("shimmer", null)
+	if shimmer != null:
+		t.tween_callback(func() -> void:
+			shimmer.modulate = Color(1, 1, 1, 1)
+			shimmer.position = Vector2(-220, -110))
+		t.parallel().tween_callback(_play_sfx.bind("card_slide", -10.0, 1.5, 40))
+		t.tween_property(shimmer, "position:x", 420.0, 0.34).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 	t.tween_property(pack, "scale", Vector2(1.12, 0.94), 0.1).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	t.parallel().tween_property(glow, "modulate:a", 0.9, 0.2)
 	t.finished.connect(_booster_phase_reveal.bind(ctx))
@@ -4749,6 +4783,9 @@ func _booster_phase_reveal(ctx: Dictionary) -> void:
 	t.tween_property(flash, "color:a", 0.92, 0.09).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 	t.tween_callback(func() -> void:
 		pack.visible = false
+		# The glow slides behind the art card's side of the spread.
+		if ctx.has("glow_target"):
+			glow.position = (ctx["glow_target"] as Vector2) - Vector2(320, 320)
 		_buzz(220)
 		_play_sfx("trophy", 0.0, 1.1)
 		_play_sfx("confetti", -4.0)
@@ -4770,20 +4807,16 @@ func _booster_phase_reveal(ctx: Dictionary) -> void:
 		pulse.tween_property(glow, "scale", Vector2(1.3, 1.3), 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT))
 
 
-# The revealed booster card: squarestep shell, full-bleed art up top, big
-# title and story text beneath. 340x470, pivot centered for the pop.
+# The revealed booster card: pure illustration in the squarestep shell — all
+# text lives beside it, like the game's other card layouts. 300x420.
 func _booster_reveal_card(def: Dictionary) -> Control:
-	var size := Vector2(340, 470)
+	var size := Vector2(300, 420)
 	var card := Control.new()
 	card.custom_minimum_size = size
 	card.size = size
 	card.pivot_offset = size * 0.5
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var accent: Color = def["accent"]
 	var inset := _add_squarestep_card_shell(card, size, Color("#011244"))
-	var inner_w := size.x - inset * 2.0
-
-	var art_h := 232.0
 	var tex: Texture2D = def.get("tex", null)
 	if tex != null:
 		var art := TextureRect.new()
@@ -4793,34 +4826,85 @@ func _booster_reveal_card(def: Dictionary) -> Control:
 		art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		art.clip_contents = true
 		art.position = Vector2(inset, inset)
-		art.size = Vector2(inner_w, art_h)
+		art.size = size - Vector2(inset, inset) * 2.0
 		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(art)
-	else:
-		art_h = 60.0
-
-	var kicker := _label("BOOSTER PACK", 13, _with_alpha(accent, 0.9), HORIZONTAL_ALIGNMENT_CENTER)
-	kicker.position = Vector2(inset, inset + art_h + 10.0)
-	kicker.size = Vector2(inner_w, 18)
-	kicker.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(kicker)
-
-	var col := VBoxContainer.new()
-	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 10)
-	col.position = Vector2(inset + 12.0, inset + art_h + 30.0)
-	col.size = Vector2(inner_w - 24.0, size.y - inset - (inset + art_h + 30.0) - 8.0)
-	card.add_child(col)
-	var title := _label(str(def["title"]), 28, accent, HORIZONTAL_ALIGNMENT_CENTER)
-	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(title)
-	var desc := _label(str(def["desc"]), 15, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(desc)
 	return card
+
+
+# The sealed foil pack: bigger than the prize card, card-back art under a
+# silver crimp band with zigzag teeth, plus a shimmer band the rattle phase
+# sweeps across right before the tear.
+func _booster_pack_node() -> Dictionary:
+	var size := Vector2(348, 470)
+	var pack := Control.new()
+	pack.custom_minimum_size = size
+	pack.size = size
+	pack.pivot_offset = size * 0.5
+	pack.clip_contents = true
+	pack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var back := TextureRect.new()
+	back.texture = CARD_BACK_TEXTURE
+	back.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	back.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	back.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	back.clip_contents = true
+	_anchor_fill(back)
+	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pack.add_child(back)
+
+	# Foil crimp: a silver band across the top, serrated below by a row of
+	# 45-degree diamonds, with two darker crimp score-lines pressed into it.
+	var foil := Color("#cdd8f0")
+	var band_h := 56.0
+	var band := ColorRect.new()
+	band.color = foil
+	band.anchor_right = 1.0
+	band.offset_bottom = band_h
+	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pack.add_child(band)
+	var teeth_n := int(ceil(size.x / 22.0)) + 1
+	for i in range(teeth_n):
+		var tooth := ColorRect.new()
+		tooth.color = foil
+		tooth.size = Vector2(16, 16)
+		tooth.pivot_offset = Vector2(8, 8)
+		tooth.rotation_degrees = 45.0
+		tooth.position = Vector2(float(i) * 22.0 - 8.0, band_h - 8.0)
+		tooth.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pack.add_child(tooth)
+	for line_y in [16.0, 30.0]:
+		var crimp := ColorRect.new()
+		crimp.color = Color("#9fb0d8")
+		crimp.anchor_right = 1.0
+		crimp.offset_top = line_y
+		crimp.offset_bottom = line_y + 3.0
+		crimp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pack.add_child(crimp)
+
+	# The shimmer: a soft white gradient band, tilted, swept by the rattle.
+	var sh_grad := Gradient.new()
+	sh_grad.set_color(0, Color(1, 1, 1, 0.0))
+	sh_grad.add_point(0.5, Color(1, 1, 1, 0.75))
+	sh_grad.set_color(1, Color(1, 1, 1, 0.0))
+	var sh_tex := GradientTexture2D.new()
+	sh_tex.gradient = sh_grad
+	sh_tex.fill_from = Vector2(0, 0)
+	sh_tex.fill_to = Vector2(1, 0)
+	sh_tex.width = 120
+	sh_tex.height = 700
+	var shimmer := TextureRect.new()
+	shimmer.texture = sh_tex
+	shimmer.size = Vector2(120, 700)
+	shimmer.pivot_offset = Vector2(60, 350)
+	shimmer.rotation_degrees = 18.0
+	shimmer.position = Vector2(-220, -110)
+	shimmer.modulate = Color(1, 1, 1, 0)
+	shimmer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pack.add_child(shimmer)
+
+	return {"pack": pack, "shimmer": shimmer}
 
 
 # A burst of little gold sparks flying out from the pack.
