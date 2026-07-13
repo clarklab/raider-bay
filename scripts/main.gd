@@ -1005,34 +1005,45 @@ func _run_treasure_preview(kind: String, value: int) -> void:
 
 
 func _apply_safe_area_inset() -> void:
-	var screen_size := DisplayServer.screen_get_size()
-	if screen_size.x <= 0 or screen_size.y <= 0:
-		return
-	var safe := DisplayServer.get_display_safe_area()
 	var viewport_size := get_viewport().get_visible_rect().size
 	if viewport_size.x <= 0 or viewport_size.y <= 0:
 		return
-	var left_pixels := maxi(safe.position.x, 0)
-	var top_pixels := maxi(safe.position.y, 0)
-	var right_pixels := maxi(screen_size.x - safe.position.x - safe.size.x, 0)
-	var bottom_pixels := maxi(screen_size.y - safe.position.y - safe.size.y, 0)
-	var left_inset := int(round((float(left_pixels) / float(screen_size.x)) * viewport_size.x))
-	var top_inset := int(round((float(top_pixels) / float(screen_size.y)) * viewport_size.y))
-	var right_inset := int(round((float(right_pixels) / float(screen_size.x)) * viewport_size.x))
-	var bottom_inset := int(round((float(bottom_pixels) / float(screen_size.y)) * viewport_size.y))
-	left_inset = clampi(left_inset, 0, int(viewport_size.x * 0.20))
-	top_inset = clampi(top_inset, 0, int(viewport_size.y * 0.20))
-	right_inset = clampi(right_inset, 0, int(viewport_size.x * 0.20))
-	bottom_inset = clampi(bottom_inset, 0, int(viewport_size.y * 0.20))
+	var left_inset := 0
+	var top_inset := 0
+	var right_inset := 0
+	var bottom_inset := 0
+	# On the web, screen_get_size/safe-area describe the physical MONITOR and
+	# the browser window's position on it — meaningless as insets, and they
+	# were quietly eating ~90px of layout. Browsers handle notches themselves.
+	if not OS.has_feature("web"):
+		var screen_size := DisplayServer.screen_get_size()
+		if screen_size.x <= 0 or screen_size.y <= 0:
+			return
+		var safe := DisplayServer.get_display_safe_area()
+		var left_pixels := maxi(safe.position.x, 0)
+		var top_pixels := maxi(safe.position.y, 0)
+		var right_pixels := maxi(screen_size.x - safe.position.x - safe.size.x, 0)
+		var bottom_pixels := maxi(screen_size.y - safe.position.y - safe.size.y, 0)
+		left_inset = int(round((float(left_pixels) / float(screen_size.x)) * viewport_size.x))
+		top_inset = int(round((float(top_pixels) / float(screen_size.y)) * viewport_size.y))
+		right_inset = int(round((float(right_pixels) / float(screen_size.x)) * viewport_size.x))
+		bottom_inset = int(round((float(bottom_pixels) / float(screen_size.y)) * viewport_size.y))
+		left_inset = clampi(left_inset, 0, int(viewport_size.x * 0.20))
+		top_inset = clampi(top_inset, 0, int(viewport_size.y * 0.20))
+		right_inset = clampi(right_inset, 0, int(viewport_size.x * 0.20))
+		bottom_inset = clampi(bottom_inset, 0, int(viewport_size.y * 0.20))
 	if ui.has("root_margin"):
 		var root: MarginContainer = ui["root_margin"]
 		root.add_theme_constant_override("margin_left", 10 + left_inset)
 		root.add_theme_constant_override("margin_top", top_inset)
-		root.add_theme_constant_override("margin_right", 10 + right_inset)
+		# No base right margin: the command rail runs flush to (and bleeds
+		# past) that edge by design.
+		root.add_theme_constant_override("margin_right", right_inset)
 		root.add_theme_constant_override("margin_bottom", bottom_inset)
 	if ui.has("top_safe_fill"):
 		var fill: ColorRect = ui["top_safe_fill"]
 		fill.offset_bottom = float(top_inset)
+	_update_board_scale()
 
 
 var title_letters: Array = []
@@ -1428,8 +1439,8 @@ func _build_center_table(parent: Container) -> void:
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", 6)
 	pad.add_theme_constant_override("margin_right", 6)
-	pad.add_theme_constant_override("margin_top", 10)
-	pad.add_theme_constant_override("margin_bottom", 10)
+	pad.add_theme_constant_override("margin_top", 4)
+	pad.add_theme_constant_override("margin_bottom", 4)
 	table.add_child(pad)
 
 	var center := CenterContainer.new()
@@ -3573,22 +3584,38 @@ func _build_board(parent: Container) -> void:
 	_build_board_toast(board_wrap)
 
 
-# Scale the board to the largest uniform fit inside the center pane. The
-# CenterContainer keeps the wrap centered at its design-size rect, so an
-# equal scale around the rect's middle swallows the slack evenly. Never
-# below 1 (the design size is the floor — that's the 16:9 budget), snapped
-# to 1 when the gain is under 2% so the narrowest layouts stay pixel-exact.
+# Scale the board to the largest uniform fit the DEVICE really has. The
+# available box is computed straight from the viewport minus the known
+# chrome (root margins, both rails, separations, center pads) rather than
+# trusting container sizes mid-layout, so it holds on every screen shape.
+# Never below 1 (the design size is the floor — that's the 16:9 width
+# budget), snapped to 1 when the gain is under 2% so the narrowest layouts
+# stay pixel-exact.
 func _update_board_scale() -> void:
 	var wrap := ui.get("board_wrap", null) as Control
 	if wrap == null or not is_instance_valid(wrap):
 		return
-	var center := wrap.get_parent() as Control
-	if center == null:
+	var vp := get_viewport().get_visible_rect().size
+	if vp.x <= 0.0 or vp.y <= 0.0:
 		return
-	if center.size.x <= 0.0 or center.size.y <= 0.0:
+	var ml := 10
+	var mr := 0
+	var mt := 0
+	var mb := 0
+	if ui.has("root_margin"):
+		var root: MarginContainer = ui["root_margin"]
+		ml = root.get_theme_constant("margin_left")
+		mr = root.get_theme_constant("margin_right")
+		mt = root.get_theme_constant("margin_top")
+		mb = root.get_theme_constant("margin_bottom")
+	# Row chrome: side rail + command rail + two HBox separations + the
+	# center table's 6px left/right pads. Column chrome: the 4px top/bottom.
+	var avail_x := vp.x - float(ml + mr) - float(TABLE_SIDE_WIDTH + TABLE_COMMAND_WIDTH) - 28.0 - 12.0
+	var avail_y := vp.y - float(mt + mb) - 8.0
+	if avail_x <= 0.0 or avail_y <= 0.0:
 		return
-	var s := minf(center.size.x / float(BOARD_WRAP_WIDTH), center.size.y / float(BOARD_WRAP_HEIGHT))
-	s = clampf(s, 1.0, 1.5)
+	var s := minf(avail_x / float(BOARD_WRAP_WIDTH), avail_y / float(BOARD_WRAP_HEIGHT))
+	s = clampf(s, 1.0, 1.6)
 	if s < 1.02:
 		s = 1.0
 	wrap.pivot_offset = Vector2(BOARD_WRAP_WIDTH, BOARD_WRAP_HEIGHT) * 0.5
@@ -12677,19 +12704,28 @@ func _animate_modal_open(overlay: Control, panel: Control) -> void:
 func _stagger_in_children(container: Control) -> void:
 	if not is_instance_valid(container):
 		return
+	# Generation guard: if the container re-renders while an older stagger is
+	# mid-await, the old coroutine must NOT touch the new children — that race
+	# stranded rebuilt lists at alpha 0 (the high-scores "flicker and vanish").
+	var gen := int(container.get_meta("stagger_gen", 0)) + 1
+	container.set_meta("stagger_gen", gen)
+	for c in container.get_children():
+		if c is Control:
+			(c as Control).modulate = Color(1, 1, 1, 0)
+	await get_tree().process_frame
+	if not is_instance_valid(container):
+		return
+	if int(container.get_meta("stagger_gen", 0)) != gen:
+		return
+	# Fresh child list: anything queue_freed by a same-frame rebuild is gone
+	# now, so every node we animate is one that will actually stay.
 	var kids := container.get_children()
 	var step := clampf(0.5 / maxf(1.0, float(kids.size())), 0.02, 0.05)
 	for i in range(kids.size()):
 		var c := kids[i] as Control
-		if c != null:
-			c.modulate = Color(1, 1, 1, 0)
-	await get_tree().process_frame
-	if not is_instance_valid(container):
-		return
-	for i in range(kids.size()):
-		var c := kids[i] as Control
 		if c == null or not is_instance_valid(c):
 			continue
+		c.modulate = Color(1, 1, 1, 0)
 		c.pivot_offset = c.size * 0.5
 		c.scale = Vector2(0.94, 0.94)
 		var t := c.create_tween()
@@ -13725,7 +13761,11 @@ func _fetch_global_high_scores() -> void:
 	global_scores_fetch_request.cancel_request()
 	var err := global_scores_fetch_request.request(GLOBAL_SCORES_API, ["Accept: application/json"], HTTPClient.METHOD_GET)
 	if err != OK:
+		# Synchronous refusal: no callback will ever fire, so land the local
+		# fallback now rather than stranding the loading card.
 		global_scores_status = "Global scores unavailable. Showing local scores."
+		if ui.has("high_scores_overlay") and (ui["high_scores_overlay"] as Control).visible:
+			_render_high_scores_screen(_load_high_scores(), "HIGH SCORES", global_scores_status)
 
 
 func _on_global_score_submit_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
@@ -15320,15 +15360,62 @@ func _show_high_scores_screen() -> void:
 		return
 	_play_sfx("modal_open")
 
-	global_scores_status = "Loading global scores..." if _global_scores_enabled() else "Local scores on this device."
-	_render_high_scores_screen(_load_high_scores(), "HIGH SCORES", global_scores_status)
+	# One render per state: a loading card while the fetch is out, then the
+	# global list (or the local fallback) lands exactly once — the old
+	# local-then-global double render is what flickered the list away.
+	if _global_scores_enabled():
+		global_scores_status = ""
+		_render_high_scores_loading()
+	else:
+		global_scores_status = "Local scores on this device."
+		_render_high_scores_screen(_load_high_scores(), "HIGH SCORES", global_scores_status)
 	var overlay := ui["high_scores_overlay"] as Control
 	# GUI input picking walks siblings by tree order (not z_index), so become the
 	# top-most sibling — otherwise clicks/scroll fall through to the still-visible
 	# start screen behind us. Same fix as _show_deck_training().
 	overlay.move_to_front()
 	overlay.visible = true
-	_fetch_global_high_scores()
+	if _global_scores_enabled():
+		_fetch_global_high_scores()
+
+
+# The wait state: a single pulsing card while the scoreboard reels in.
+func _render_high_scores_loading() -> void:
+	if ui.has("high_scores_title"):
+		(ui["high_scores_title"] as Label).text = "HIGH SCORES"
+	if ui.has("high_scores_status"):
+		var status_lbl: Label = ui["high_scores_status"]
+		status_lbl.text = ""
+		status_lbl.visible = false
+	var col: VBoxContainer = ui["high_scores_col"]
+	col.set_meta("stagger_gen", int(col.get_meta("stagger_gen", 0)) + 1)
+	for child in col.get_children():
+		child.queue_free()
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var cs := _styled(REF_CARD_NAVY.darkened(0.12), Color(REF_BORDER.r, REF_BORDER.g, REF_BORDER.b, 0.4), 2, 12)
+	cs.content_margin_top = 40
+	cs.content_margin_bottom = 40
+	card.add_theme_stylebox_override("panel", cs)
+	col.add_child(card)
+	var line := HBoxContainer.new()
+	line.alignment = BoxContainer.ALIGNMENT_CENTER
+	line.add_theme_constant_override("separation", 12)
+	card.add_child(line)
+	var spinner := _icon_texture_rect(ICON_TROPHY_SOLID, Vector2(26, 26), GOLD)
+	spinner.pivot_offset = Vector2(13, 13)
+	line.add_child(spinner)
+	var lbl := _label("REELING IN THE GLOBAL SCOREBOARD...", FONT_CELL, TEXT_MUTED)
+	line.add_child(lbl)
+	# The trophy rocks and the line breathes until a real render replaces them.
+	var pulse := lbl.create_tween()
+	pulse.set_loops()
+	pulse.tween_property(lbl, "modulate:a", 0.35, 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	pulse.tween_property(lbl, "modulate:a", 1.0, 0.55).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	var rock := spinner.create_tween()
+	rock.set_loops()
+	rock.tween_property(spinner, "rotation_degrees", 14.0, 0.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	rock.tween_property(spinner, "rotation_degrees", -14.0, 0.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 
 
 # A chunky red X close button for the top-right of the high-scores screen.
