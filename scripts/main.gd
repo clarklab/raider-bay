@@ -1032,6 +1032,11 @@ func _apply_safe_area_inset() -> void:
 		top_inset = clampi(top_inset, 0, int(viewport_size.y * 0.20))
 		right_inset = clampi(right_inset, 0, int(viewport_size.x * 0.20))
 		bottom_inset = clampi(bottom_inset, 0, int(viewport_size.y * 0.20))
+		# Phone screens have rounded corners the safe-area API doesn't report
+		# (it only knows cutouts) — the rail's radio icon was getting cropped
+		# top-right. Guarantee a little clearance on the far right edge; the
+		# left edge already earns its padding from the camera-cutout inset.
+		right_inset = maxi(right_inset, 22)
 	if ui.has("root_margin"):
 		var root: MarginContainer = ui["root_margin"]
 		root.add_theme_constant_override("margin_left", 10 + left_inset)
@@ -1792,17 +1797,19 @@ func _build_start_screen() -> void:
 	links_wrap.add_child(lc)
 	lc.add_child(links)
 
-	# Small build tag, bottom-right. CI stamps application/config/version from the
-	# tag; local builds read "dev". Helps confirm which APK is installed at a glance.
+	# Small build tag, bottom-CENTER — phone screens have rounded corners that
+	# crop the extremes, so the corner spot was often unreadable on device.
+	# CI stamps application/config/version from the tag; local builds read
+	# "dev". Helps confirm which APK is installed at a glance.
 	var ver := str(ProjectSettings.get_setting("application/config/version", "dev"))
-	var ver_label := _label("v%s" % ver if ver[0].is_valid_int() else ver, 16, _with_alpha(TEXT_DIM, 0.7), HORIZONTAL_ALIGNMENT_RIGHT)
+	var ver_label := _label("v%s" % ver if ver[0].is_valid_int() else ver, 16, _with_alpha(TEXT_DIM, 0.7), HORIZONTAL_ALIGNMENT_CENTER)
 	ver_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ver_label.anchor_left = 1.0
+	ver_label.anchor_left = 0.0
 	ver_label.anchor_right = 1.0
 	ver_label.anchor_top = 1.0
 	ver_label.anchor_bottom = 1.0
-	ver_label.offset_left = -180.0
-	ver_label.offset_right = -14.0
+	ver_label.offset_left = 0.0
+	ver_label.offset_right = 0.0
 	ver_label.offset_top = -34.0
 	ver_label.offset_bottom = -10.0
 	overlay.add_child(ver_label)
