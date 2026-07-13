@@ -25,7 +25,7 @@ const BOARD_CELL_HEIGHT := 82
 const BOARD_GRID_WIDTH := GRID_COLS * BOARD_CELL_WIDTH + (GRID_COLS - 1) * BOARD_CARD_GAP
 const BOARD_GRID_HEIGHT := GRID_ROWS * BOARD_CELL_HEIGHT + (GRID_ROWS - 1) * BOARD_CARD_GAP
 const BOARD_WRAP_WIDTH := BOARD_GRID_WIDTH + 20
-const BOARD_WRAP_HEIGHT := BOARD_GRID_HEIGHT + BOARD_CELL_HEIGHT + BOARD_CARD_GAP + 14
+const BOARD_WRAP_HEIGHT := BOARD_GRID_HEIGHT + BOARD_CELL_HEIGHT + BOARD_CARD_GAP + 6
 const MAX_DAYS := 14
 const START_MONEY := 50
 const BASE_MOVES := 3
@@ -3620,6 +3620,15 @@ func _update_board_scale() -> void:
 		s = 1.0
 	wrap.pivot_offset = Vector2(BOARD_WRAP_WIDTH, BOARD_WRAP_HEIGHT) * 0.5
 	wrap.scale = Vector2(s, s)
+	# Device telemetry: one radio-log line whenever the layout answer changes,
+	# so "board looks small on my phone" is diagnosable from a screenshot of
+	# the radio tab (version + viewport + margins + the scale that applied).
+	var line := "Layout %s: view %dx%d, margins %d/%d/%d/%d, board x%.2f" % [
+		str(ProjectSettings.get_setting("application/config/version", "dev")),
+		int(vp.x), int(vp.y), ml, mt, mr, mb, s]
+	if str(get_meta("layout_log_line", "")) != line:
+		set_meta("layout_log_line", line)
+		_log(line)
 
 
 func _board_render_scale() -> float:
@@ -9583,6 +9592,9 @@ func _update_ui() -> void:
 	# Re-apply after content rebuilds so freshly-created rail cards/rows stay drag-scrollable.
 	if ui.has("command_rail_col"):
 		_make_rail_scrollable(ui["command_rail_col"])
+	# Idempotent reassert: whatever boot-order or device timing did to the
+	# first pass, every UI refresh lands the correct board scale.
+	_update_board_scale()
 	_save_game()
 
 
