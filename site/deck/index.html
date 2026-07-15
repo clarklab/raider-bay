@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Deck — Raider Bay</title>
+<meta name="description" content="Every card in Raider Bay, dressed in the in-game card shell — the art direction review sheet.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="../assets/icon.webp">
+<style>
+  @font-face {
+    font-family: "Balatro";
+    src: url("../assets/Balatro.otf") format("opentype");
+    font-display: swap;
+  }
+  :root {
+    --navy: #0a1024;
+    --panel: #14203a;
+    --panel-light: #1d2c4e;
+    --gold: #fcba00;
+    --cyan: #8ad2f0;
+    --green: #84ed72;
+    --red: #fc6060;
+    --text: #eaf2ff;
+    --muted: #a3bccd;
+    --frame: #fcfcfc;
+    /* Card shell (ported from main.gd) */
+    --ink-outline: #0a0e14;
+    --card-fill: #011244;
+    /* Shell metrics — JS overwrites these with game-exact integers */
+    --s: 4px;  /* corner step unit */
+    --o: 4px;  /* dark outline stroke */
+    --t: 16px; /* art inset (outline + white border) */
+    --sh-dx: 10px;
+    --sh-dy: 11px;
+    --tile: 220px;
+    /* Stepped-corner silhouettes, straight out of _draw_stepped_slab():
+       3 corner chunks for the outline + white border, 2 for the fill + art. */
+    --clip3: polygon(
+      calc(var(--s)*3) 0, calc(100% - var(--s)*3) 0,
+      calc(100% - var(--s)*3) var(--s), calc(100% - var(--s)*2) var(--s),
+      calc(100% - var(--s)*2) calc(var(--s)*2), calc(100% - var(--s)) calc(var(--s)*2),
+      calc(100% - var(--s)) calc(var(--s)*3), 100% calc(var(--s)*3),
+      100% calc(100% - var(--s)*3), calc(100% - var(--s)) calc(100% - var(--s)*3),
+      calc(100% - var(--s)) calc(100% - var(--s)*2), calc(100% - var(--s)*2) calc(100% - var(--s)*2),
+      calc(100% - var(--s)*2) calc(100% - var(--s)), calc(100% - var(--s)*3) calc(100% - var(--s)),
+      calc(100% - var(--s)*3) 100%, calc(var(--s)*3) 100%,
+      calc(var(--s)*3) calc(100% - var(--s)), calc(var(--s)*2) calc(100% - var(--s)),
+      calc(var(--s)*2) calc(100% - var(--s)*2), var(--s) calc(100% - var(--s)*2),
+      var(--s) calc(100% - var(--s)*3), 0 calc(100% - var(--s)*3),
+      0 calc(var(--s)*3), var(--s) calc(var(--s)*3),
+      var(--s) calc(var(--s)*2), calc(var(--s)*2) calc(var(--s)*2),
+      calc(var(--s)*2) var(--s), calc(var(--s)*3) var(--s)
+    );
+    --clip2: polygon(
+      calc(var(--s)*2) 0, calc(100% - var(--s)*2) 0,
+      calc(100% - var(--s)*2) var(--s), calc(100% - var(--s)) var(--s),
+      calc(100% - var(--s)) calc(var(--s)*2), 100% calc(var(--s)*2),
+      100% calc(100% - var(--s)*2), calc(100% - var(--s)) calc(100% - var(--s)*2),
+      calc(100% - var(--s)) calc(100% - var(--s)), calc(100% - var(--s)*2) calc(100% - var(--s)),
+      calc(100% - var(--s)*2) 100%, calc(var(--s)*2) 100%,
+      calc(var(--s)*2) calc(100% - var(--s)), var(--s) calc(100% - var(--s)),
+      var(--s) calc(100% - var(--s)*2), 0 calc(100% - var(--s)*2),
+      0 calc(var(--s)*2), var(--s) calc(var(--s)*2),
+      var(--s) var(--s), calc(var(--s)*2) var(--s)
+    );
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: -1;
+    background: var(--navy) url("../assets/bg.webp") center / cover no-repeat;
+  }
+  body {
+    background: var(--navy);
+    color: var(--text);
+    font-family: "Balatro", "Courier New", monospace;
+    letter-spacing: 0.02em;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 22px 90px; }
+
+  /* ── Top bar ── */
+  .bar {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--navy) 84%, transparent);
+    backdrop-filter: blur(7px);
+    -webkit-backdrop-filter: blur(7px);
+    border-bottom: 3px solid rgba(252, 252, 252, 0.14);
+  }
+  .bar-inner {
+    max-width: 1180px; margin: 0 auto; padding: 12px 22px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  }
+  .back {
+    color: var(--cyan); text-decoration: none; font-size: 17px;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+  }
+  .back:hover { color: var(--text); }
+  .bar-title { font-size: 19px; letter-spacing: 0.05em; }
+  .bar-spacer { flex: 1; }
+  .density { display: flex; gap: 6px; align-items: center; }
+  .density span { font-size: 14px; color: var(--muted); margin-right: 4px; }
+  .density button {
+    font-family: inherit; font-size: 15px; letter-spacing: 0.04em;
+    color: var(--text); background: var(--panel);
+    border: 2px solid rgba(252, 252, 252, 0.45); border-radius: 9px;
+    padding: 4px 12px 5px; cursor: pointer;
+    box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+  }
+  .density button:hover { background: var(--panel-light); }
+  .density button[aria-pressed="true"] {
+    background: var(--gold); color: #3a2a00; border-color: var(--frame);
+  }
+  .density button:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
+
+  /* ── Header ── */
+  header { text-align: center; padding: 54px 0 14px; }
+  h1 {
+    font-size: clamp(46px, 7.5vw, 78px);
+    line-height: 0.95;
+    text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45);
+    letter-spacing: 0.03em;
+  }
+  .tagline { font-size: clamp(17px, 2.4vw, 22px); color: var(--cyan); margin-top: 12px; }
+  .tagline b { color: var(--gold); font-weight: normal; }
+
+  /* ── Sections ── */
+  section { margin-top: 46px; }
+  h2 {
+    display: flex; align-items: baseline; gap: 12px;
+    font-size: clamp(22px, 3vw, 30px); font-weight: normal;
+    color: var(--gold); letter-spacing: 0.06em;
+    text-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+    margin-bottom: 20px;
+  }
+  h2 .count { font-size: 15px; color: var(--muted); text-shadow: none; }
+  h2::after {
+    content: ""; flex: 1; height: 3px; border-radius: 2px;
+    background: rgba(252, 252, 252, 0.13); transform: translateY(-6px);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr));
+    gap: 30px 20px;
+    align-items: start;
+  }
+
+  /* ── The card itself ── */
+  .slot {
+    transform: rotate(var(--tilt, 0deg));
+    transition: transform 0.16s ease;
+    animation: deal 0.5s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+    animation-delay: calc(var(--i, 0) * 22ms);
+  }
+  @keyframes deal {
+    from { opacity: 0; transform: translateY(24px) rotate(var(--tilt, 0deg)) scale(0.94); }
+    to   { opacity: 1; transform: rotate(var(--tilt, 0deg)); }
+  }
+  .slot:hover { transform: rotate(0deg) translateY(-7px); z-index: 2; position: relative; }
+
+  .card {
+    position: relative; display: block; width: 100%;
+    aspect-ratio: 1880 / 2514;   /* CATCH_CARD_ASPECT */
+    background: transparent; border: 0; padding: 0; cursor: zoom-in;
+    font-family: inherit;
+  }
+  .booster-grid .card { aspect-ratio: 300 / 420; }  /* in-game booster card */
+  .card:focus-visible { outline: 3px solid var(--gold); outline-offset: 5px; }
+
+  .card .layer { position: absolute; display: block; pointer-events: none; }
+  .card .shadow {
+    inset: 0;
+    transform: translate(var(--sh-dx), var(--sh-dy));
+    /* Halftone screen: 3px square dots on a staggered 7px lattice, like
+       _add_halftone_card_shadow(). */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='7'%3E%3Crect width='3' height='3' fill='%2300152d' fill-opacity='0.4'/%3E%3Crect x='3.5' y='3.5' width='3' height='3' fill='%2300152d' fill-opacity='0.4'/%3E%3C/svg%3E");
+  }
+  .card .outline { inset: 0; background: var(--ink-outline); clip-path: var(--clip3); }
+  .card .border  { inset: var(--o); background: #ffffff; clip-path: var(--clip3); }
+  .card .fill    { inset: var(--t); background: var(--card-fill); clip-path: var(--clip2); }
+  .card img.art {
+    position: absolute; inset: var(--t);
+    width: calc(100% - var(--t) * 2); height: calc(100% - var(--t) * 2);
+    object-fit: fill;            /* deck art is stretched to the frame, like STRETCH_SCALE */
+    clip-path: var(--clip2);
+    pointer-events: none;
+  }
+  .booster-grid .card img.art { object-fit: cover; }  /* STRETCH_KEEP_ASPECT_COVERED */
+
+  figcaption { margin-top: 12px; text-align: center; line-height: 1.35; }
+  figcaption .label { display: block; font-size: 16px; }
+  figcaption .file {
+    display: block; font-size: 12.5px; color: var(--muted);
+    letter-spacing: 0.03em; overflow-wrap: anywhere;
+  }
+  .booster-grid figcaption .label { color: var(--acc, var(--text)); }
+
+  /* ── Lightbox ── */
+  .lb { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; }
+  .lb[hidden] { display: none; }
+  .lb-backdrop {
+    position: absolute; inset: 0;
+    background: rgba(3, 7, 18, 0.84);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .lb-panel {
+    position: relative; display: flex; align-items: center; gap: 40px;
+    max-width: min(1020px, calc(100vw - 130px)); max-height: calc(100vh - 60px);
+    padding: 30px 10px;
+  }
+  .lb .slot { animation: none; transform: none; }
+  .lb .card { cursor: default; width: var(--lb-w, 380px); }
+  .lb-info { max-width: 330px; min-width: 240px; }
+  .lb-info h3 {
+    font-size: clamp(20px, 2.6vw, 27px); font-weight: normal; line-height: 1.15;
+    text-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+    overflow-wrap: anywhere;
+  }
+  .lb-kind { color: var(--cyan); font-size: 15px; margin-top: 8px; }
+  .lb-dims { font-size: 15px; color: var(--muted); margin-top: 14px; }
+  .lb-dims .ok { color: var(--green); }
+  .lb-dims .bad { color: var(--red); }
+  .lb-booster { margin-top: 16px; padding-top: 14px; border-top: 2px solid rgba(252,252,252,0.14); }
+  .lb-booster .btitle { font-size: 19px; color: var(--acc, var(--gold)); }
+  .lb-booster .bdesc { font-size: 15px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+  .lb-actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+  .lb-actions a, .lb-actions button {
+    font-family: inherit; font-size: 15px; letter-spacing: 0.04em; text-decoration: none;
+    color: #3a2a00; background: var(--gold);
+    border: 2px solid var(--frame); border-radius: 9px;
+    padding: 6px 14px 7px; cursor: pointer;
+    box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4);
+  }
+  .lb-actions .ghost { color: var(--text); background: var(--panel); }
+  .lb-actions a:hover, .lb-actions button:hover { filter: brightness(1.08); }
+  .lb-actions a:active, .lb-actions button:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4); }
+  .lb-hint { font-size: 13px; color: var(--muted); margin-top: 18px; opacity: 0.8; }
+
+  .lb-x, .lb-prev, .lb-next {
+    position: absolute; z-index: 2;
+    font-family: inherit; font-size: 26px; line-height: 1;
+    color: var(--text); background: var(--panel);
+    border: 2px solid rgba(252, 252, 252, 0.5); border-radius: 12px;
+    width: 48px; height: 48px; cursor: pointer;
+    box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4);
+  }
+  .lb-x:hover, .lb-prev:hover, .lb-next:hover { background: var(--panel-light); }
+  .lb-x { top: 18px; right: 18px; }
+  .lb-prev { left: 14px; top: 50%; transform: translateY(-50%); }
+  .lb-next { right: 14px; top: 50%; transform: translateY(-50%); }
+
+  footer { margin-top: 70px; text-align: center; color: var(--muted); font-size: 14px; }
+  footer a { color: var(--cyan); }
+
+  noscript { display: block; text-align: center; padding: 60px 20px; font-size: 18px; }
+
+  @media (max-width: 760px) {
+    .lb-panel { flex-direction: column; gap: 18px; overflow-y: auto; max-width: calc(100vw - 24px); padding: 74px 10px 40px; }
+    .lb-prev { top: auto; bottom: 14px; transform: none; }
+    .lb-next { top: auto; bottom: 14px; transform: none; }
+    .lb .card { width: min(62vw, 300px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .slot { animation: none; transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="bar">
+  <div class="bar-inner">
+    <a class="back" href="../">&larr; RAIDER BAY</a>
+    <span class="bar-title">THE DECK</span>
+    <span class="bar-spacer"></span>
+    <div class="density" role="group" aria-label="Card size">
+      <span>CARD SIZE</span>
+      <button type="button" data-tile="150">S</button>
+      <button type="button" data-tile="220" aria-pressed="true">M</button>
+      <button type="button" data-tile="305">L</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+  <header>
+    <h1>THE DECK</h1>
+    <p class="tagline">every card in Raider Bay — <b id="count-cards">33</b> deck cards &middot; <b id="count-boosters">12</b> boosters. Click one to inspect.</p>
+  </header>
+
+  <main id="gallery"></main>
+
+  <footer>
+    <p>Art-direction review sheet &middot; images load straight from the game&rsquo;s <span style="color:var(--text)">assets/</span> folder &middot; <a href="../">raiderbay.superfun.games</a></p>
+  </footer>
+</div>
+
+<div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Card inspector">
+  <div class="lb-backdrop" id="lb-backdrop"></div>
+  <button class="lb-x" id="lb-x" aria-label="Close">&times;</button>
+  <button class="lb-prev" id="lb-prev" aria-label="Previous card">&lsaquo;</button>
+  <button class="lb-next" id="lb-next" aria-label="Next card">&rsaquo;</button>
+  <div class="lb-panel">
+    <div id="lb-cardmount"></div>
+    <aside class="lb-info">
+      <h3 id="lb-name"></h3>
+      <p class="lb-kind" id="lb-kind"></p>
+      <p class="lb-dims" id="lb-dims"></p>
+      <div class="lb-booster" id="lb-booster" hidden>
+        <p class="btitle" id="lb-btitle"></p>
+        <p class="bdesc" id="lb-bdesc"></p>
+      </div>
+      <div class="lb-actions">
+        <a id="lb-raw" href="#" target="_blank" rel="noopener">OPEN RAW PNG</a>
+        <button type="button" class="ghost" id="lb-copy">COPY FILENAME</button>
+      </div>
+      <p class="lb-hint">&larr; &rarr; to flip through &middot; ESC to close</p>
+    </aside>
+  </div>
+</div>
+
+<noscript>This review sheet needs JavaScript to deal the cards out.</noscript>
+
+<script>
+(function () {
+  "use strict";
+
+  // ── Manifest ─────────────────────────────────────────────────────────────
+  // The deck is a fixed set (main.gd preloads each texture by name), so the
+  // list lives here too. New card art = add a line.
+  var SECTIONS = [
+    { id: "fish", title: "FISH", dir: "cards", cards: [
+      { f: "card-grouper.png",   label: "GROUPER" },
+      { f: "card-halibut.png",   label: "HALIBUT" },
+      { f: "card-salmon.png",    label: "SALMON" },
+      { f: "card-swordfish.png", label: "SWORDFISH" },
+      { f: "card-tuna.png",      label: "TUNA" }
+    ]},
+    { id: "treasure", title: "TREASURE & NIGHT", dir: "cards", cards: [
+      { f: "card-treasure-100.png", label: "TREASURE $100" },
+      { f: "card-treasure-200.png", label: "TREASURE $200" },
+      { f: "card-night-1.png",      label: "EXTRA NIGHT" }
+    ]},
+    { id: "weather", title: "WEATHER", dir: "cards", cards: [
+      { f: "card-weather-calm-1.png",      label: "CALM" },
+      { f: "card-weather-rain-1.png",      label: "RAIN" },
+      { f: "card-weather-squall-1.png",    label: "SQUALL" },
+      { f: "card-weather-hurricane-1.png", label: "HURRICANE" }
+    ]},
+    { id: "motor", title: "MOTOR", dir: "cards", cards: [1,2,3,4,5].map(function (n) {
+      return { f: "card-motor-" + n + ".png", label: "MOTOR LV " + n };
+    })},
+    { id: "fishfinder", title: "FISH FINDER", dir: "cards", cards: [1,2,3,4,5].map(function (n) {
+      return { f: "card-fish-finder-" + n + ".png", label: "FISH FINDER LV " + n };
+    })},
+    { id: "nets", title: "NETS", dir: "cards", cards: [1,2,3,4,5].map(function (n) {
+      return { f: "card-nets-" + n + ".png", label: "NETS LV " + n };
+    })},
+    { id: "well", title: "LIVE WELL", dir: "cards", cards: [1,2,3,4,5].map(function (n) {
+      return { f: "card-well-" + n + ".png", label: "LIVE WELL LV " + n };
+    })},
+    { id: "back", title: "CARD BACK", dir: "cards", cards: [
+      { f: "card-back.png", label: "CARD BACK" }
+    ]},
+    // Boosters carry their in-game title / effect / accent from BOOSTER_CARDS.
+    { id: "boosters", title: "BOOSTER PACKS", dir: "boosters", booster: true, cards: [
+      { f: "booster-night-1.png",          label: "NIGHT SHIFT",      acc: "#fcba00", desc: "+2 nights at sea. The season isn't done with you yet." },
+      { f: "booster-night-2.png",          label: "SECOND WIND",      acc: "#fcba00", desc: "+3 nights at sea. The coffee is working." },
+      { f: "booster-night-3.png",          label: "THE LONG HAUL",    acc: "#fcba00", desc: "+4 nights at sea. Practically a second season." },
+      { f: "booster-catch-5.png",          label: "CHUM SLICK",       acc: "#84ea72", desc: "+5 fish on your next 3 catches. They can smell it." },
+      { f: "booster-catch-6.png",          label: "FEEDING FRENZY",   acc: "#84ea72", desc: "+6 fish on your next 3 catches. The water boils." },
+      { f: "booster-double-sale.png",      label: "GOLD RUSH",        acc: "#fcba00", desc: "Double money on your next 2 sales. The dealer weeps." },
+      { f: "booster-price-up.png",         label: "MARKET SURGE",     acc: "#7fd6f2", desc: "+$8 on every fish price, every day, all season." },
+      { f: "booster-hurricane-triple.png", label: "EYE OF THE STORM", acc: "#c684fc", desc: "Triple catch in every hurricane, all season. Sail into it." },
+      { f: "booster-loaded-dice.png",      label: "LOADED DICE",      acc: "#c684fc", desc: "Your next 3 haggles roll a perfect 6. Shhh." },
+      { f: "booster-repair.png",           label: "SHIPSHAPE",        acc: "#84ea72", desc: "Full repairs, on the house. She's brand new again." },
+      { f: "booster-moves.png",            label: "COFFEE & DIESEL",  acc: "#ff6b6b", desc: "+5 moves today. Floor it, captain." },
+      { f: "booster-cash.png",             label: "SUNKEN CHANGE",    acc: "#fcba00", desc: "$250 cash, right now. Found it in the couch." }
+    ]}
+  ];
+  var EXPECTED = { cards: [1880, 2514], boosters: [512, 768] };
+
+  // ── Image URLs ───────────────────────────────────────────────────────────
+  // Raw files resolve relative to this page: in production /deck/ clamps to
+  // /assets/… (the deploy workflow copies them there); when serving the repo
+  // root locally, /site/deck/ resolves to the real game assets. On the
+  // Netlify-served hosts the grid goes through the image CDN for sane
+  // thumbnail weight (sources are ~4 MB each); onerror falls back to raw.
+  function rawUrl(dir, f) { return "../../assets/" + dir + "/" + f; }
+  var onNetlify = /superfun\.games$|netlify\.app$/.test(location.hostname);
+  function thumbUrl(dir, f) {
+    if (!onNetlify) return rawUrl(dir, f);
+    return "/.netlify/images?url=" + encodeURIComponent("/assets/" + dir + "/" + f) + "&w=560&fm=webp&q=78";
+  }
+
+  // ── Card shell — game-exact metrics (_card_shell_metrics) ────────────────
+  function metricsFor(w) {
+    var b = Math.max(3, Math.round(w * 0.055));   // white border (min side = width)
+    var o = Math.max(1, Math.round(b * 0.35));    // dark outline
+    var s = Math.max(2, Math.round(b * 0.37));    // corner step unit
+    return { o: o, s: s, t: o + b };
+  }
+  function applyMetrics(el, w) {
+    var m = metricsFor(w);
+    el.style.setProperty("--s", m.s + "px");
+    el.style.setProperty("--o", m.o + "px");
+    el.style.setProperty("--t", m.t + "px");
+    el.style.setProperty("--sh-dx", Math.round(w * 0.0433) + "px");  // (13,15) on a 300px card
+    el.style.setProperty("--sh-dy", Math.round(w * 0.05) + "px");
+  }
+
+  function buildCard(entry, dir) {
+    var card = document.createElement("span");
+    card.className = "card";
+    ["shadow", "outline", "border", "fill"].forEach(function (k) {
+      var l = document.createElement("span");
+      l.className = "layer " + k;
+      card.appendChild(l);
+    });
+    var img = document.createElement("img");
+    img.className = "art";
+    img.alt = entry.label + " card art (" + entry.f + ")";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.src = thumbUrl(dir, entry.f);
+    img.onerror = function () {
+      if (img.dataset.fell) return;
+      img.dataset.fell = "1";
+      img.src = rawUrl(dir, entry.f);
+    };
+    card.appendChild(img);
+    return card;
+  }
+
+  // ── Deal the grid out ────────────────────────────────────────────────────
+  var gallery = document.getElementById("gallery");
+  var FLAT = [];
+  SECTIONS.forEach(function (sec) {
+    var section = document.createElement("section");
+    var h2 = document.createElement("h2");
+    h2.textContent = sec.title + " ";
+    var count = document.createElement("span");
+    count.className = "count";
+    count.textContent = sec.cards.length + (sec.cards.length === 1 ? " CARD" : " CARDS");
+    h2.appendChild(count);
+    section.appendChild(h2);
+
+    var grid = document.createElement("div");
+    grid.className = "grid" + (sec.booster ? " booster-grid" : "");
+    sec.cards.forEach(function (entry, i) {
+      var idx = FLAT.length;
+      FLAT.push({ entry: entry, sec: sec });
+
+      var fig = document.createElement("figure");
+      fig.className = "slot";
+      fig.style.setProperty("--i", i);
+      fig.style.setProperty("--tilt", ((idx * 37) % 5 - 2) * 0.45 + "deg");
+      if (entry.acc) fig.style.setProperty("--acc", entry.acc);
+
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "card";
+      btn.setAttribute("aria-label", "Inspect " + entry.f);
+      btn.addEventListener("click", function () { openLb(idx); });
+      // buildCard returns a span shell; graft its layers onto the button.
+      var built = buildCard(entry, sec.dir);
+      while (built.firstChild) btn.appendChild(built.firstChild);
+
+      var cap = document.createElement("figcaption");
+      var label = document.createElement("span");
+      label.className = "label";
+      label.textContent = entry.label;
+      var file = document.createElement("span");
+      file.className = "file";
+      file.textContent = entry.f;
+      cap.appendChild(label);
+      cap.appendChild(file);
+
+      fig.appendChild(btn);
+      fig.appendChild(cap);
+      grid.appendChild(fig);
+    });
+    section.appendChild(grid);
+    gallery.appendChild(section);
+  });
+  document.getElementById("count-cards").textContent =
+    FLAT.filter(function (x) { return !x.sec.booster; }).length;
+  document.getElementById("count-boosters").textContent =
+    FLAT.filter(function (x) { return x.sec.booster; }).length;
+
+  // Shell metrics track the rendered tile width (all grids share it).
+  var probe = gallery.querySelector(".card");
+  function remetric() {
+    if (probe) applyMetrics(document.documentElement, probe.clientWidth);
+  }
+  remetric();
+  if (window.ResizeObserver) {
+    new ResizeObserver(remetric).observe(probe);
+  } else {
+    window.addEventListener("resize", remetric);
+  }
+
+  // ── Density toggle ───────────────────────────────────────────────────────
+  var densityBtns = Array.prototype.slice.call(document.querySelectorAll(".density button"));
+  function setTile(px) {
+    document.documentElement.style.setProperty("--tile", px + "px");
+    densityBtns.forEach(function (b) {
+      b.setAttribute("aria-pressed", b.dataset.tile === String(px) ? "true" : "false");
+    });
+    try { localStorage.setItem("deck-tile", String(px)); } catch (e) {}
+    requestAnimationFrame(remetric);
+  }
+  densityBtns.forEach(function (b) {
+    b.addEventListener("click", function () { setTile(b.dataset.tile); });
+  });
+  try {
+    var saved = localStorage.getItem("deck-tile");
+    if (saved && densityBtns.some(function (b) { return b.dataset.tile === saved; })) setTile(saved);
+  } catch (e) {}
+
+  // ── Lightbox ─────────────────────────────────────────────────────────────
+  var lb = document.getElementById("lb");
+  var lbMount = document.getElementById("lb-cardmount");
+  var lbName = document.getElementById("lb-name");
+  var lbKind = document.getElementById("lb-kind");
+  var lbDims = document.getElementById("lb-dims");
+  var lbBooster = document.getElementById("lb-booster");
+  var lbBtitle = document.getElementById("lb-btitle");
+  var lbBdesc = document.getElementById("lb-bdesc");
+  var lbRaw = document.getElementById("lb-raw");
+  var lbCopy = document.getElementById("lb-copy");
+  var current = -1;
+  var lastFocus = null;
+
+  function openLb(idx) {
+    current = idx;
+    var item = FLAT[idx];
+    var entry = item.entry;
+    var sec = item.sec;
+
+    lbMount.innerHTML = "";
+    var slot = document.createElement("div");
+    slot.className = "slot" + (sec.booster ? " booster-grid" : "");
+    // Keep the booster aspect rule working: it matches ".booster-grid .card".
+    var card = buildCard(entry, sec.dir);
+    card.querySelector("img.art").src = rawUrl(sec.dir, entry.f);   // full-res in the inspector
+    card.querySelector("img.art").loading = "eager";
+    slot.appendChild(card);
+    lbMount.appendChild(slot);
+
+    var exp = EXPECTED[sec.dir];
+    lbDims.textContent = "measuring…";
+    var img = card.querySelector("img.art");
+    function report() {
+      if (!img.naturalWidth) return;
+      var ok = img.naturalWidth === exp[0] && img.naturalHeight === exp[1];
+      lbDims.innerHTML = img.naturalWidth + " × " + img.naturalHeight + " px " +
+        (ok ? '<span class="ok">✓ expected</span>'
+            : '<span class="bad">✗ expected ' + exp[0] + " × " + exp[1] + "</span>");
+    }
+    if (img.complete) report(); else img.onload = report;
+
+    lbName.textContent = entry.f;
+    lbKind.textContent = sec.title + (sec.booster ? " · BOOSTER" : " · " + entry.label);
+    if (sec.booster) {
+      lbBooster.hidden = false;
+      lbBtitle.textContent = entry.label;
+      lbBtitle.style.color = entry.acc || "";
+      lbBdesc.textContent = entry.desc || "";
+    } else {
+      lbBooster.hidden = true;
+    }
+    lbRaw.href = rawUrl(sec.dir, entry.f);
+
+    if (lb.hidden) {
+      lastFocus = document.activeElement;
+      lb.hidden = false;
+      document.body.style.overflow = "hidden";
+      document.getElementById("lb-x").focus();
+    }
+    sizeLbCard();
+  }
+
+  function sizeLbCard() {
+    var card = lbMount.querySelector(".card");
+    if (!card) return;
+    requestAnimationFrame(function () { applyMetrics(card, card.clientWidth); });
+  }
+
+  function closeLb() {
+    lb.hidden = true;
+    lbMount.innerHTML = "";
+    document.body.style.overflow = "";
+    if (lastFocus) lastFocus.focus();
+    current = -1;
+  }
+  function step(d) {
+    if (current < 0) return;
+    openLb((current + d + FLAT.length) % FLAT.length);
+  }
+
+  document.getElementById("lb-x").addEventListener("click", closeLb);
+  document.getElementById("lb-backdrop").addEventListener("click", closeLb);
+  document.getElementById("lb-prev").addEventListener("click", function () { step(-1); });
+  document.getElementById("lb-next").addEventListener("click", function () { step(1); });
+  lbCopy.addEventListener("click", function () {
+    var f = current >= 0 ? FLAT[current].entry.f : "";
+    if (!f) return;
+    var done = function () {
+      lbCopy.textContent = "COPIED!";
+      setTimeout(function () { lbCopy.textContent = "COPY FILENAME"; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(f).then(done, function () {});
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (lb.hidden) return;
+    if (e.key === "Escape" || e.key === "Esc") closeLb();
+    else if (e.key === "ArrowLeft" || e.key === "Left") step(-1);
+    else if (e.key === "ArrowRight" || e.key === "Right") step(1);
+  });
+  window.addEventListener("resize", sizeLbCard);
+})();
+</script>
+</body>
+</html>
