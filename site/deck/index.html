@@ -101,18 +101,18 @@
   .bar-spacer { flex: 1; }
   .density { display: flex; gap: 6px; align-items: center; }
   .density span { font-size: 14px; color: var(--muted); margin-right: 4px; }
-  .density button {
+  .density button, .chip {
     font-family: inherit; font-size: 15px; letter-spacing: 0.04em;
     color: var(--text); background: var(--panel);
     border: 2px solid rgba(252, 252, 252, 0.45); border-radius: 9px;
     padding: 4px 12px 5px; cursor: pointer;
     box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
   }
-  .density button:hover { background: var(--panel-light); }
-  .density button[aria-pressed="true"] {
+  .density button:hover, .chip:hover { background: var(--panel-light); }
+  .density button[aria-pressed="true"], .chip[aria-pressed="true"] {
     background: var(--gold); color: #3a2a00; border-color: var(--frame);
   }
-  .density button:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
+  .density button:active, .chip:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35); }
 
   /* ── Header ── */
   header { text-align: center; padding: 54px 0 14px; }
@@ -124,6 +124,7 @@
   }
   .tagline { font-size: clamp(17px, 2.4vw, 22px); color: var(--cyan); margin-top: 12px; }
   .tagline b { color: var(--gold); font-weight: normal; }
+  .load-note { text-align: center; color: var(--muted); padding: 40px 0; font-size: 17px; }
 
   /* ── Sections ── */
   section { margin-top: 46px; }
@@ -196,6 +197,10 @@
     letter-spacing: 0.03em; overflow-wrap: anywhere;
   }
   .booster-grid figcaption .label { color: var(--acc, var(--text)); }
+  figcaption .pending {
+    display: inline-block; font-size: 11.5px; color: #3a2a00;
+    background: var(--gold); border-radius: 6px; padding: 1px 7px 2px; margin-left: 6px;
+  }
 
   /* ── Lightbox ── */
   .lb { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; }
@@ -213,7 +218,7 @@
   }
   .lb .slot { animation: none; transform: none; }
   .lb .card { cursor: default; width: var(--lb-w, 380px); }
-  .lb-info { max-width: 330px; min-width: 240px; }
+  .lb-info { max-width: 340px; min-width: 250px; overflow-y: auto; max-height: calc(100vh - 120px); }
   .lb-info h3 {
     font-size: clamp(20px, 2.6vw, 27px); font-weight: normal; line-height: 1.15;
     text-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
@@ -227,17 +232,36 @@
   .lb-booster .btitle { font-size: 19px; color: var(--acc, var(--gold)); }
   .lb-booster .bdesc { font-size: 15px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
   .lb-actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
-  .lb-actions a, .lb-actions button {
+  .lb-actions a, .lb-actions button, .lb-edit button {
     font-family: inherit; font-size: 15px; letter-spacing: 0.04em; text-decoration: none;
     color: #3a2a00; background: var(--gold);
     border: 2px solid var(--frame); border-radius: 9px;
     padding: 6px 14px 7px; cursor: pointer;
     box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4);
   }
-  .lb-actions .ghost { color: var(--text); background: var(--panel); }
-  .lb-actions a:hover, .lb-actions button:hover { filter: brightness(1.08); }
-  .lb-actions a:active, .lb-actions button:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4); }
+  .lb-actions .ghost, .lb-edit .ghost { color: var(--text); background: var(--panel); }
+  .lb-actions a:hover, .lb-actions button:hover, .lb-edit button:hover { filter: brightness(1.08); }
+  .lb-actions a:active, .lb-actions button:active, .lb-edit button:active { transform: translateY(2px); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4); }
+  .lb-edit button:disabled { opacity: 0.55; cursor: wait; transform: none; }
   .lb-hint { font-size: 13px; color: var(--muted); margin-top: 18px; opacity: 0.8; }
+
+  /* ── Edit mode ── */
+  .lb-edit { margin-top: 18px; padding-top: 16px; border-top: 2px dashed rgba(252, 186, 0, 0.5); }
+  .lb-edit[hidden] { display: none; }
+  .lb-edit .ed-title { font-size: 15px; color: var(--gold); letter-spacing: 0.06em; margin-bottom: 10px; }
+  .lb-edit label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  .lb-edit input[type="text"], .lb-edit textarea {
+    width: 100%; font-family: inherit; font-size: 15px; color: var(--text);
+    background: var(--panel); border: 2px solid rgba(252, 252, 252, 0.35);
+    border-radius: 8px; padding: 6px 9px; letter-spacing: 0.03em;
+  }
+  .lb-edit textarea { resize: vertical; min-height: 58px; }
+  .lb-edit input:focus, .lb-edit textarea:focus { outline: 2px solid var(--gold); }
+  .lb-edit .ed-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  .lb-edit .ed-status { display: block; font-size: 13.5px; margin-top: 10px; line-height: 1.45; color: var(--muted); }
+  .lb-edit .ed-status.ok { color: var(--green); }
+  .lb-edit .ed-status.err { color: var(--red); }
+  .lb-edit .ed-status a { color: var(--cyan); }
 
   .lb-x, .lb-prev, .lb-next {
     position: absolute; z-index: 2;
@@ -262,6 +286,7 @@
     .lb-prev { top: auto; bottom: 14px; transform: none; }
     .lb-next { top: auto; bottom: 14px; transform: none; }
     .lb .card { width: min(62vw, 300px); }
+    .lb-info { max-height: none; }
   }
   @media (prefers-reduced-motion: reduce) {
     .slot { animation: none; transition: none; }
@@ -275,6 +300,7 @@
     <a class="back" href="../">&larr; RAIDER BAY</a>
     <span class="bar-title">THE DECK</span>
     <span class="bar-spacer"></span>
+    <button type="button" class="chip" id="edit-toggle" aria-pressed="false" title="Edit card art and text, committed to GitHub">EDIT</button>
     <div class="density" role="group" aria-label="Card size">
       <span>CARD SIZE</span>
       <button type="button" data-tile="150">S</button>
@@ -287,10 +313,10 @@
 <div class="wrap">
   <header>
     <h1>THE DECK</h1>
-    <p class="tagline">every card in Raider Bay — <b id="count-cards">33</b> deck cards &middot; <b id="count-boosters">12</b> boosters. Click one to inspect.</p>
+    <p class="tagline">every card in Raider Bay — <b id="count-cards">…</b> deck cards &middot; <b id="count-boosters">…</b> boosters. Click one to inspect.</p>
   </header>
 
-  <main id="gallery"></main>
+  <main id="gallery"><p class="load-note">Dealing the deck&hellip;</p></main>
 
   <footer>
     <p>Art-direction review sheet &middot; images load straight from the game&rsquo;s <span style="color:var(--text)">assets/</span> folder &middot; <a href="../">raiderbay.superfun.games</a></p>
@@ -316,6 +342,21 @@
         <a id="lb-raw" href="#" target="_blank" rel="noopener">OPEN RAW PNG</a>
         <button type="button" class="ghost" id="lb-copy">COPY FILENAME</button>
       </div>
+      <div class="lb-edit" id="lb-edit" hidden>
+        <p class="ed-title">EDIT CARD — commits to GitHub, redeploys site</p>
+        <div class="ed-row">
+          <button type="button" class="ghost" id="ed-pick">CHOOSE NEW ART&hellip;</button>
+          <input type="file" id="ed-file" accept=".png,image/png" hidden>
+        </div>
+        <label for="ed-label">LABEL</label>
+        <input type="text" id="ed-label" maxlength="60" autocomplete="off">
+        <label for="ed-desc" id="ed-desc-label">EFFECT TEXT</label>
+        <textarea id="ed-desc" maxlength="300"></textarea>
+        <div class="ed-row">
+          <button type="button" id="ed-save">SAVE TO GITHUB</button>
+        </div>
+        <span class="ed-status" id="ed-status"></span>
+      </div>
       <p class="lb-hint">&larr; &rarr; to flip through &middot; ESC to close</p>
     </aside>
   </div>
@@ -327,60 +368,9 @@
 (function () {
   "use strict";
 
-  // ── Manifest ─────────────────────────────────────────────────────────────
-  // The deck is a fixed set (main.gd preloads each texture by name), so the
-  // list lives here too. New card art = add a line.
-  var SECTIONS = [
-    { id: "fish", title: "FISH", dir: "cards", cards: [
-      { f: "card-grouper.png",   label: "GROUPER" },
-      { f: "card-halibut.png",   label: "HALIBUT" },
-      { f: "card-salmon.png",    label: "SALMON" },
-      { f: "card-swordfish.png", label: "SWORDFISH" },
-      { f: "card-tuna.png",      label: "TUNA" }
-    ]},
-    { id: "treasure", title: "TREASURE & NIGHT", dir: "cards", cards: [
-      { f: "card-treasure-100.png", label: "TREASURE $100" },
-      { f: "card-treasure-200.png", label: "TREASURE $200" },
-      { f: "card-night-1.png",      label: "EXTRA NIGHT" }
-    ]},
-    { id: "weather", title: "WEATHER", dir: "cards", cards: [
-      { f: "card-weather-calm-1.png",      label: "CALM" },
-      { f: "card-weather-rain-1.png",      label: "RAIN" },
-      { f: "card-weather-squall-1.png",    label: "SQUALL" },
-      { f: "card-weather-hurricane-1.png", label: "HURRICANE" }
-    ]},
-    { id: "motor", title: "MOTOR", dir: "cards", cards: [1,2,3,4,5].map(function (n) {
-      return { f: "card-motor-" + n + ".png", label: "MOTOR LV " + n };
-    })},
-    { id: "fishfinder", title: "FISH FINDER", dir: "cards", cards: [1,2,3,4,5].map(function (n) {
-      return { f: "card-fish-finder-" + n + ".png", label: "FISH FINDER LV " + n };
-    })},
-    { id: "nets", title: "NETS", dir: "cards", cards: [1,2,3,4,5].map(function (n) {
-      return { f: "card-nets-" + n + ".png", label: "NETS LV " + n };
-    })},
-    { id: "well", title: "LIVE WELL", dir: "cards", cards: [1,2,3,4,5].map(function (n) {
-      return { f: "card-well-" + n + ".png", label: "LIVE WELL LV " + n };
-    })},
-    { id: "back", title: "CARD BACK", dir: "cards", cards: [
-      { f: "card-back.png", label: "CARD BACK" }
-    ]},
-    // Boosters carry their in-game title / effect / accent from BOOSTER_CARDS.
-    { id: "boosters", title: "BOOSTER PACKS", dir: "boosters", booster: true, cards: [
-      { f: "booster-night-1.png",          label: "NIGHT SHIFT",      acc: "#fcba00", desc: "+2 nights at sea. The season isn't done with you yet." },
-      { f: "booster-night-2.png",          label: "SECOND WIND",      acc: "#fcba00", desc: "+3 nights at sea. The coffee is working." },
-      { f: "booster-night-3.png",          label: "THE LONG HAUL",    acc: "#fcba00", desc: "+4 nights at sea. Practically a second season." },
-      { f: "booster-catch-5.png",          label: "CHUM SLICK",       acc: "#84ea72", desc: "+5 fish on your next 3 catches. They can smell it." },
-      { f: "booster-catch-6.png",          label: "FEEDING FRENZY",   acc: "#84ea72", desc: "+6 fish on your next 3 catches. The water boils." },
-      { f: "booster-double-sale.png",      label: "GOLD RUSH",        acc: "#fcba00", desc: "Double money on your next 2 sales. The dealer weeps." },
-      { f: "booster-price-up.png",         label: "MARKET SURGE",     acc: "#7fd6f2", desc: "+$8 on every fish price, every day, all season." },
-      { f: "booster-hurricane-triple.png", label: "EYE OF THE STORM", acc: "#c684fc", desc: "Triple catch in every hurricane, all season. Sail into it." },
-      { f: "booster-loaded-dice.png",      label: "LOADED DICE",      acc: "#c684fc", desc: "Your next 3 haggles roll a perfect 6. Shhh." },
-      { f: "booster-repair.png",           label: "SHIPSHAPE",        acc: "#84ea72", desc: "Full repairs, on the house. She's brand new again." },
-      { f: "booster-moves.png",            label: "COFFEE & DIESEL",  acc: "#ff6b6b", desc: "+5 moves today. Floor it, captain." },
-      { f: "booster-cash.png",             label: "SUNKEN CHANGE",    acc: "#fcba00", desc: "$250 cash, right now. Found it in the couch." }
-    ]}
-  ];
   var EXPECTED = { cards: [1880, 2514], boosters: [512, 768] };
+  var MAX_UPLOAD_BYTES = 4800000;   // matches the deck-edit function cap
+  var EDIT_ENDPOINT = "/api/deck-edit";
 
   // ── Image URLs ───────────────────────────────────────────────────────────
   // Raw files resolve relative to this page: in production /deck/ clamps to
@@ -388,11 +378,13 @@
   // root locally, /site/deck/ resolves to the real game assets. On the
   // Netlify-served hosts the grid goes through the image CDN for sane
   // thumbnail weight (sources are ~4 MB each); onerror falls back to raw.
-  function rawUrl(dir, f) { return "../../assets/" + dir + "/" + f; }
+  // The manifest "v" counter rides along as ?v= so replaced art busts caches.
+  function bust(entry) { return Number(entry.v) > 1 ? "?v=" + entry.v : ""; }
+  function rawUrl(dir, entry) { return "../../assets/" + dir + "/" + entry.f + bust(entry); }
   var onNetlify = /superfun\.games$|netlify\.app$/.test(location.hostname);
-  function thumbUrl(dir, f) {
-    if (!onNetlify) return rawUrl(dir, f);
-    return "/.netlify/images?url=" + encodeURIComponent("/assets/" + dir + "/" + f) + "&w=560&fm=webp&q=78";
+  function thumbUrl(dir, entry) {
+    if (!onNetlify) return rawUrl(dir, entry);
+    return "/.netlify/images?url=" + encodeURIComponent("/assets/" + dir + "/" + entry.f + bust(entry)) + "&w=560&fm=webp&q=78";
   }
 
   // ── Card shell — game-exact metrics (_card_shell_metrics) ────────────────
@@ -424,83 +416,108 @@
     img.alt = entry.label + " card art (" + entry.f + ")";
     img.loading = "lazy";
     img.decoding = "async";
-    img.src = thumbUrl(dir, entry.f);
+    img.src = entry.pendingArtUrl || thumbUrl(dir, entry);
     img.onerror = function () {
       if (img.dataset.fell) return;
       img.dataset.fell = "1";
-      img.src = rawUrl(dir, entry.f);
+      img.src = rawUrl(dir, entry);
     };
     card.appendChild(img);
     return card;
   }
 
-  // ── Deal the grid out ────────────────────────────────────────────────────
+  // ── Load manifest, deal the grid out ─────────────────────────────────────
   var gallery = document.getElementById("gallery");
   var FLAT = [];
-  SECTIONS.forEach(function (sec) {
-    var section = document.createElement("section");
-    var h2 = document.createElement("h2");
-    h2.textContent = sec.title + " ";
-    var count = document.createElement("span");
-    count.className = "count";
-    count.textContent = sec.cards.length + (sec.cards.length === 1 ? " CARD" : " CARDS");
-    h2.appendChild(count);
-    section.appendChild(h2);
+  var MANIFEST = null;
 
-    var grid = document.createElement("div");
-    grid.className = "grid" + (sec.booster ? " booster-grid" : "");
-    sec.cards.forEach(function (entry, i) {
-      var idx = FLAT.length;
-      FLAT.push({ entry: entry, sec: sec });
-
-      var fig = document.createElement("figure");
-      fig.className = "slot";
-      fig.style.setProperty("--i", i);
-      fig.style.setProperty("--tilt", ((idx * 37) % 5 - 2) * 0.45 + "deg");
-      if (entry.acc) fig.style.setProperty("--acc", entry.acc);
-
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "card";
-      btn.setAttribute("aria-label", "Inspect " + entry.f);
-      btn.addEventListener("click", function () { openLb(idx); });
-      // buildCard returns a span shell; graft its layers onto the button.
-      var built = buildCard(entry, sec.dir);
-      while (built.firstChild) btn.appendChild(built.firstChild);
-
-      var cap = document.createElement("figcaption");
-      var label = document.createElement("span");
-      label.className = "label";
-      label.textContent = entry.label;
-      var file = document.createElement("span");
-      file.className = "file";
-      file.textContent = entry.f;
-      cap.appendChild(label);
-      cap.appendChild(file);
-
-      fig.appendChild(btn);
-      fig.appendChild(cap);
-      grid.appendChild(fig);
+  fetch("./manifest.json?ts=" + Date.now())
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (m) { MANIFEST = m; render(m); })
+    .catch(function (e) {
+      gallery.innerHTML = "";
+      var p = document.createElement("p");
+      p.className = "load-note";
+      p.textContent = "Couldn't load manifest.json (" + e.message + ") — the deck can't render.";
+      gallery.appendChild(p);
     });
-    section.appendChild(grid);
-    gallery.appendChild(section);
-  });
-  document.getElementById("count-cards").textContent =
-    FLAT.filter(function (x) { return !x.sec.booster; }).length;
-  document.getElementById("count-boosters").textContent =
-    FLAT.filter(function (x) { return x.sec.booster; }).length;
 
-  // Shell metrics track the rendered tile width (all grids share it).
-  var probe = gallery.querySelector(".card");
+  function render(manifest) {
+    gallery.innerHTML = "";
+    FLAT = [];
+    manifest.sections.forEach(function (sec) {
+      var section = document.createElement("section");
+      var h2 = document.createElement("h2");
+      h2.textContent = sec.title + " ";
+      var count = document.createElement("span");
+      count.className = "count";
+      count.textContent = sec.cards.length + (sec.cards.length === 1 ? " CARD" : " CARDS");
+      h2.appendChild(count);
+      section.appendChild(h2);
+
+      var grid = document.createElement("div");
+      grid.className = "grid" + (sec.booster ? " booster-grid" : "");
+      sec.cards.forEach(function (entry, i) {
+        var idx = FLAT.length;
+
+        var fig = document.createElement("figure");
+        fig.className = "slot";
+        fig.style.setProperty("--i", i);
+        fig.style.setProperty("--tilt", ((idx * 37) % 5 - 2) * 0.45 + "deg");
+        if (entry.acc) fig.style.setProperty("--acc", entry.acc);
+
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "card";
+        btn.setAttribute("aria-label", "Inspect " + entry.f);
+        btn.addEventListener("click", function () { openLb(idx); });
+        var built = buildCard(entry, sec.dir);
+        while (built.firstChild) btn.appendChild(built.firstChild);
+
+        var cap = document.createElement("figcaption");
+        var label = document.createElement("span");
+        label.className = "label";
+        label.textContent = entry.label;
+        var file = document.createElement("span");
+        file.className = "file";
+        file.textContent = entry.f;
+        cap.appendChild(label);
+        cap.appendChild(file);
+
+        fig.appendChild(btn);
+        fig.appendChild(cap);
+        grid.appendChild(fig);
+
+        FLAT.push({ entry: entry, sec: sec, gridImg: btn.querySelector("img.art"), capLabel: label, capFile: file });
+      });
+      section.appendChild(grid);
+      gallery.appendChild(section);
+    });
+
+    document.getElementById("count-cards").textContent =
+      FLAT.filter(function (x) { return !x.sec.booster; }).length;
+    document.getElementById("count-boosters").textContent =
+      FLAT.filter(function (x) { return x.sec.booster; }).length;
+
+    // Shell metrics track the rendered tile width (all grids share it).
+    var probe = gallery.querySelector(".card");
+    if (probe) {
+      remetricTarget = probe;
+      remetric();
+      if (window.ResizeObserver) {
+        if (metricsObserver) metricsObserver.disconnect();
+        metricsObserver = new ResizeObserver(remetric);
+        metricsObserver.observe(probe);
+      }
+    }
+  }
+
+  var remetricTarget = null;
+  var metricsObserver = null;
   function remetric() {
-    if (probe) applyMetrics(document.documentElement, probe.clientWidth);
+    if (remetricTarget) applyMetrics(document.documentElement, remetricTarget.clientWidth);
   }
-  remetric();
-  if (window.ResizeObserver) {
-    new ResizeObserver(remetric).observe(probe);
-  } else {
-    window.addEventListener("resize", remetric);
-  }
+  window.addEventListener("resize", remetric);
 
   // ── Density toggle ───────────────────────────────────────────────────────
   var densityBtns = Array.prototype.slice.call(document.querySelectorAll(".density button"));
@@ -520,6 +537,30 @@
     if (saved && densityBtns.some(function (b) { return b.dataset.tile === saved; })) setTile(saved);
   } catch (e) {}
 
+  // ── Edit mode ────────────────────────────────────────────────────────────
+  var editOn = false;
+  var editToggle = document.getElementById("edit-toggle");
+  editToggle.addEventListener("click", function () {
+    if (!editOn) {
+      var key = "";
+      try { key = localStorage.getItem("deck-edit-key") || ""; } catch (e) {}
+      if (!key) {
+        key = window.prompt("Edit key (DECK_EDIT_KEY):") || "";
+        if (!key.trim()) return;
+        try { localStorage.setItem("deck-edit-key", key.trim()); } catch (e) {}
+      }
+      editOn = true;
+    } else {
+      editOn = false;
+    }
+    editToggle.setAttribute("aria-pressed", editOn ? "true" : "false");
+    editToggle.textContent = editOn ? "EDIT: ON" : "EDIT";
+    syncEditPanel();
+  });
+  function editKey() {
+    try { return localStorage.getItem("deck-edit-key") || ""; } catch (e) { return ""; }
+  }
+
   // ── Lightbox ─────────────────────────────────────────────────────────────
   var lb = document.getElementById("lb");
   var lbMount = document.getElementById("lb-cardmount");
@@ -531,11 +572,23 @@
   var lbBdesc = document.getElementById("lb-bdesc");
   var lbRaw = document.getElementById("lb-raw");
   var lbCopy = document.getElementById("lb-copy");
+  var edPanel = document.getElementById("lb-edit");
+  var edPick = document.getElementById("ed-pick");
+  var edFile = document.getElementById("ed-file");
+  var edLabel = document.getElementById("ed-label");
+  var edDesc = document.getElementById("ed-desc");
+  var edDescLabel = document.getElementById("ed-desc-label");
+  var edSave = document.getElementById("ed-save");
+  var edStatus = document.getElementById("ed-status");
   var current = -1;
   var lastFocus = null;
+  var pendingFile = null;      // { file, url } chosen but not saved
+  var saving = false;
 
   function openLb(idx) {
+    if (current >= 0 && idx !== current && !confirmDiscard()) return;
     current = idx;
+    pendingFile = null;
     var item = FLAT[idx];
     var entry = item.entry;
     var sec = item.sec;
@@ -543,24 +596,23 @@
     lbMount.innerHTML = "";
     var slot = document.createElement("div");
     slot.className = "slot" + (sec.booster ? " booster-grid" : "");
-    // Keep the booster aspect rule working: it matches ".booster-grid .card".
     var card = buildCard(entry, sec.dir);
-    card.querySelector("img.art").src = rawUrl(sec.dir, entry.f);   // full-res in the inspector
-    card.querySelector("img.art").loading = "eager";
+    var art = card.querySelector("img.art");
+    art.src = entry.pendingArtUrl || rawUrl(sec.dir, entry);   // full-res in the inspector
+    art.loading = "eager";
     slot.appendChild(card);
     lbMount.appendChild(slot);
 
     var exp = EXPECTED[sec.dir];
     lbDims.textContent = "measuring…";
-    var img = card.querySelector("img.art");
     function report() {
-      if (!img.naturalWidth) return;
-      var ok = img.naturalWidth === exp[0] && img.naturalHeight === exp[1];
-      lbDims.innerHTML = img.naturalWidth + " × " + img.naturalHeight + " px " +
+      if (!art.naturalWidth) return;
+      var ok = art.naturalWidth === exp[0] && art.naturalHeight === exp[1];
+      lbDims.innerHTML = art.naturalWidth + " × " + art.naturalHeight + " px " +
         (ok ? '<span class="ok">✓ expected</span>'
             : '<span class="bad">✗ expected ' + exp[0] + " × " + exp[1] + "</span>");
     }
-    if (img.complete) report(); else img.onload = report;
+    if (art.complete) report(); else art.onload = report;
 
     lbName.textContent = entry.f;
     lbKind.textContent = sec.title + (sec.booster ? " · BOOSTER" : " · " + entry.label);
@@ -572,7 +624,9 @@
     } else {
       lbBooster.hidden = true;
     }
-    lbRaw.href = rawUrl(sec.dir, entry.f);
+    lbRaw.href = rawUrl(sec.dir, entry);
+
+    syncEditPanel();
 
     if (lb.hidden) {
       lastFocus = document.activeElement;
@@ -583,6 +637,147 @@
     sizeLbCard();
   }
 
+  function syncEditPanel() {
+    var open = current >= 0;
+    edPanel.hidden = !(editOn && open);
+    if (edPanel.hidden || !open) return;
+    var item = FLAT[current];
+    edLabel.value = item.entry.label || "";
+    var isBooster = !!item.sec.booster;
+    edDesc.hidden = !isBooster;
+    edDescLabel.hidden = !isBooster;
+    edDesc.value = isBooster ? (item.entry.desc || "") : "";
+    edStatus.textContent = "";
+    edStatus.className = "ed-status";
+    edSave.disabled = false;
+  }
+
+  function dirty() {
+    if (current < 0 || edPanel.hidden) return false;
+    if (pendingFile) return true;
+    var item = FLAT[current];
+    if (edLabel.value.trim() !== (item.entry.label || "")) return true;
+    if (item.sec.booster && edDesc.value.trim() !== (item.entry.desc || "")) return true;
+    return false;
+  }
+  function confirmDiscard() {
+    return !dirty() || window.confirm("Discard unsaved card edits?");
+  }
+
+  edPick.addEventListener("click", function () { edFile.click(); });
+  edFile.addEventListener("change", function () {
+    var f = edFile.files && edFile.files[0];
+    edFile.value = "";
+    if (!f || current < 0) return;
+    if (!/\.png$/i.test(f.name) && f.type !== "image/png") {
+      return setStatus("err", "PNG only — the game pipeline expects .png card art.");
+    }
+    if (f.size > MAX_UPLOAD_BYTES) {
+      return setStatus("err", "Too big: " + (f.size / 1e6).toFixed(1) + " MB (limit " + (MAX_UPLOAD_BYTES / 1e6).toFixed(1) + " MB).");
+    }
+    var url = URL.createObjectURL(f);
+    pendingFile = { file: f, url: url };
+    var item = FLAT[current];
+    var art = lbMount.querySelector("img.art");
+    if (art) art.src = url;
+    var probe = new Image();
+    probe.onload = function () {
+      var exp = EXPECTED[item.sec.dir];
+      var note = f.name + " — " + probe.width + " × " + probe.height + " px, " + (f.size / 1e6).toFixed(1) + " MB.";
+      if (probe.width !== exp[0] || probe.height !== exp[1]) {
+        setStatus("err", note + " Expected " + exp[0] + " × " + exp[1] + " — you can still save.");
+      } else {
+        setStatus("", note + " Ready to save.");
+      }
+    };
+    probe.src = url;
+  });
+
+  edSave.addEventListener("click", function () {
+    if (current < 0 || saving) return;
+    var item = FLAT[current];
+    var entry = item.entry;
+    var payload = { dir: item.sec.dir, file: entry.f };
+    var newLabel = edLabel.value.trim();
+    if (newLabel && newLabel !== entry.label) payload.label = newLabel;
+    if (item.sec.booster) {
+      var newDesc = edDesc.value.trim();
+      if (newDesc !== (entry.desc || "")) payload.desc = newDesc;
+    }
+
+    var send = function () {
+      if (!payload.label && payload.desc === undefined && !payload.imageBase64) {
+        return setStatus("err", "Nothing changed.");
+      }
+      saving = true;
+      edSave.disabled = true;
+      setStatus("", "Committing to GitHub…");
+      fetch(EDIT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Deck-Key": editKey() },
+        body: JSON.stringify(payload),
+      })
+        .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }); })
+        .then(function (res) {
+          saving = false;
+          edSave.disabled = false;
+          if (res.status === 200 && res.body.ok) {
+            applySaved(item, payload);
+            setStatus("ok", "✓ Committed " + res.body.sha + " (" + res.body.changed.join(" + ") + ") — site rebuild started, live in ~4 min. " +
+              '<a href="' + res.body.actionsUrl + '" target="_blank" rel="noopener">watch deploy</a>');
+          } else {
+            if (res.status === 401) { try { localStorage.removeItem("deck-edit-key"); } catch (e) {} }
+            setStatus("err", res.body.error || ("Failed (" + res.status + ")"));
+          }
+        })
+        .catch(function () {
+          saving = false;
+          edSave.disabled = false;
+          setStatus("err", "Couldn't reach the editor API — it runs on the deployed site (or `netlify dev`), not a plain local server.");
+        });
+    };
+
+    if (pendingFile) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        payload.imageBase64 = String(reader.result).split(",")[1] || "";
+        send();
+      };
+      reader.onerror = function () { setStatus("err", "Couldn't read the file."); };
+      reader.readAsDataURL(pendingFile.file);
+    } else {
+      send();
+    }
+  });
+
+  function applySaved(item, payload) {
+    var entry = item.entry;
+    if (payload.label) { entry.label = payload.label; }
+    if (payload.desc !== undefined) { entry.desc = payload.desc; }
+    if (payload.imageBase64 && pendingFile) {
+      entry.v = (Number(entry.v) || 0) + 1;
+      entry.pendingArtUrl = pendingFile.url;   // show the new art locally until the deploy serves it
+      item.gridImg.src = pendingFile.url;
+      var pend = document.createElement("span");
+      pend.className = "pending";
+      pend.textContent = "DEPLOYING";
+      item.capFile.appendChild(pend);
+      setTimeout(function () { pend.remove(); }, 5 * 60 * 1000);
+    }
+    pendingFile = null;
+    item.capLabel.textContent = entry.label;
+    if (item.sec.booster) {
+      lbBtitle.textContent = entry.label;
+      lbBdesc.textContent = entry.desc || "";
+    }
+    lbKind.textContent = item.sec.title + (item.sec.booster ? " · BOOSTER" : " · " + entry.label);
+  }
+
+  function setStatus(kind, html) {
+    edStatus.className = "ed-status" + (kind ? " " + kind : "");
+    edStatus.innerHTML = html;
+  }
+
   function sizeLbCard() {
     var card = lbMount.querySelector(".card");
     if (!card) return;
@@ -590,11 +785,13 @@
   }
 
   function closeLb() {
+    if (!confirmDiscard()) return;
     lb.hidden = true;
     lbMount.innerHTML = "";
     document.body.style.overflow = "";
     if (lastFocus) lastFocus.focus();
     current = -1;
+    pendingFile = null;
   }
   function step(d) {
     if (current < 0) return;
@@ -618,6 +815,11 @@
   });
   document.addEventListener("keydown", function (e) {
     if (lb.hidden) return;
+    var tag = (document.activeElement && document.activeElement.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA") {
+      if (e.key === "Escape" || e.key === "Esc") document.activeElement.blur();
+      return;   // don't page-flip while typing
+    }
     if (e.key === "Escape" || e.key === "Esc") closeLb();
     else if (e.key === "ArrowLeft" || e.key === "Left") step(-1);
     else if (e.key === "ArrowRight" || e.key === "Right") step(1);

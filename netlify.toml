@@ -12,6 +12,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/deck-edit"
+  to = "/.netlify/functions/deck-edit"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "https://clarklab.github.io/raider-bay/:splat"
   status = 302

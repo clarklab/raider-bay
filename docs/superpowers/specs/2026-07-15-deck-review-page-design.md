@@ -57,6 +57,27 @@ From `_card_shell_metrics` / `_add_squarestep_card_shell` / `_draw_stepped_slab`
 - Look matches the site: Balatro font, navy palette, gold headings, subtle
   dealt-in stagger (disabled under `prefers-reduced-motion`).
 
+## Editing (added same day)
+
+The page has an EDIT mode that commits changes back to the repo:
+
+- Card data lives in `site/deck/manifest.json` (labels, booster titles/effect
+  text/accents, per-card `v` cache-buster). The page fetches it at load.
+- EDIT in the top bar asks once for the edit key (localStorage). In the
+  inspector: replace art (PNG ≤ 4.8 MB, dims warned against expected),
+  edit label, edit booster effect text → SAVE posts to `/api/deck-edit`.
+- `netlify/functions/deck-edit.mjs` guards with `X-Deck-Key` ==
+  `DECK_EDIT_KEY` (timing-safe), validates path/file/PNG magic/lengths,
+  requires the card to already exist in the manifest (replace-only), and
+  writes ONE atomic commit via the Git Data API (`GITHUB_TOKEN`, fine-grained
+  PAT: this repo only, Contents r/w): art blob + manifest bump, message
+  `deck: art + label for <file> via /deck editor`. Push to main triggers the
+  normal deploy; art edits bump `v`, which busts browser + image-CDN caches.
+- Until both env vars are set in Netlify the endpoint answers 503 and the
+  page surfaces that message. Booster text edits change the page manifest
+  only — `main.gd` still owns the in-game strings (possible follow-up:
+  game reads the manifest, or CI drift check).
+
 ## Verification
 
 Serve the repo root, open `/site/deck/` in a browser, and compare a fish card
