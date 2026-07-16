@@ -231,6 +231,11 @@
   .lb-booster { margin-top: 16px; padding-top: 14px; border-top: 2px solid rgba(252,252,252,0.14); }
   .lb-booster .btitle { font-size: 19px; color: var(--acc, var(--gold)); }
   .lb-booster .bdesc { font-size: 15px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+  /* Auto-styled modifiers, same house rule as the game: money gold, gains
+     green, losses red, multipliers gold. */
+  .m-gold { color: var(--gold); }
+  .m-green { color: var(--green); }
+  .m-red { color: var(--red); }
   .lb-actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
   .lb-actions a, .lb-actions button, .lb-edit button {
     font-family: inherit; font-size: 15px; letter-spacing: 0.04em; text-decoration: none;
@@ -621,7 +626,7 @@
       lbBooster.hidden = false;
       lbBtitle.textContent = entry.label;
       lbBtitle.style.color = entry.acc || "";
-      lbBdesc.textContent = entry.desc || "";
+      decorateDesc(lbBdesc, entry.desc || "");
     } else {
       lbBooster.hidden = true;
     }
@@ -734,6 +739,28 @@
 
   function mb(bytes) { return (bytes / 1e6).toFixed(1) + " MB"; }
 
+  // Auto-style modifiers in card copy — the same house rule the game applies
+  // via _modifier_bbcode() in main.gd: money gold, gains green, losses red,
+  // multipliers gold. Descriptions stay plain text in the manifest.
+  var MOD_RE = /([+-]?\$\d+|[+-]\d+|\b\d+x\b|\bx\d+\b|\bdouble\b|\btriple\b)/gi;
+  function decorateDesc(el, text) {
+    el.textContent = "";
+    String(text).split(MOD_RE).forEach(function (part, i) {
+      if (!part) return;
+      if (i % 2) {   // odd chunks are the captured tokens
+        var span = document.createElement("span");
+        span.className = part.charAt(0) === "-" ? "m-red"
+          : part.indexOf("$") >= 0 ? "m-gold"
+          : part.charAt(0) === "+" ? "m-green"
+          : "m-gold";
+        span.textContent = part;
+        el.appendChild(span);
+      } else {
+        el.appendChild(document.createTextNode(part));
+      }
+    });
+  }
+
   edSave.addEventListener("click", function () {
     if (current < 0 || saving) return;
     var item = FLAT[current];
@@ -809,7 +836,7 @@
     item.capLabel.textContent = entry.label;
     if (item.sec.booster) {
       lbBtitle.textContent = entry.label;
-      lbBdesc.textContent = entry.desc || "";
+      decorateDesc(lbBdesc, entry.desc || "");
     }
     lbKind.textContent = item.sec.title + (item.sec.booster ? " · BOOSTER" : " · " + entry.label);
   }

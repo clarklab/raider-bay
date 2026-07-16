@@ -76,6 +76,11 @@ The page has an EDIT mode that commits changes back to the repo:
   PAT: this repo only, Contents r/w): art blob + manifest bump, message
   `deck: art + label for <file> via /deck editor`. Push to main triggers the
   normal deploy; art edits bump `v`, which busts browser + image-CDN caches.
+- Booster effect text auto-styles its modifiers on display — money gold,
+  gains green, losses red, multipliers (Double/Triple/Nx) gold — the same
+  house rule `_modifier_bbcode()` in main.gd applies on the in-game booster
+  pick screen. Descriptions stay plain text in the manifest; nobody
+  hand-marks colors.
 - Until both env vars are set in Netlify the endpoint answers 503 and the
   page surfaces that message. Booster text edits change the page manifest
   only — `main.gd` still owns the in-game strings (possible follow-up:

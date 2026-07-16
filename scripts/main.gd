@@ -4908,8 +4908,15 @@ func _show_booster_open_scene(defs: Array) -> void:
 	pick_title.position = Vector2(0, 26)
 	pick_title.size = Vector2(470, 96)
 	pick_col.add_child(pick_title)
-	var pick_desc := _label("", 19, TEXT_MUTED)
+	var pick_desc := RichTextLabel.new()
+	pick_desc.bbcode_enabled = true
+	pick_desc.scroll_active = false
 	pick_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pick_desc.add_theme_font_override("normal_font", FONT_BALATRO)
+	pick_desc.add_theme_font_size_override("normal_font_size", 19)
+	pick_desc.add_theme_color_override("default_color", TEXT_MUTED)
+	pick_desc.add_theme_constant_override("line_separation", 4)
+	pick_desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pick_desc.position = Vector2(0, 128)
 	pick_desc.size = Vector2(470, 96)
 	pick_col.add_child(pick_desc)
@@ -5012,6 +5019,30 @@ func _booster_phase_reveal(ctx: Dictionary) -> void:
 		pulse.tween_property(glow, "scale", Vector2(1.3, 1.3), 1.1).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT))
 
 
+var _modifier_bbcode_regex: RegEx
+
+
+# House rule for card copy, applied automatically so nobody hand-marks
+# descriptions: money gold, gains green, losses red, multipliers gold.
+# The /deck review page mirrors these exact rules in its inspector.
+func _modifier_bbcode(text: String) -> String:
+	if _modifier_bbcode_regex == null:
+		_modifier_bbcode_regex = RegEx.new()
+		_modifier_bbcode_regex.compile("(?i)[+-]?\\$\\d+|[+-]\\d+|\\b\\d+x\\b|\\bx\\d+\\b|\\bdouble\\b|\\btriple\\b")
+	var out := text.replace("[", "[lb]")
+	var matches := _modifier_bbcode_regex.search_all(out)
+	for i in range(matches.size() - 1, -1, -1):
+		var m := matches[i]
+		var tok := m.get_string()
+		var color := "#fcba00"
+		if tok.begins_with("-"):
+			color = "#fc6060"
+		elif tok.begins_with("+") and not tok.contains("$"):
+			color = "#84ed72"
+		out = out.substr(0, m.get_start()) + "[color=%s]%s[/color]" % [color, tok] + out.substr(m.get_end())
+	return out
+
+
 # Tap a card: it steps forward for inspection — bigger, glowing, with its
 # story beside it — while the other card waits small in the wings, still
 # tappable to swap the spotlight.
@@ -5032,7 +5063,7 @@ func _booster_focus_card(ctx: Dictionary, index: int) -> void:
 	(ctx["pick_kicker"] as Label).add_theme_color_override("font_color", _with_alpha(accent, 0.9))
 	(ctx["pick_title"] as Label).text = str(def["title"])
 	(ctx["pick_title"] as Label).add_theme_color_override("font_color", accent)
-	(ctx["pick_desc"] as Label).text = str(def["desc"])
+	(ctx["pick_desc"] as RichTextLabel).text = _modifier_bbcode(str(def["desc"]))
 	var pick_col := ctx["pick_col"] as Control
 	pick_col.visible = true
 	pick_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
