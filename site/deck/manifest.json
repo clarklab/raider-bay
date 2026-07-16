@@ -261,7 +261,7 @@
           "label": "FEEDING FRENZY",
           "acc": "#84ea72",
           "desc": "+6 fish on your next 3 catches. The water boils.",
-          "v": 1
+          "v": 2
         },
         {
           "f": "booster-double-sale.png",
