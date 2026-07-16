@@ -64,8 +64,11 @@ The page has an EDIT mode that commits changes back to the repo:
 - Card data lives in `site/deck/manifest.json` (labels, booster titles/effect
   text/accents, per-card `v` cache-buster). The page fetches it at load.
 - EDIT in the top bar asks once for the edit key (localStorage). In the
-  inspector: replace art (PNG ≤ 4.8 MB, dims warned against expected),
-  edit label, edit booster effect text → SAVE posts to `/api/deck-edit`.
+  inspector: replace art — any image format/size in; the page center-crops to
+  the slot aspect, resizes to expected dims and re-encodes as PNG client-side
+  (exact-dims PNGs under the cap pass through untouched; art too dense for
+  the 4.4 MB transport cap steps down until it fits) — edit label, edit
+  booster effect text → SAVE posts to `/api/deck-edit`.
 - `netlify/functions/deck-edit.mjs` guards with `X-Deck-Key` ==
   `DECK_EDIT_KEY` (timing-safe), validates path/file/PNG magic/lengths,
   requires the card to already exist in the manifest (replace-only), and

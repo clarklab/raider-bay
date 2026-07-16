@@ -13,8 +13,8 @@ const BRANCH = "main";
 const MANIFEST_PATH = "site/deck/manifest.json";
 const API = "https://api.github.com";
 
-const MAX_IMAGE_BYTES = 4_800_000; // stay under the ~6 MB function payload cap post-base64
-const MAX_BODY_BYTES = 6_800_000;
+const MAX_IMAGE_BYTES = 4_400_000; // ×4/3 base64 ≈ 5.9 MB, under the 6 MB function payload cap
+const MAX_BODY_BYTES = 6_000_000;
 const MAX_LABEL = 60;
 const MAX_DESC = 300;
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
