@@ -1,68 +1,318 @@
 {
   "version": 1,
   "sections": [
-    { "id": "fish", "title": "FISH", "dir": "cards", "cards": [
-      { "f": "card-grouper.png", "label": "GROUPER", "v": 1 },
-      { "f": "card-halibut.png", "label": "HALIBUT", "v": 1 },
-      { "f": "card-salmon.png", "label": "SALMON", "v": 1 },
-      { "f": "card-swordfish.png", "label": "SWORDFISH", "v": 1 },
-      { "f": "card-tuna.png", "label": "TUNA", "v": 1 }
-    ]},
-    { "id": "treasure", "title": "TREASURE & NIGHT", "dir": "cards", "cards": [
-      { "f": "card-treasure-100.png", "label": "TREASURE $100", "v": 1 },
-      { "f": "card-treasure-200.png", "label": "TREASURE $200", "v": 1 },
-      { "f": "card-night-1.png", "label": "EXTRA NIGHT", "v": 1 }
-    ]},
-    { "id": "weather", "title": "WEATHER", "dir": "cards", "cards": [
-      { "f": "card-weather-calm-1.png", "label": "CALM", "v": 1 },
-      { "f": "card-weather-rain-1.png", "label": "RAIN", "v": 1 },
-      { "f": "card-weather-squall-1.png", "label": "SQUALL", "v": 1 },
-      { "f": "card-weather-hurricane-1.png", "label": "HURRICANE", "v": 1 }
-    ]},
-    { "id": "motor", "title": "MOTOR", "dir": "cards", "cards": [
-      { "f": "card-motor-1.png", "label": "MOTOR LV 1", "v": 1 },
-      { "f": "card-motor-2.png", "label": "MOTOR LV 2", "v": 1 },
-      { "f": "card-motor-3.png", "label": "MOTOR LV 3", "v": 1 },
-      { "f": "card-motor-4.png", "label": "MOTOR LV 4", "v": 1 },
-      { "f": "card-motor-5.png", "label": "MOTOR LV 5", "v": 1 }
-    ]},
-    { "id": "fishfinder", "title": "FISH FINDER", "dir": "cards", "cards": [
-      { "f": "card-fish-finder-1.png", "label": "FISH FINDER LV 1", "v": 1 },
-      { "f": "card-fish-finder-2.png", "label": "FISH FINDER LV 2", "v": 1 },
-      { "f": "card-fish-finder-3.png", "label": "FISH FINDER LV 3", "v": 1 },
-      { "f": "card-fish-finder-4.png", "label": "FISH FINDER LV 4", "v": 1 },
-      { "f": "card-fish-finder-5.png", "label": "FISH FINDER LV 5", "v": 1 }
-    ]},
-    { "id": "nets", "title": "NETS", "dir": "cards", "cards": [
-      { "f": "card-nets-1.png", "label": "NETS LV 1", "v": 1 },
-      { "f": "card-nets-2.png", "label": "NETS LV 2", "v": 1 },
-      { "f": "card-nets-3.png", "label": "NETS LV 3", "v": 1 },
-      { "f": "card-nets-4.png", "label": "NETS LV 4", "v": 1 },
-      { "f": "card-nets-5.png", "label": "NETS LV 5", "v": 1 }
-    ]},
-    { "id": "well", "title": "LIVE WELL", "dir": "cards", "cards": [
-      { "f": "card-well-1.png", "label": "LIVE WELL LV 1", "v": 1 },
-      { "f": "card-well-2.png", "label": "LIVE WELL LV 2", "v": 1 },
-      { "f": "card-well-3.png", "label": "LIVE WELL LV 3", "v": 1 },
-      { "f": "card-well-4.png", "label": "LIVE WELL LV 4", "v": 1 },
-      { "f": "card-well-5.png", "label": "LIVE WELL LV 5", "v": 1 }
-    ]},
-    { "id": "back", "title": "CARD BACK", "dir": "cards", "cards": [
-      { "f": "card-back.png", "label": "CARD BACK", "v": 1 }
-    ]},
-    { "id": "boosters", "title": "BOOSTER PACKS", "dir": "boosters", "booster": true, "cards": [
-      { "f": "booster-night-1.png", "label": "NIGHT SHIFT", "acc": "#fcba00", "desc": "+2 nights at sea. The season isn't done with you yet.", "v": 1 },
-      { "f": "booster-night-2.png", "label": "SECOND WIND", "acc": "#fcba00", "desc": "+3 nights at sea. The coffee is working.", "v": 1 },
-      { "f": "booster-night-3.png", "label": "THE LONG HAUL", "acc": "#fcba00", "desc": "+4 nights at sea. Practically a second season.", "v": 1 },
-      { "f": "booster-catch-5.png", "label": "CHUM SLICK", "acc": "#84ea72", "desc": "+5 fish on your next 3 catches. They can smell it.", "v": 1 },
-      { "f": "booster-catch-6.png", "label": "FEEDING FRENZY", "acc": "#84ea72", "desc": "+6 fish on your next 3 catches. The water boils.", "v": 1 },
-      { "f": "booster-double-sale.png", "label": "GOLD RUSH", "acc": "#fcba00", "desc": "Double money on your next 2 sales. The dealer weeps.", "v": 1 },
-      { "f": "booster-price-up.png", "label": "MARKET SURGE", "acc": "#7fd6f2", "desc": "+$8 on every fish price, every day, all season.", "v": 1 },
-      { "f": "booster-hurricane-triple.png", "label": "EYE OF THE STORM", "acc": "#c684fc", "desc": "Triple catch in every hurricane, all season. Sail into it.", "v": 1 },
-      { "f": "booster-loaded-dice.png", "label": "LOADED DICE", "acc": "#c684fc", "desc": "Your next 3 haggles roll a perfect 6. Shhh.", "v": 1 },
-      { "f": "booster-repair.png", "label": "SHIPSHAPE", "acc": "#84ea72", "desc": "Full repairs, on the house. She's brand new again.", "v": 1 },
-      { "f": "booster-moves.png", "label": "COFFEE & DIESEL", "acc": "#ff6b6b", "desc": "+5 moves today. Floor it, captain.", "v": 1 },
-      { "f": "booster-cash.png", "label": "SUNKEN CHANGE", "acc": "#fcba00", "desc": "$250 cash, right now. Found it in the couch.", "v": 1 }
-    ]}
+    {
+      "id": "fish",
+      "title": "FISH",
+      "dir": "cards",
+      "cards": [
+        {
+          "f": "card-grouper.png",
+          "label": "GROUPER",
+          "v": 1
+        },
+        {
+          "f": "card-halibut.png",
+          "label": "HALIBUT",
+          "v": 1
+        },
+        {
+          "f": "card-salmon.png",
+          "label": "SALMON",
+          "v": 1
+        },
+        {
+          "f": "card-swordfish.png",
+          "label": "SWORDFISH",
+          "v": 1
+        },
+        {
+          "f": "card-tuna.png",
+          "label": "TUNA",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "id": "treasure",
+      "title": "TREASURE & NIGHT",
+      "dir": "cards",
+      "cards": [
+        {
+          "f": "card-treasure-100.png",
+          "label": "TREASURE $100",
+          "v": 1
+        },
+        {
+          "f": "card-treasure-200.png",
+          "label": "TREASURE $200",
+          "v": 1
+        },
+        {
+          "f": "card-night-1.png",
+          "label": "EXTRA NIGHT",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "id": "weather",
+      "title": "WEATHER",
+      "dir": "cards",
+      "cards": [
+        {
+          "f": "card-weather-calm-1.png",
+          "label": "CALM",
+          "v": 1
+        },
+        {
+          "f": "card-weather-rain-1.png",
+          "label": "RAIN",
+          "v": 1
+        },
+        {
+          "f": "card-weather-squall-1.png",
+          "label": "SQUALL",
+          "v": 1
+        },
+        {
+          "f": "card-weather-hurricane-1.png",
+          "label": "HURRICANE",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "id": "motor",
+      "title": "MOTOR",
+      "dir": "cards",
+      "cards": [
+        {
+          "f": "card-motor-1.png",
+          "label": "MOTOR LV 1",
+          "v": 1
+        },
+        {
+          "f": "card-motor-2.png",
+          "label": "MOTOR LV 2",
+          "v": 1
+        },
+        {
+          "f": "card-motor-3.png",
+          "label": "MOTOR LV 3",
+          "v": 1
+        },
+        {
+          "f": "card-motor-4.png",
+          "label": "MOTOR LV 4",
+          "v": 1
+        },
+        {
+          "f": "card-motor-5.png",
+          "label": "MOTOR LV 5",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "id": "fishfinder",
+      "title": "FISH FINDER",
+      "dir": "cards",
+      "cards": [
+        {
+          "f": "card-fish-finder-1.png",
+          "label": "FISH FINDER LV 1",
+          "v": 1
+        },
+        {
+          "f": "card-fish-finder-2.png",
+          "label": "FISH FINDER LV 2",
+          "v": 1
+        },
+        {
+          "f": "card-fish-finder-3.png",
+          "label": "FISH FINDER LV 3",
+          "v": 1
+        },
+        {
+          "f": "card-fish-finder-4.png",
+          "label": "FISH FINDER LV 4",
+          "v": 1
+        },
+        {
+          "f": "card-fish-finder-5.png",
+          "label": "FISH FINDER LV 5",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "id": "nets",
+      "title": "NETS",
+      "dir": "cards",
+      "cards": [
+        {
+          "f": "card-nets-1.png",
+          "label": "NETS LV 1",
+          "v": 1
+        },
+        {
+          "f": "card-nets-2.png",
+          "label": "NETS LV 2",
+          "v": 1
+        },
+        {
+          "f": "card-nets-3.png",
+          "label": "NETS LV 3",
+          "v": 1
+        },
+        {
+          "f": "card-nets-4.png",
+          "label": "NETS LV 4",
+          "v": 1
+        },
+        {
+          "f": "card-nets-5.png",
+          "label": "NETS LV 5",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "id": "well",
+      "title": "LIVE WELL",
+      "dir": "cards",
+      "cards": [
+        {
+          "f": "card-well-1.png",
+          "label": "LIVE WELL LV 1",
+          "v": 1
+        },
+        {
+          "f": "card-well-2.png",
+          "label": "LIVE WELL LV 2",
+          "v": 1
+        },
+        {
+          "f": "card-well-3.png",
+          "label": "LIVE WELL LV 3",
+          "v": 1
+        },
+        {
+          "f": "card-well-4.png",
+          "label": "LIVE WELL LV 4",
+          "v": 1
+        },
+        {
+          "f": "card-well-5.png",
+          "label": "LIVE WELL LV 5",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "id": "back",
+      "title": "CARD BACK",
+      "dir": "cards",
+      "cards": [
+        {
+          "f": "card-back.png",
+          "label": "CARD BACK",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "id": "boosters",
+      "title": "BOOSTER PACKS",
+      "dir": "boosters",
+      "booster": true,
+      "cards": [
+        {
+          "f": "booster-night-1.png",
+          "label": "NIGHT SHIFT",
+          "acc": "#fcba00",
+          "desc": "+2 nights at sea. The season isn't done with you yet.",
+          "v": 1
+        },
+        {
+          "f": "booster-night-2.png",
+          "label": "SECOND WIND",
+          "acc": "#fcba00",
+          "desc": "+3 nights at sea. The coffee is working.",
+          "v": 1
+        },
+        {
+          "f": "booster-night-3.png",
+          "label": "THE LONG HAUL",
+          "acc": "#fcba00",
+          "desc": "+4 nights at sea. Practically a second season.",
+          "v": 1
+        },
+        {
+          "f": "booster-catch-5.png",
+          "label": "CHUM SLICK",
+          "acc": "#84ea72",
+          "desc": "+5 fish on your next 3 catches. They can smell it.",
+          "v": 1
+        },
+        {
+          "f": "booster-catch-6.png",
+          "label": "FEEDING FRENZY",
+          "acc": "#84ea72",
+          "desc": "+6 fish on your next 3 catches. The water boils.",
+          "v": 1
+        },
+        {
+          "f": "booster-double-sale.png",
+          "label": "GOLD RUSH",
+          "acc": "#fcba00",
+          "desc": "Double money on your next 2 sales. The dealer weeps.",
+          "v": 2
+        },
+        {
+          "f": "booster-price-up.png",
+          "label": "MARKET SURGE",
+          "acc": "#7fd6f2",
+          "desc": "+$8 on every fish price, every day, all season.",
+          "v": 1
+        },
+        {
+          "f": "booster-hurricane-triple.png",
+          "label": "EYE OF THE STORM",
+          "acc": "#c684fc",
+          "desc": "Triple catch in every hurricane, all season. Sail into it.",
+          "v": 1
+        },
+        {
+          "f": "booster-loaded-dice.png",
+          "label": "LOADED DICE",
+          "acc": "#c684fc",
+          "desc": "Your next 3 haggles roll a perfect 6. Shhh.",
+          "v": 1
+        },
+        {
+          "f": "booster-repair.png",
+          "label": "SHIPSHAPE",
+          "acc": "#84ea72",
+          "desc": "Full repairs, on the house. She's brand new again.",
+          "v": 1
+        },
+        {
+          "f": "booster-moves.png",
+          "label": "COFFEE & DIESEL",
+          "acc": "#ff6b6b",
+          "desc": "+5 moves today. Floor it, captain.",
+          "v": 1
+        },
+        {
+          "f": "booster-cash.png",
+          "label": "SUNKEN CHANGE",
+          "acc": "#fcba00",
+          "desc": "$250 cash, right now. Found it in the couch.",
+          "v": 1
+        }
+      ]
+    }
   ]
 }
