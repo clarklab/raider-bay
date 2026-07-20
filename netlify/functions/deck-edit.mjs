@@ -178,6 +178,14 @@ async function commitEdit(token, edit) {
     throw error;
   }
 
+  // Ship it: tag this commit with the next version so it actually reaches
+  // players. build-android.yml's release job runs on v* tags — it builds the
+  // APK and publishes a release, which is what the evergreen download link and
+  // the in-game GET UPDATE chip both read (both key off releases/latest, and
+  // the chip fires because tag_name bumped). Best-effort: the art is already
+  // committed and web-deployed even if tagging hiccups, so never fail the edit.
+  const release = await tagRelease(token, newCommit.sha);
+
   return {
     ok: true,
     body: {
@@ -185,9 +193,47 @@ async function commitEdit(token, edit) {
       sha: newCommit.sha.slice(0, 7),
       changed: changes,
       manifest,
+      version: release.tag,
+      tagError: release.error,
       actionsUrl: `https://github.com/${OWNER}/${REPO}/actions`,
     },
   };
+}
+
+// Tags `sha` with the next patch version (vX.Y.Z) to cut a release build.
+// Returns { tag } on success or { error } if it couldn't tag. A concurrent
+// edit can grab the same number (422 on ref create) — recompute and retry.
+async function tagRelease(token, sha) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const tag = await nextVersionTag(token);
+      await gh(token, `POST /repos/${OWNER}/${REPO}/git/refs`, { ref: `refs/tags/${tag}`, sha });
+      return { tag };
+    } catch (error) {
+      if (String(error.message).includes("422") && attempt < 2) continue; // tag exists, race — bump again
+      console.error("tagRelease failed:", error);
+      return { error: "Committed, but couldn't cut a release tag — trigger a build manually." };
+    }
+  }
+  return { error: "Committed, but couldn't cut a release tag — trigger a build manually." };
+}
+
+// Highest existing vMAJOR.MINOR.PATCH tag with its patch bumped by one.
+async function nextVersionTag(token) {
+  const refs = await gh(token, `GET /repos/${OWNER}/${REPO}/git/matching-refs/tags/v`);
+  let best = null;
+  for (const r of Array.isArray(refs) ? refs : []) {
+    const m = /^refs\/tags\/v(\d+)\.(\d+)\.(\d+)$/.exec(r.ref || "");
+    if (!m) continue;
+    const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (!best || cmpVer(v, best) > 0) best = v;
+  }
+  const next = best ? [best[0], best[1], best[2] + 1] : [1, 0, 0];
+  return `v${next[0]}.${next[1]}.${next[2]}`;
+}
+
+function cmpVer(a, b) {
+  return (a[0] - b[0]) || (a[1] - b[1]) || (a[2] - b[2]);
 }
 
 function findCard(manifest, dir, file) {

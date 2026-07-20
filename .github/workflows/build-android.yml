@@ -13,6 +13,10 @@ concurrency:
 jobs:
   android-debug:
     name: Android Debug APK
+    # /deck edits commit to main AND cut a version tag on the same commit
+    # (netlify/functions/deck-edit.mjs). The tag build is the one that releases,
+    # so skip the redundant main-push build for those commits — no double build.
+    if: github.ref_type == 'tag' || !startsWith(github.event.head_commit.message, 'deck:')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container:
