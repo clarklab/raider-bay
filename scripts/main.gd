@@ -63,7 +63,10 @@ const MAX_HIGH_SCORES := 50
 const SAVE_VERSION := 1
 const MODE_SOLO := "solo"
 const MODE_VERSUS := "versus"
+const MODE_PASS := "pass"
 const BOT_NAME := "Rust Bucket"
+const PASS_MIN_PLAYERS := 2
+const PASS_MAX_PLAYERS := 4
 
 const GAME_BG_TEXTURE: Texture2D = preload("res://assets/game-bg.webp")
 const START_SCREEN_TEXTURE: Texture2D = preload("res://assets/screen-start.png")
@@ -386,6 +389,32 @@ var versus_mode := false
 
 # Boat Setup screen (chosen fresh each new game; flavor only for now).
 var pending_versus := false
+# Pass & Play (hotseat): several humans share the device, each playing their own
+# independent season, interleaved one day at a time. pass_players holds one entry
+# per seat: {captain, boat, boat_choice, done, score, state}. `state` is a full
+# game-state snapshot captured by _pp_capture / restored by _pp_restore.
+var pass_play := false
+var pass_setup_active := false        # boat-setup screen is collecting hotseat seats
+var pass_count := 0                   # number of humans this session
+var pass_setup: Array[Dictionary] = []  # identities gathered during setup
+var pass_setup_index := 0             # which seat we're outfitting (0-based)
+var pass_players: Array[Dictionary] = []
+var pass_current := 0                 # index of the seat taking its turn now
+# Per-seat game state swapped in/out at each handoff. Everything that makes up a
+# player's own season lives here; shared meta (lifetime achievements, audio, UI
+# node refs) is deliberately excluded.
+const PP_STATE_VARS: Array[String] = [
+	"board", "boat_pos", "day", "money", "moves_remaining", "finds_remaining",
+	"casts_remaining", "game_over", "game_stats", "high_score_recorded",
+	"last_high_score_rank", "last_high_score_top_10", "upgrades", "conditions",
+	"live_well", "market_prices", "market_flip", "sold_totals", "trophies",
+	"extra_nights", "weather_deck", "forecast", "current_weather", "log_lines",
+	"cast_holes_today", "boat_choice", "boat_perk_key", "boat_name",
+	"captain_name", "active_tab", "ach_haggle_win_streak",
+	"ach_haggle_loss_streak", "ach_treasure_kinds", "booster_next_catch_bonus",
+	"booster_catch_uses", "booster_double_sales", "booster_price_bonus",
+	"booster_hurricane_triple", "booster_loaded_haggles",
+]
 var boat_choice := 0
 var boat_perk_key := ""  # starter upgrade category — permanently one price step cheaper
 const PREFS_PATH := "user://prefs.cfg"
@@ -1391,6 +1420,9 @@ func _build_ui() -> void:
 	_build_achievements_screen()
 	_build_deck_training_screen()
 	_build_boat_setup_screen()
+	_build_pass_count_screen()
+	_build_pass_turn_screen()
+	_build_pass_results_screen()
 	_build_weather_card_preview_overlay()
 
 
@@ -1762,7 +1794,7 @@ func _build_start_screen() -> void:
 	var solo := _pixel_button("SOLO TRIP", CYAN, Color("#15273f"), TEXT_PRIMARY, ICON_ROCKET_FISH_TEXTURE, _on_solo_trip_pressed)
 	solo.position = Vector2(cx - btn_w - btn_gap * 0.5, btn_y)
 	overlay.add_child(solo)
-	var battle := _pixel_button("PIRATE BATTLE", RED, Color("#2b1417"), Color("#ff6b6b"), null, func(): _new_game(true))
+	var battle := _pixel_button("PIRATE BATTLE", RED, Color("#2b1417"), Color("#ff6b6b"), null, _on_pirate_battle_pressed)
 	battle.position = Vector2(cx + btn_gap * 0.5, btn_y)
 	overlay.add_child(battle)
 
@@ -1817,6 +1849,10 @@ func _build_start_screen() -> void:
 	var chooser := _build_solo_save_chooser()
 	overlay.add_child(chooser)
 	ui["start_solo_chooser"] = chooser
+
+	var battle_chooser := _build_battle_chooser()
+	overlay.add_child(battle_chooser)
+	ui["start_battle_chooser"] = battle_chooser
 
 
 # Vertical gradient over rendered glyphs, by the glyph's local Y (per-letter, so it stays consistent
@@ -2998,6 +3034,9 @@ func _show_start_screen() -> void:
 	_hide_game_over_screen()
 	if ui.has("start_solo_chooser"):
 		(ui["start_solo_chooser"] as Control).visible = false
+	if ui.has("start_battle_chooser"):
+		(ui["start_battle_chooser"] as Control).visible = false
+	_hide_pass_count_chooser()
 	if ui.has("start_overlay"):
 		(ui["start_overlay"] as Control).visible = true
 	_play_title_intro()
@@ -3048,6 +3087,199 @@ func _show_solo_save_chooser() -> void:
 func _hide_solo_save_chooser() -> void:
 	if ui.has("start_solo_chooser"):
 		(ui["start_solo_chooser"] as Control).visible = false
+
+
+# PIRATE BATTLE now forks: race the computer, or hotseat with 2–4 humans.
+func _on_pirate_battle_pressed() -> void:
+	if not ui.has("start_battle_chooser"):
+		_new_game(true)
+		return
+	(ui["start_battle_chooser"] as Control).visible = true
+	_pop_chooser_cards(ui.get("battle_chooser_cards", []))
+
+
+func _build_battle_chooser() -> Control:
+	var chooser := Control.new()
+	chooser.anchor_right = 1.0
+	chooser.anchor_bottom = 1.0
+	chooser.mouse_filter = Control.MOUSE_FILTER_STOP
+	chooser.visible = false
+	chooser.z_index = 12
+
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.5)
+	shade.anchor_right = 1.0
+	shade.anchor_bottom = 1.0
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	chooser.add_child(shade)
+
+	var vp := get_viewport().get_visible_rect().size
+	var cx := vp.x * 0.5
+
+	var prompt := _label("PIRATE BATTLE", 34, TEXT_PRIMARY, HORIZONTAL_ALIGNMENT_CENTER)
+	prompt.add_theme_constant_override("shadow_offset_y", 5)
+	prompt.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.95))
+	prompt.anchor_right = 1.0
+	prompt.offset_top = vp.y * 0.12
+	prompt.offset_bottom = vp.y * 0.12 + 44.0
+	prompt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chooser.add_child(prompt)
+
+	var card_size := Vector2(320, 430)
+	var gap := 64.0
+	var cy := vp.y * 0.52 - card_size.y * 0.5
+	var vs := _chooser_card("VS\nCOMPUTER", "Race Rust Bucket for the trophies", RED, -4.0, card_size, _on_battle_vs_computer, "PIRATE BATTLE")
+	vs.position = Vector2(cx - card_size.x - gap * 0.5, cy)
+	chooser.add_child(vs)
+	var pnp := _chooser_card("PASS\n& PLAY", "2–4 captains, one device", CYAN, 4.0, card_size, _on_battle_pass_play, "PIRATE BATTLE")
+	pnp.position = Vector2(cx + gap * 0.5, cy)
+	chooser.add_child(pnp)
+	ui["battle_chooser_cards"] = [vs, pnp]
+
+	var close_btn := _close_x_button()
+	close_btn.anchor_left = 1.0
+	close_btn.anchor_right = 1.0
+	close_btn.offset_left = -86
+	close_btn.offset_right = -26
+	close_btn.offset_top = 26
+	close_btn.offset_bottom = 86
+	close_btn.pressed.connect(_hide_battle_chooser)
+	chooser.add_child(close_btn)
+
+	return chooser
+
+
+func _hide_battle_chooser() -> void:
+	if ui.has("start_battle_chooser"):
+		(ui["start_battle_chooser"] as Control).visible = false
+
+
+func _on_battle_vs_computer() -> void:
+	_hide_battle_chooser()
+	_new_game(true)
+
+
+func _on_battle_pass_play() -> void:
+	_hide_battle_chooser()
+	_show_pass_count_chooser()
+
+
+# Deal-in pop for a pair of chooser cards (shared by the save + battle choosers).
+func _pop_chooser_cards(cards: Array) -> void:
+	for i in range(cards.size()):
+		var card := cards[i] as Control
+		if not is_instance_valid(card):
+			continue
+		if card.has_meta("pop_tween"):
+			var old: Tween = card.get_meta("pop_tween") as Tween
+			if old:
+				old.kill()
+		var base_tilt := float(card.get_meta("base_tilt", 0.0))
+		var dir := -1.0 if base_tilt < 0.0 else 1.0
+		card.scale = Vector2(0.05, 0.05)
+		card.modulate = Color(1, 1, 1, 0)
+		card.rotation_degrees = base_tilt + dir * 26.0
+		var t := card.create_tween()
+		card.set_meta("pop_tween", t)
+		t.tween_interval(0.05 + 0.14 * float(i))
+		t.tween_callback(_play_sfx.bind("card_flip", -4.0, 1.0 + 0.05 * float(i), 40))
+		t.tween_property(card, "modulate:a", 1.0, 0.08)
+		t.parallel().tween_property(card, "scale", Vector2(1.08, 1.08), 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(card, "rotation_degrees", base_tilt, 0.26).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_property(card, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+# ── Pass & Play seat count ───────────────────────────────────────────────
+func _build_pass_count_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 206
+	add_child(overlay)
+	ui["pass_count_overlay"] = overlay
+
+	var shade := ColorRect.new()
+	shade.color = Color(0.02, 0.05, 0.12, 0.92)
+	_anchor_fill(shade)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(shade)
+
+	var center := CenterContainer.new()
+	_anchor_fill(center)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+
+	var col := VBoxContainer.new()
+	col.custom_minimum_size = Vector2(620, 0)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 14)
+	center.add_child(col)
+
+	var kicker := _label("PASS & PLAY", 20, _with_alpha(CYAN, 0.9), HORIZONTAL_ALIGNMENT_CENTER)
+	kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(kicker)
+
+	var prompt := _label("HOW MANY CAPTAINS?", 40, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	prompt.add_theme_constant_override("outline_size", 3)
+	prompt.add_theme_color_override("font_outline_color", Color("#3a2a00"))
+	prompt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(prompt)
+
+	var sub := _label("Each captain fishes their own season. Highest score wins.", 16, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(sub)
+
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 8)
+	col.add_child(gap)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 20)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(row)
+	for n in range(PASS_MIN_PLAYERS, PASS_MAX_PLAYERS + 1):
+		var b := _flat_button(str(n), 128, 128, _pp_seat_accent(n - PASS_MIN_PLAYERS), Color("#0a1420"), 56, 20)
+		b.pressed.connect(_pp_begin_setup.bind(n))
+		row.add_child(b)
+
+	var gap2 := Control.new()
+	gap2.custom_minimum_size = Vector2(0, 6)
+	col.add_child(gap2)
+
+	var cancel := _flat_button("CANCEL", 0, 44, Color(1, 1, 1, 0.06), TEXT_MUTED, 18, 12)
+	cancel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	cancel.custom_minimum_size = Vector2(240, 44)
+	cancel.pressed.connect(func() -> void:
+		_hide_pass_count_chooser()
+		_show_start_screen())
+	col.add_child(cancel)
+
+
+func _show_pass_count_chooser() -> void:
+	if not ui.has("pass_count_overlay"):
+		return
+	_play_sfx("modal_open")
+	var overlay := ui["pass_count_overlay"] as Control
+	overlay.move_to_front()
+	overlay.visible = true
+
+
+func _hide_pass_count_chooser() -> void:
+	if ui.has("pass_count_overlay"):
+		(ui["pass_count_overlay"] as Control).visible = false
+
+
+func _pp_begin_setup(count: int) -> void:
+	pass_count = clampi(count, PASS_MIN_PLAYERS, PASS_MAX_PLAYERS)
+	pass_setup = []
+	pass_setup_index = 0
+	pass_setup_active = true
+	_hide_pass_count_chooser()
+	_show_boat_setup(false)
 
 
 func _resume_solo_game() -> void:
@@ -3132,7 +3364,7 @@ func _build_solo_save_chooser() -> Control:
 
 # One oversized choice card for the save chooser: squarestep shell, accent
 # kicker, big stacked title, subtitle. `tilt` gives the pair opposing leans.
-func _chooser_card(title: String, sub: String, accent: Color, tilt: float, card_size: Vector2, on_pressed: Callable) -> Button:
+func _chooser_card(title: String, sub: String, accent: Color, tilt: float, card_size: Vector2, on_pressed: Callable, kicker_text: String = "SOLO TRIP") -> Button:
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -3158,7 +3390,7 @@ func _chooser_card(title: String, sub: String, accent: Color, tilt: float, card_
 	col.size = Vector2(card_size.x - (inset + 10.0) * 2.0, card_size.y - inset * 2.0)
 	b.add_child(col)
 
-	var kicker := _label("SOLO TRIP", 15, _with_alpha(accent, 0.85), HORIZONTAL_ALIGNMENT_CENTER)
+	var kicker := _label(kicker_text, 15, _with_alpha(accent, 0.85), HORIZONTAL_ALIGNMENT_CENTER)
 	kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(kicker)
 
@@ -7090,8 +7322,16 @@ func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
 	if not skip_setup:
 		_show_boat_setup(enable_versus)
 		return
-	game_started = true
 	versus_mode = enable_versus
+	pass_play = false
+	_begin_run()
+
+
+# Builds a fresh season for the current identity (captain_name / boat_name /
+# boat_choice) using whatever mode flags are already set. Split out of _new_game
+# so Pass & Play can spin up a brand-new season for each seat on its first turn.
+func _begin_run() -> void:
+	game_started = true
 	day = 1
 	game_over = false
 	_reset_game_stats()
@@ -7158,6 +7398,8 @@ func _new_game(enable_versus: bool = false, skip_setup: bool = false) -> void:
 	if versus_mode:
 		_log("%s joins the contest. It will fish, sell, and raid if you get close." % BOT_NAME)
 		_log("Leave the docks, fish deep, and watch the other captain.")
+	elif pass_play:
+		_log("Fish your season, then pass the device. Best captain of the fleet wins.")
 	else:
 		_log("Leave the docks, fish deep, get home before the weather turns.")
 	_update_ui()
@@ -7218,6 +7460,11 @@ func _has_unfinished_solo_save() -> bool:
 
 func _save_game() -> void:
 	if not game_started:
+		return
+	# Pass & Play is a single-sitting session across several seats; it isn't
+	# offered as a resumable save, so we never persist a partial hotseat game
+	# (and never clobber a solo/versus save with one).
+	if pass_play:
 		return
 
 	var data := {
@@ -9049,6 +9296,10 @@ func _end_day() -> void:
 	if game_over or active_tray != "":
 		return
 
+	if pass_play:
+		_pp_end_day()
+		return
+
 	if versus_mode:
 		await _run_bot_turn()
 		if game_over:
@@ -9090,6 +9341,471 @@ func _end_day() -> void:
 	_show_day_transition()
 
 
+# ────────────────────────────────────────────────────────────────────────
+# Pass & Play (hotseat) turn engine
+#
+# Each seat plays its own independent season; seats are interleaved one day at a
+# time. A "turn" is a single day: the active captain fishes and ends the day,
+# their state is snapshotted, and the device passes to the next captain via the
+# New Turn modal. When a captain sinks or finishes the season they drop out of
+# the rotation; once every seat is done we show the fleet results.
+# ────────────────────────────────────────────────────────────────────────
+
+func _pp_dup(value: Variant) -> Variant:
+	if value is Array or value is Dictionary:
+		return value.duplicate(true)
+	return value
+
+
+# Snapshot everything that makes up the active captain's season.
+func _pp_capture() -> Dictionary:
+	var snap := {}
+	for v in PP_STATE_VARS:
+		snap[v] = _pp_dup(get(v))
+	return snap
+
+
+# Swap a captured season back into the live globals.
+func _pp_restore(snap: Dictionary) -> void:
+	for v in PP_STATE_VARS:
+		if snap.has(v):
+			set(v, _pp_dup(snap[v]))
+
+
+func _pp_end_day() -> void:
+	# Resolve this captain's night exactly like a solo day, but route the outcome
+	# through the hotseat handoff instead of the solo day-transition / game-over.
+	_resolve_weather()  # pass_play is set, so a sink skips the solo game-over screen
+	if not game_over:
+		_age_fish()
+		day += 1
+		if day > _season_days():
+			game_over = true
+			if not _is_docked() and not live_well.is_empty():
+				_log("Season over. Unsold fish remain aboard.")
+			_log("Season over — Season Score %s." % _format_thousands(_season_score()))
+		else:
+			if day >= 21:
+				_award_achievement("days_21")
+			if day >= 40:
+				_award_achievement("days_40")
+			current_weather = forecast.pop_front()
+			forecast.append(_draw_weather())
+			_drift_market()
+			_refresh_daily_actions()
+			_log("Day %d begins. The market shifts overnight." % day)
+	_update_ui()
+	_pp_finish_turn()
+
+
+func _pp_finish_turn() -> void:
+	var seat: Dictionary = pass_players[pass_current]
+	seat["state"] = _pp_capture()
+	if game_over:
+		seat["done"] = true
+		seat["score"] = _season_score()
+		seat["sunk"] = int(conditions["hull"]) <= 0
+		var who := captain_name if captain_name != "" else "Captain %d" % (pass_current + 1)
+		if bool(seat["sunk"]):
+			_log("%s is out — sent to the bottom of the bay." % who)
+		else:
+			_log("%s wraps the season with %s." % [who, _format_thousands(int(seat["score"]))])
+
+	var nxt := _pp_next_active(pass_current)
+	if nxt == -1:
+		# No other captain is still sailing.
+		if bool(pass_players[pass_current].get("done", false)):
+			_pp_show_results()          # the whole fleet is finished
+		else:
+			# Sole survivor: no one to hand off to, so their next day just flows on
+			# like a solo run (the live state is already this captain's next day).
+			_show_day_transition()
+		return
+	pass_current = nxt
+	_pp_show_new_turn()
+
+
+# Next seat (round-robin after `from`) that is still in its season, or -1.
+func _pp_next_active(from: int) -> int:
+	var n := pass_players.size()
+	for i in range(1, n):
+		var idx := (from + i) % n
+		if not bool(pass_players[idx].get("done", false)):
+			return idx
+	return -1
+
+
+# Kick off a hotseat game from the identities gathered on the boat-setup screen.
+func _pp_start() -> void:
+	pass_setup_active = false
+	pass_play = true
+	versus_mode = false
+	pass_players = []
+	for s in pass_setup:
+		pass_players.append({
+			"captain": str(s.get("captain", "")),
+			"boat": str(s.get("boat", "")),
+			"boat_choice": int(s.get("boat_choice", 0)),
+			"done": false,
+			"score": 0,
+			"sunk": false,
+		})
+	pass_count = pass_players.size()
+	pass_current = 0
+	game_started = true
+	_hide_boat_setup()
+	_hide_start_screen()
+	_hide_game_over_screen()
+	_pp_show_new_turn()
+
+
+# Dismiss the New Turn modal and hand control to the current captain — restoring
+# their in-progress season, or building a fresh one on their very first turn.
+func _pp_enter_turn() -> void:
+	var seat: Dictionary = pass_players[pass_current]
+	active_tray = ""
+	_close_tray()
+	_clear_upgrade_cart()
+	if seat.has("state"):
+		_pp_restore(seat["state"])
+		_hide_start_screen()
+		_hide_game_over_screen()
+		_update_ui()
+		_queue_board_deal()  # re-deal so the board reads as this captain's, freshly
+	else:
+		captain_name = str(seat.get("captain", ""))
+		boat_name = str(seat.get("boat", ""))
+		boat_choice = int(seat.get("boat_choice", 0))
+		versus_mode = false
+		pass_play = true
+		_begin_run()
+		seat["state"] = _pp_capture()
+	_pp_hide_new_turn()
+
+
+# Results-screen "PLAY AGAIN": same fleet, brand-new seasons.
+func _pp_play_again() -> void:
+	pass_play = true
+	versus_mode = false
+	for seat in pass_players:
+		seat["done"] = false
+		seat["score"] = 0
+		seat["sunk"] = false
+		seat.erase("state")
+	pass_current = 0
+	_pp_hide_results()
+	_pp_show_new_turn()
+
+
+func _pp_quit_to_title() -> void:
+	pass_play = false
+	pass_players = []
+	game_started = false  # no live run to autosave once we're back at the title
+	_pp_hide_results()
+	_pp_hide_new_turn()
+	_show_start_screen()
+
+
+# Distinct accent per seat so each captain reads as their own color.
+func _pp_seat_accent(idx: int) -> Color:
+	var palette: Array[Color] = [CYAN, GOLD, RED, PURPLE]
+	return palette[idx % palette.size()]
+
+
+func _pp_trophy_count(trophies_val: Variant) -> int:
+	var n := 0
+	if trophies_val is Dictionary:
+		for k in trophies_val:
+			if bool(trophies_val[k]):
+				n += 1
+	return n
+
+
+func _pp_pill(text: String, accent: Color) -> Control:
+	var pill := PanelContainer.new()
+	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var s := _styled(accent, Color(0, 0, 0, 0), 0, 12)
+	s.content_margin_left = 16
+	s.content_margin_right = 16
+	s.content_margin_top = 5
+	s.content_margin_bottom = 7
+	pill.add_theme_stylebox_override("panel", s)
+	pill.add_child(_label(text, 18, Color("#0a1420"), HORIZONTAL_ALIGNMENT_CENTER))
+	return pill
+
+
+# ── New Turn handoff modal ───────────────────────────────────────────────
+func _build_pass_turn_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 210
+	add_child(overlay)
+	ui["pass_turn_overlay"] = overlay
+
+	# Fully opaque so the outgoing captain's board is never visible mid-handoff.
+	var shade := ColorRect.new()
+	shade.color = Color("#06131f")
+	_anchor_fill(shade)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(shade)
+
+	var center := CenterContainer.new()
+	_anchor_fill(center)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+
+	var col := VBoxContainer.new()
+	col.custom_minimum_size = Vector2(660, 0)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 14)
+	center.add_child(col)
+	ui["pass_turn_col"] = col
+
+
+func _pp_show_new_turn() -> void:
+	if not ui.has("pass_turn_col"):
+		return
+	_play_sfx("modal_open")
+	var seat: Dictionary = pass_players[pass_current]
+	var accent := _pp_seat_accent(pass_current)
+	var boat_idx := clampi(int(seat.get("boat_choice", 0)), 0, BOAT_TEXTURES.size() - 1)
+	var captain := str(seat.get("captain", ""))
+	if captain == "":
+		captain = "Captain %d" % (pass_current + 1)
+	var boatname := str(seat.get("boat", ""))
+	var started: bool = seat.has("state")
+	var seat_day := 1
+	if started:
+		seat_day = int((seat["state"] as Dictionary).get("day", 1))
+
+	var col: VBoxContainer = ui["pass_turn_col"]
+	for c in col.get_children():
+		c.queue_free()
+
+	var kicker_text := "PASS THE DEVICE" if started else "PIRATE BATTLE · PASS & PLAY"
+	var kicker := _label(kicker_text, 20, _with_alpha(accent, 0.9), HORIZONTAL_ALIGNMENT_CENTER)
+	kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(kicker)
+
+	var pnum := _label("PLAYER %d" % (pass_current + 1), 52, accent, HORIZONTAL_ALIGNMENT_CENTER)
+	pnum.add_theme_constant_override("outline_size", 4)
+	pnum.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.6))
+	pnum.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(pnum)
+
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	card.custom_minimum_size = Vector2(280, 280)
+	var cs := _styled_shadow(REF_CARD_NAVY, accent, 4, 18, 6)
+	cs.content_margin_left = 12
+	cs.content_margin_right = 12
+	cs.content_margin_top = 12
+	cs.content_margin_bottom = 12
+	card.add_theme_stylebox_override("panel", cs)
+	col.add_child(card)
+	var boat_img := TextureRect.new()
+	boat_img.texture = BOAT_TEXTURES[boat_idx]
+	boat_img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boat_img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boat_img.custom_minimum_size = Vector2(256, 256)
+	card.add_child(boat_img)
+
+	var cap := _label("Capt. %s" % captain, 34, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	cap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(cap)
+	if boatname != "":
+		var bn := _label("aboard %s" % boatname, 20, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+		bn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(bn)
+
+	var pills := HBoxContainer.new()
+	pills.alignment = BoxContainer.ALIGNMENT_CENTER
+	pills.add_theme_constant_override("separation", 12)
+	pills.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(pills)
+	pills.add_child(_pp_pill("DAY %d / %d" % [mini(seat_day, _season_days()), _season_days()], accent))
+	if started:
+		var st: Dictionary = seat["state"]
+		pills.add_child(_pp_pill("$%s" % _format_thousands(int(st.get("money", 0))), GOLD))
+		pills.add_child(_pp_pill("%d TROPHIES" % _pp_trophy_count(st.get("trophies", {})), PURPLE))
+
+	var privacy := _label("Only %s should peek — everyone else, eyes up!" % captain, 16, TEXT_DIM, HORIZONTAL_ALIGNMENT_CENTER)
+	privacy.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	privacy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(privacy)
+
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 8)
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(gap)
+
+	var start_btn := _flat_button("START TURN", 0, 82, accent, Color("#0a1420"), 34, 18)
+	start_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	start_btn.pressed.connect(_pp_enter_turn)
+	col.add_child(start_btn)
+
+	var overlay := ui["pass_turn_overlay"] as Control
+	overlay.move_to_front()
+	overlay.visible = true
+	col.modulate = Color(1, 1, 1, 0)
+	var t := col.create_tween()
+	t.tween_property(col, "modulate:a", 1.0, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func _pp_hide_new_turn() -> void:
+	if ui.has("pass_turn_overlay"):
+		(ui["pass_turn_overlay"] as Control).visible = false
+
+
+# ── Fleet results ────────────────────────────────────────────────────────
+func _build_pass_results_screen() -> void:
+	var overlay := Control.new()
+	overlay.anchor_right = 1.0
+	overlay.anchor_bottom = 1.0
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.visible = false
+	overlay.z_index = 208
+	add_child(overlay)
+	ui["pass_results_overlay"] = overlay
+
+	var shade := ColorRect.new()
+	shade.color = Color(0.008, 0.03, 0.1, 0.96)
+	_anchor_fill(shade)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.add_child(shade)
+
+	var center := CenterContainer.new()
+	_anchor_fill(center)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
+
+	var col := VBoxContainer.new()
+	col.custom_minimum_size = Vector2(720, 0)
+	col.add_theme_constant_override("separation", 10)
+	center.add_child(col)
+	ui["pass_results_col"] = col
+
+
+func _pp_show_results() -> void:
+	if not ui.has("pass_results_col"):
+		return
+	_play_sfx("modal_open")
+	var col: VBoxContainer = ui["pass_results_col"]
+	for c in col.get_children():
+		c.queue_free()
+
+	var ranked := pass_players.duplicate()
+	ranked.sort_custom(func(a, b): return int(a.get("score", 0)) > int(b.get("score", 0)))
+
+	var title := _label("FLEET RESULTS", 46, GOLD, HORIZONTAL_ALIGNMENT_CENTER)
+	title.add_theme_constant_override("outline_size", 4)
+	title.add_theme_color_override("font_outline_color", Color("#3a2a00"))
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title)
+
+	var winner := str(ranked[0].get("captain", ""))
+	if winner == "":
+		winner = "Player 1"
+	var sub := _label("%s takes the bay!" % winner, 20, TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(sub)
+
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 6)
+	col.add_child(gap)
+
+	for i in range(ranked.size()):
+		col.add_child(_pp_result_row(i + 1, ranked[i], i == 0))
+
+	var gap2 := Control.new()
+	gap2.custom_minimum_size = Vector2(0, 10)
+	col.add_child(gap2)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_row.add_theme_constant_override("separation", 14)
+	col.add_child(btn_row)
+	var again := _flat_button("PLAY AGAIN", 0, 76, GREEN_DEEP, TEXT_PRIMARY, 28, 18)
+	again.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	again.pressed.connect(_pp_play_again)
+	btn_row.add_child(again)
+	var title_btn := _flat_button("BACK TO TITLE", 0, 76, Color(1, 1, 1, 0.08), TEXT_MUTED, 24, 18)
+	title_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_btn.pressed.connect(_pp_quit_to_title)
+	btn_row.add_child(title_btn)
+
+	var overlay := ui["pass_results_overlay"] as Control
+	overlay.move_to_front()
+	overlay.visible = true
+	_burst_confetti()
+
+
+func _pp_result_row(rank: int, seat: Dictionary, is_winner: bool) -> Control:
+	var sunk := bool(seat.get("sunk", false))
+	var accent: Color = GOLD if is_winner else BORDER_FRAME
+	var row := PanelContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var fill: Color = _with_alpha(GOLD, 0.14) if is_winner else BG_PANEL
+	var border: Color = accent if is_winner else _with_alpha(BORDER_FRAME, 0.5)
+	var s := _styled(fill, border, 2, 14)
+	s.content_margin_left = 16
+	s.content_margin_right = 18
+	s.content_margin_top = 10
+	s.content_margin_bottom = 10
+	row.add_theme_stylebox_override("panel", s)
+
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 16)
+	row.add_child(hb)
+
+	var rank_lbl := _label("#%d" % rank, 34, accent if is_winner else TEXT_MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	rank_lbl.custom_minimum_size = Vector2(58, 0)
+	rank_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(rank_lbl)
+
+	var boat := TextureRect.new()
+	boat.texture = BOAT_TEXTURES[clampi(int(seat.get("boat_choice", 0)), 0, BOAT_TEXTURES.size() - 1)]
+	boat.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boat.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boat.custom_minimum_size = Vector2(66, 66)
+	boat.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	hb.add_child(boat)
+
+	var names := VBoxContainer.new()
+	names.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	names.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	names.add_theme_constant_override("separation", 0)
+	hb.add_child(names)
+	var cap := str(seat.get("captain", ""))
+	if cap == "":
+		cap = "Captain"
+	names.add_child(_label("Capt. %s" % cap, 24, TEXT_PRIMARY))
+	var boatname := str(seat.get("boat", ""))
+	var meta := boatname
+	if sunk:
+		meta = "SUNK — %s" % (boatname if boatname != "" else "lost at sea")
+	names.add_child(_label(meta, 15, RED if sunk else TEXT_DIM))
+
+	var score := VBoxContainer.new()
+	score.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	score.add_theme_constant_override("separation", 0)
+	hb.add_child(score)
+	score.add_child(_label("$%s" % _format_thousands(int(seat.get("score", 0))), 30, GOLD, HORIZONTAL_ALIGNMENT_RIGHT))
+	var st: Variant = seat.get("state", {})
+	var tro: Variant = (st as Dictionary).get("trophies", {}) if st is Dictionary else {}
+	score.add_child(_label("%d trophies" % _pp_trophy_count(tro), 14, PURPLE, HORIZONTAL_ALIGNMENT_RIGHT))
+
+	return row
+
+
+func _pp_hide_results() -> void:
+	if ui.has("pass_results_overlay"):
+		(ui["pass_results_overlay"] as Control).visible = false
+
+
 func _resolve_weather() -> void:
 	var strength: int = int(current_weather["strength"])
 	if strength <= 0:
@@ -9122,7 +9838,10 @@ func _resolve_weather_for_player(strength: int) -> void:
 	if int(conditions["hull"]) <= 0:
 		game_over = true
 		_log("The hull failed. Your boat sank.")
-		_show_game_over_screen()
+		# In Pass & Play the sink is handled by the hotseat flow (record the seat,
+		# hand off to the next captain) rather than the solo game-over screen.
+		if not pass_play:
+			_show_game_over_screen()
 
 
 func _resolve_weather_for_bot(strength: int) -> void:
@@ -14838,6 +15557,7 @@ func _build_boat_setup_screen() -> void:
 	title.add_theme_color_override("font_outline_color", Color("#3a2a00"))
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_child(title)
+	ui["boat_setup_title"] = title
 
 	# Boat picker (left) and name picker (right), side by side.
 	var main_row := HBoxContainer.new()
@@ -14992,6 +15712,12 @@ func _show_boat_setup(versus: bool) -> void:
 	if ui.has("boat_setup_boat"):
 		(ui["boat_setup_boat"] as LineEdit).text = _random_boat_name()
 	_refresh_boat_carousel()
+	if ui.has("boat_setup_title"):
+		# Pass & Play outfits each captain in turn — name whose seat this is.
+		if pass_setup_active:
+			(ui["boat_setup_title"] as Label).text = "PLAYER %d OF %d — OUTFIT YOUR BOAT" % [pass_setup_index + 1, pass_count]
+		else:
+			(ui["boat_setup_title"] as Label).text = "OUTFIT YOUR BOAT"
 	if ui.has("boat_setup_overlay"):
 		var ov := ui["boat_setup_overlay"] as Control
 		ov.move_to_front()  # top-most sibling so input reaches this screen
@@ -15006,6 +15732,11 @@ func _hide_boat_setup() -> void:
 func _boat_setup_back() -> void:
 	_stop_dice_roll()
 	_hide_boat_setup()
+	# Backing out of a hotseat seat abandons the whole Pass & Play setup.
+	if pass_setup_active:
+		pass_setup_active = false
+		pass_setup = []
+		pass_setup_index = 0
 	_show_start_screen()
 
 
@@ -15032,6 +15763,23 @@ func _boat_setup_set_sail() -> void:
 	if boat_name == "":
 		boat_name = _random_boat_name()
 	_stop_dice_roll()  # don't let a mid-shuffle die tumble onto the board
+
+	# Pass & Play: gather this seat, then either outfit the next captain or,
+	# once every seat is set, launch the hotseat game.
+	if pass_setup_active:
+		pass_setup.append({
+			"captain": captain_name,
+			"boat": boat_name,
+			"boat_choice": boat_choice,
+		})
+		pass_setup_index += 1
+		if pass_setup_index < pass_count:
+			_show_boat_setup(false)  # next captain (pass_setup_active still true)
+		else:
+			_hide_boat_setup()
+			_pp_start()
+		return
+
 	_hide_boat_setup()
 	_new_game(pending_versus, true)
 
