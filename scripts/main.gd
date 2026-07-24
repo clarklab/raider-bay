@@ -1093,6 +1093,12 @@ var swirl_cards: Array = []      # [{node, face, card, depth, vy, vx, spin, base
 var _swirl_tex_cache: Array = []
 
 
+# Signature of the last screen inputs (viewport size + safe-area margins) the
+# board scale was computed from. The board must only ever resize on a real
+# screen-size change — never on a player action — so _update_board_scale is a
+# no-op unless this signature actually changes.
+var _board_scale_sig := ""
+
 const BOARD_LONG_PRESS_SECONDS := 0.4
 var board_press_cell := Vector2i(-1, -1)
 var board_press_time := 0.0
@@ -3857,8 +3863,18 @@ func _update_board_scale() -> void:
 	s = clampf(s, 1.0, 1.6)
 	if s < 1.02:
 		s = 1.0
+	# The board scale is a pure function of the screen: viewport size + safe-area
+	# margins, nothing else. If none of those changed, this call is a player-action
+	# refresh (a move, a cast, a cutscene) and MUST leave the board size alone.
+	# Bail before touching wrap.scale unless the screen inputs actually changed, or
+	# the scale was somehow clobbered away from the value we last applied.
+	var target := Vector2(s, s)
+	var sig := "%d,%d,%d,%d,%d,%d" % [int(vp.x), int(vp.y), ml, mt, mr, mb]
+	if sig == _board_scale_sig and wrap.scale.is_equal_approx(target):
+		return
+	_board_scale_sig = sig
 	wrap.pivot_offset = Vector2(BOARD_WRAP_WIDTH, BOARD_WRAP_HEIGHT) * 0.5
-	wrap.scale = Vector2(s, s)
+	wrap.scale = target
 	# Device telemetry: one radio-log line whenever the layout answer changes,
 	# so "board looks small on my phone" is diagnosable from a screenshot of
 	# the radio tab (version + viewport + margins + the scale that applied).
@@ -10349,9 +10365,11 @@ func _update_ui() -> void:
 	# Re-apply after content rebuilds so freshly-created rail cards/rows stay drag-scrollable.
 	if ui.has("command_rail_col"):
 		_make_rail_scrollable(ui["command_rail_col"])
-	# Idempotent reassert: whatever boot-order or device timing did to the
-	# first pass, every UI refresh lands the correct board scale.
-	_update_board_scale()
+	# NOTE: the board scale is deliberately NOT recomputed here. _update_ui runs on
+	# every player action (move, cast, cutscene) and re-scaling from it is exactly
+	# what made the board jump size mid-game. The scale is owned solely by the
+	# screen-size path (get_viewport().size_changed -> _apply_safe_area_inset ->
+	# _update_board_scale), plus the one-time deferred call when the board is built.
 	_save_game()
 
 
